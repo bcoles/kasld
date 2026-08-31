@@ -281,6 +281,11 @@ ids live inside the C library:
 <details>
 <summary>Click to expand verbose example</summary>
 
+Replayed from a captured bundle in the test corpus, so anyone can reproduce it:
+`KASLD_SYSROOT=tests/fixtures/x86_64/mainline-6.15.6/sysroot ./build/<arch>/kasld -v`.
+A capture carries no process identity of its own, so the vantage lines below read
+`unknown` where a live run names the uid, groups and LSMs it ran under.
+
 ```
      ▄█   ▄█▄    ▄████████    ▄████████  ▄█       ████████▄
     ███ ▄███▀   ███    ███   ███    ███ ███       ███   ▀███
@@ -295,18 +300,17 @@ ids live inside the C library:
 Kernel release:               6.15.6
 Kernel version:               #1 SMP PREEMPT_DYNAMIC Wed Jun 17 13:04:17 EDT 2026
 Kernel arch:                  x86_64
+Fact source:                  replayed capture
 
 kernel.kptr_restrict:         0
 kernel.dmesg_restrict:        0
-kernel.panic_on_oops:         0
+kernel.panic_on_oops:         (unavailable)
 kernel.perf_event_paranoid:   -1
 Kernel lockdown:              (unavailable)
 
 Container:                    none
-LSM:                          lockdown,capability,landlock,yama,apparmor
-Security context:             unconfined
-Identity:                     uid=1000 gid=1000
-Supplementary groups:         4(adm),24(cdrom),27(sudo),1000(user)
+LSM:                          unknown
+Identity:                     unknown
 
 Readable /proc/kallsyms:      yes
 Readable /proc/kcore:         no
@@ -315,65 +319,99 @@ Readable /proc/modules:       yes
 Readable /var/log/dmesg:      no
 Readable /var/log/kern.log:   no
 Readable /var/log/syslog:     no
-Readable debugfs:             yes
+Readable debugfs:             no
 Readable /boot/System.map:    no
 Readable /boot/config:        no
 
+[.] skipping alsa_seq_ext_ptr (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping avx_maskload (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping bcm_msg_head_struct (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping bpf_verifier_ksym (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping bpf_verifier_log (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping databounce (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping echoload (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping entrybleed (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping ioctl_mmio_phys (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping kernelsnitch (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping kernfs_ns_hash (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping mali_timeline (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping mincore (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping mmap_arm64_va_bits (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping mmap_brute_vmsplit (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping mmap_riscv64_va_bits (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping mmap_x86_64_va_bits (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping nilfs2_ioctl (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping page_size (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping perf_amd_branch_user (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping perf_event_open (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping perf_ksymbol_leak (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping perf_lbr_sampling (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping perf_text_poke_leak (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping prefetch (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping prefetch_directmap (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping proc_stat_wchan (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping qemu_tcg_iret (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping sidt (live probe, not replayable under KASLD_SYSROOT)
+[.] skipping zombieload (live probe, not replayable under KASLD_SYSROOT)
+
 --- (per-component probe logs trimmed for brevity) ---
 
-[engine] virt_image_base: constrained by 5 independent sources: ceiling_from_image_size image_floor_from_init_size range_from_interior physical_start_lower_bound text_pin_from_observation
-[engine] phys_image_base: constrained by 13 independent sources: ceiling_from_image_size phys_ceiling_from_memtotal phys_bits_ceiling mmio_floor_phys_ceiling phys_hole_filter kernel_image_phys_bound initrd_phys_exclude phys_reservation_exclude ram_map_phys_exclude initrd_above_kernel cmdline_phys_exclude physical_start_lower_bound text_pin_from_observation
+[engine] virt_image_base: constrained by 4 independent sources: ceiling_from_image_size image_floor_from_init_size physical_start_lower_bound text_pin_from_observation
+[engine] phys_image_base: constrained by 11 independent sources: ceiling_from_image_size phys_ceiling_from_memtotal phys_bits_ceiling phys_hole_filter kernel_image_phys_bound initrd_phys_exclude ram_map_phys_exclude initrd_above_kernel cmdline_phys_exclude physical_start_lower_bound text_pin_from_observation
+[engine] virt_page_offset: constrained by 3 independent sources: page_offset_from_landmark x86_64_randomize_memory_budget x86_64_page_offset_floor_from_va_bits
+[engine] virt_vmalloc_base: constrained by 2 independent sources: x86_64_vmalloc_base_bound x86_64_randomize_memory_budget
+[engine] virt_vmemmap_base: constrained by 2 independent sources: x86_64_randomize_memory_budget x86_64_vmemmap_base_bound
+[engine] virt_module_base: constrained by 2 independent sources: module_base_bounds module_base_execmem_window
 [engine] virt_kaslr_align: constrained by 2 independent sources: kaslr_align_arch_default boot_params_kaslr_align
 [engine] phys_kaslr_align: constrained by 2 independent sources: kaslr_align_arch_default boot_params_kaslr_align
-Components: 94 total, 24 succeeded, 26 unavailable, 44 no result
+Components: 80 total, 13 succeeded, 33 unavailable, 22 access denied, 12 no result
+
+Component dispositions:
+  absent       kmemleak (no kmemleak report (CONFIG_DEBUG_KMEMLEAK))
+  absent       ptdump_kernel_page_tables (no kernel page-table dump (CONFIG_PTDUMP_DEBUGFS))
 
 ========================================
  Results
 ========================================
 
-Kernel text (virtual) / kernel_text [2]:
-  0xffffffff8fe00000  kernel_text:_stext [base] (proc_kallsyms)
-  0xffffffff900a9fc9  kernel_text [interior] (perf_event_open)
-  ==> 0xffffffff8fe00000  (method: parsed, 1 source, 1 conflict)
-      range: 0xffffffff8fe00000 - 0xffffffff900a9fc9  (2.7 MiB)
+Kernel text (virtual) / kernel_text [1]:
+  0xffffffffb6400000  kernel_text:_stext [base] (proc_kallsyms)
+  ==> 0xffffffffb6400000  (method: parsed, 1 source)
 
-Kernel text (virtual) / kernel_image [3]:
-  0xffffffff8fe00000  kernel_image:_text [base] (proc_kallsyms)
-  0xffffffff8fe00000  kernel_image [base] (prefetch)
-  0xffffffff90000000  kernel_image [base] (perf_event_open)
-  ==> 0xffffffff8fe00000  (method: parsed, 2 sources, 1 conflict)
-      range: 0xffffffff8fe00000 - 0xffffffff90000000  (2.0 MiB)
+Kernel text (virtual) / kernel_image [1]:
+  0xffffffffb6400000  kernel_image:_text [base] (proc_kallsyms)
+  ==> 0xffffffffb6400000  (method: parsed, 1 source)
 
 ----------------------------------------
 Kernel text (physical) / kernel_image [1]:
-  0x0000000034600000  kernel_image:kernel_code [base] (proc_iomem_kernel)
-  ==> 0x0000000034600000  (method: parsed, 1 source)
+  0x000000000f600000  kernel_image:kernel_code [base] (proc_iomem_kernel)
+  ==> 0x000000000f600000  (method: parsed, 1 source)
 
 ----------------------------------------
 Kernel data (physical) / kernel_data [1]:
-  0x0000000036000000  kernel_data:kernel_data [base] (proc_iomem_kernel)
-  ==> 0x0000000036000000  (method: parsed, 1 source)
+  0x0000000011000000  kernel_data:kernel_data [base] (proc_iomem_kernel)
+  ==> 0x0000000011000000  (method: parsed, 1 source)
 
 ----------------------------------------
 Kernel BSS (physical) / kernel_bss [1]:
-  0x0000000036b34000  kernel_bss:kernel_bss [base] (proc_iomem_kernel)
-  ==> 0x0000000036b34000  (method: parsed, 1 source)
+  0x0000000011b34000  kernel_bss:kernel_bss [base] (proc_iomem_kernel)
+  ==> 0x0000000011b34000  (method: parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / ram [6]:
   0x0000000000000000  ram (boot_params_e820)
   0x0000000000000000  ram (firmware_memmap)
-  0x0000000000001000  ram [interior] (dmesg_free_area_init_node, proc_zoneinfo)
-  0x0000000000100000  ram [base] (boot_params_e820, dmesg_e820_memory_map, dmesg_free_area_init_node, dmesg_last_pfn, proc_zoneinfo, sysfs_firmware_memmap)
-  0x0000000000100000  ram (firmware_memmap)
+  0x0000000000001000  ram [interior] (proc_zoneinfo)
+  0x0000000000100000  ram [base] (boot_params_e820, proc_zoneinfo, sysfs_firmware_memmap)
   0x0000000000100000  ram (boot_params_e820)
-  ==> 0x0000000000100000  (method: parsed, 3 sources, 3 conflicts)
+  0x0000000000100000  ram (firmware_memmap)
+  ==> 0x0000000000100000  (method: parsed, 4 sources)
       range: 0x0000000000000000 - 0x0000000000100000  (1.0 MiB)
 
 ----------------------------------------
 Physical DRAM / initrd [1]:
-  0x000000003efc2000  initrd [base] (boot_params_e820, dmesg_ramdisk)
-  ==> 0x000000003efc2000  (method: parsed, 1 source)
+  0x000000003efc0000  initrd [base] (boot_params_e820)
+  ==> 0x000000003efc0000  (method: parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / cmdline [1]:
@@ -381,83 +419,48 @@ Physical DRAM / cmdline [1]:
   ==> 0x0000000000020000  (method: parsed, 1 source)
 
 ----------------------------------------
-Physical DRAM / numa_node [1]:
-  0x000000003ffdefff  numa_node [interior] (dmesg_node_data)
-  ==> 0x000000003ffdefff  (method: parsed, 1 source)
-
-----------------------------------------
-Physical DRAM / vmcoreinfo [1]:
-  0x00000000011ee000  vmcoreinfo [interior] (sysfs_vmcoreinfo)
-  ==> 0x00000000011ee000  (method: parsed, 1 source)
-
-----------------------------------------
-Physical MMIO / pci_mmio [8]:
-  0x00000000000c0000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource)
-  0x00000000fd000000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource)
-  0x00000000feb40000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
-  0x00000000feb80000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
-  0x00000000feba0000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
-  0x00000000febd0000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
-  0x00000000febd4000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource)
-  0x00000000febd5000  pci_mmio:0000:00:1f.2 [base] (sysfs_pci_resource)
-  ==> 0x00000000000c0000  (method: parsed, 1 source, 7 conflicts)
-      range: 0x00000000000c0000 - 0x00000000febd5000  (4.0 GiB)
-
-----------------------------------------
 KASLR analysis:
-  Quantity             Certainty   Window                                   Candidates  Grain
-  -------------------  ----------  ---------------------------------------  ----------  --------
-  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000        1 of 505  >= 2 MiB
-  Physical Image Base  guaranteed          0x34600000 slide +0x33600000              1  >= 2 MiB
-  Direct Map Base      guaranteed  >= 0xffff800000000000                             -  1 GiB
-  Vmalloc Base         guaranteed  0xffff810040000000 - 0xffffdcffc0000000       94206  1 GiB
-  Vmemmap Base         guaranteed  0xffffa10080000000 - 0xfffffd0000000000       94206  1 GiB
+  Quantity             Certainty   Window                                   Candidates      Grain   
+  -------------------  ----------  ---------------------------------------  --------------  --------
+  Virtual Image Base   guaranteed  0xffffffffb6400000 slide +0x35400000           1 of 505  >= 2 MiB
+  Physical Image Base  guaranteed           0xf600000 slide +0xe600000           1 of 8185  >= 2 MiB
+  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000           37547  1 GiB
+  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79191 of 79191  1 GiB
+  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000           85504  1 GiB
+  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000            1025  >= 4 KiB
+  Paging Level         guaranteed  48                                               1 of 2  -
 
   Compile-time default: 0xffffffff81000000
   Virtual entropy:      ~0 of 9 bits
-  Physical entropy:     ~0 bits
-  Direct map entropy:   ~17 bits
+  Physical entropy:     ~0 of 13 bits
+  Direct map entropy:   ~16 bits
 
 ----------------------------------------
 Virtual address space (decoupled, not to scale):
 
   0xffffffffffffffff
-      . . .  16 MiB gap  . . .
-  0xffffffffff000000
+      . . .  1.2 GiB gap  . . .
+  0xffffffffb6400000
+      kernel text (pinned) -- leak 0xffffffffb6400000
+  0xffffffffb6400000
       modules (no leak)
-  0xffffffffc0000000
-      . . .  767.3 MiB gap  . . .
-  0xffffffff900a9fc9
-      kernel text
-        leak hi: 0xffffffff900a9fc9
-        leak lo: 0xffffffff8fe00000
-  0xffffffff8fe00000
+        extends to 0xffffffffff000000  (inside the band above)
+  0xffffffffa0000000
       . . .  128 TiB gap  . . .
       ^ extent unknown
       direct map (base is a lower bound)
   0xffff800000000000
-      . . .  65408 TiB gap  . . .
+      . . .  63.9 PiB gap  . . .
   0xff00000000000000  (user space + non-canonical hole below)
 
 Physical address space (not to scale):
 
-  0xfebd5000
-      above DRAM
-        0xfebd5000  [mmio] pci_mmio:0000:00:1f.2
-        0xfebd4000  [mmio] pci_mmio:0000:00:01.0
-        0xfebd0000  [mmio] pci_mmio:0000:00:02.0
-        0xfeba0000  [mmio] pci_mmio:0000:00:02.0
-        0xfeb80000  [mmio] pci_mmio:0000:00:02.0
-        0xfeb40000  [mmio] pci_mmio:0000:00:02.0
-        0xfd000000  [mmio] pci_mmio:0000:00:01.0
   0x3ffdefff
       in DRAM
-        0x3efc2000  [dram] initrd
-        0x36b34000  [bss] kernel_bss:kernel_bss
-        0x36000000  [data] kernel_data:kernel_data
-        0x34600000  [text] kernel
-         0x11ee000  [dram] vmcoreinfo
-           0xc0000  [mmio] pci_mmio:0000:00:01.0
+        0x3efc0000  [dram] initrd
+        0x11b34000  [bss] kernel_bss:kernel_bss
+        0x11000000  [data] kernel_data:kernel_data
+         0xf600000  [text] kernel
            0x20000  [dram] cmdline
             0x1000  [dram] ram
          0x0
