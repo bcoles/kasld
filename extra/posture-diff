@@ -20,7 +20,10 @@
 #
 # Usage:  posture-diff BASELINE.json CURRENT.json
 #   Snapshots are `kasld -j` output (live, or replayed from an extra/collect
-#   bundle via KASLD_SYSROOT=<bundle>/sysroot kasld -j).
+#   bundle via KASLD_SYSROOT=<bundle>/sysroot kasld -j) -- both taken the same
+#   way, which the tool checks: a replay reaches only the components a captured
+#   tree can answer, so a live run and a replay of one host measure different
+#   vantages and are not comparable.
 #
 # Exit:  0 = no regression   1 = regression (findings on stdout)   2 = error
 #
@@ -86,6 +89,37 @@ for f in "$base" "$cur"; do
     exit 2
   }
 done
+
+# Both snapshots have to have been taken the same way. A replay reads a
+# captured tree and skips every live probe, so it reaches a different set of
+# leaks than a live run of the same host does: the residual entropy and the
+# CVE-class leak set then differ by vantage rather than by posture. The
+# difference usually runs the flattering way -- fewer techniques ran, so fewer
+# leaked -- which this gate would pass silently. Refused instead: no field of
+# either document can separate the two effects afterwards.
+#
+# A snapshot predating the field states nothing about how it was taken, and the
+# pairing cannot be checked at all. Said once rather than assumed safe.
+fact_source() {
+  jq -r 'if (.replay | type) == "boolean" then
+           (if .replay then "replay" else "live" end)
+         else "unstated" end' "$1"
+}
+b_src=$(fact_source "$base") || exit 2
+c_src=$(fact_source "$cur") || exit 2
+
+if [ "$b_src" != "$c_src" ] &&
+  [ "$b_src" != unstated ] && [ "$c_src" != unstated ]; then
+  echo "$prog: snapshots were not taken the same way:" \
+    "baseline is a $b_src run, current is a $c_src run" >&2
+  echo "$prog: a replay runs only the components a captured tree can answer," \
+    "so the two measure different vantages, not different postures" >&2
+  exit 2
+fi
+if [ "$b_src" = unstated ] || [ "$c_src" = unstated ]; then
+  echo "$prog: warning: a snapshot states no fact source (.replay), so live" \
+    "and replayed captures cannot be told apart; recapture to check it" >&2
+fi
 
 # The boot-stable posture: everything a regression gate should compare, and
 # nothing that re-randomizes per boot. Missing blocks (an older kasld -j, KASLR

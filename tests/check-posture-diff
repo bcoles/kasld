@@ -11,6 +11,10 @@
 # downgraded KASLR state) DO fail, that an improvement does not, and the error
 # paths.
 #
+# Also asserts the fact-source pairing: a live snapshot and a replayed one
+# measure different vantages, so the pair is refused rather than diffed, while
+# a snapshot predating the field is still compared.
+#
 # Usage: tests/check-posture-diff   (also run by `make test`)
 # ---
 # <bcoles@gmail.com>
@@ -40,6 +44,7 @@ trap 'rm -rf "$TMP"' EXIT
 base=$TMP/baseline.json
 cat >"$base" <<'EOF'
 {
+  "replay": false,
   "kaslr": {
     "inferred": { "entropy_bits": 9 },
     "inferred_physical": { "entropy_bits": 31 },
@@ -65,6 +70,12 @@ mk pentropy '.kaslr.inferred_physical.entropy_bits = 20'
 mk cve      '.hardening.patched_vulnerabilities.possibly_unpatched += [{"component":"alsa_seq_ext_ptr","patch":"v7.2"}]'
 mk defoff   '(.hardening.active_defenses[] | select(.gate == "kernel.kptr_restrict") | .active) = false'
 mk posture  '.hardening.kaslr_posture.state = "disabled"'
+# Same posture, read from a captured tree instead of the running system: not a
+# regression, and not comparable with the live baseline either.
+mk replayed '.replay = true'
+# A snapshot from before the field existed. The pairing cannot be checked, which
+# must not turn into a refusal to compare.
+mk unstated 'del(.replay)'
 echo 'not json{' >"$TMP/broken.json"
 # Valid JSON, but not a kasld snapshot: must error, NOT report a false
 # "entropy dropped to 0" regression.
@@ -97,7 +108,13 @@ want 1 "$base" "$TMP/pentropy.json" "physical entropy dropped"
 want 1 "$base" "$TMP/cve.json" "new CVE-class leak"
 want 1 "$base" "$TMP/defoff.json" "defense turned off"
 want 1 "$base" "$TMP/posture.json" "KASLR posture downgraded"
+# 0 = no regression, fact sources agree or cannot be compared
+want 0 "$TMP/replayed.json" "$TMP/replayed.json" "both snapshots replayed"
+want 0 "$base" "$TMP/unstated.json" "current states no fact source"
+want 0 "$TMP/unstated.json" "$TMP/replayed.json" "one side states no fact source"
 # 2 = error
+want 2 "$base" "$TMP/replayed.json" "live baseline against a replayed current"
+want 2 "$TMP/replayed.json" "$base" "replayed baseline against a live current"
 want 2 "$base" "$TMP/broken.json" "invalid JSON input"
 want 2 "$base" "$TMP/notkasld.json" "valid JSON but not a kasld snapshot"
 want 2 "$base" "$TMP/nonexistent.json" "missing input file"
@@ -107,5 +124,5 @@ if [ "$fails" -ne 0 ]; then
   exit 1
 fi
 
-printf '%scheck-posture-diff: OK%s (11 cases; reboot ignored, regressions caught)\n' \
+printf '%scheck-posture-diff: OK%s (16 cases; reboot ignored, regressions caught)\n' \
   "$GREEN" "$RESET"
