@@ -8,7 +8,8 @@
 # them describing a version of the tool that no longer exists. That has now
 # happened repeatedly, and each time it was caught by grep rather than a gate.
 #
-# Two checks, both pure text (no binary needed, so this runs everywhere):
+# Four checks. The first three are pure text and run everywhere; the fourth
+# replays a capture and skips where the host binary is not built:
 #
 #   1. Retired vocabulary. Any string the renderer no longer emits must not
 #      survive in a sample. Add a row when you rename something.
@@ -27,6 +28,18 @@
 #      experimental changes a number in the README and nothing says so. The
 #      drift this file exists for was that shape -- a count fourteen behind,
 #      found by eye rather than by a gate.
+#   4. Replayed blocks. A block a document presents AS output must be output.
+#      The three checks above police vocabulary and arithmetic, which a sample
+#      composed from several runs passes while describing a run that never
+#      happened -- one held a bare "-" candidate count beside an entropy line
+#      that prints only when the count is above zero, and two region rows whose
+#      stated counts were each one short of what their own windows imply. So a
+#      block marked `<!-- replay: <fixture> <flags> -->` is re-derived: the run
+#      is repeated and the block must appear in it as a CONTIGUOUS run of lines.
+#      Contiguity is the load-bearing part -- it is what a composite fails.
+#
+#      This one needs the host binary and skips without it, unlike the three
+#      above.
 # ---
 # <bcoles@gmail.com>
 
@@ -182,8 +195,160 @@ if [ -s "$countfail" ]; then
   fail=1
 fi
 
+# ---- 4. Replayed sample blocks --------------------------------------------
+# Marker syntax, on the line before the fence:  <!-- replay: <fixture> <flags> -->
+# The fixture is a directory holding a sysroot/; the flags are passed to kasld.
+HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
+BIN="$ROOT/build/$HOST_TRIPLE/kasld"
+replayed=0
+# Which capture this host can replay. The layout windows are compiled in, so an
+# aarch64 build reading an x86_64 capture renders a different table -- correct
+# for that build, and nothing like what the document shows. The fixture tree
+# names each capture's architecture in its directory; this is the same name for
+# the binary. Ordered longest-first: mips64 is not mips32, and aarch64 is not
+# arm. `unknown` matches no fixture, which is the safe answer.
+case ${HOST_TRIPLE%%-*} in
+x86_64 | amd64) host_arch=x86_64 ;;
+i?86) host_arch=x86_32 ;;
+aarch64) host_arch=arm64 ;;
+arm*) host_arch=arm32 ;;
+mips64*) host_arch=mips64 ;;
+mips*) host_arch=mips32 ;;
+powerpc64* | ppc64*) host_arch=ppc64 ;;
+powerpc* | ppc*) host_arch=ppc32 ;;
+riscv64) host_arch=riscv64 ;;
+riscv32) host_arch=riscv32 ;;
+s390*) host_arch=s390 ;;
+loongarch64) host_arch=loongarch64 ;;
+*) host_arch=unknown ;;
+esac
+# As with the tally loop above, this one is fed by a pipe and runs in a
+# subshell, so a failure it finds is recorded in a file rather than in `fail`.
+blockfail=$(mktemp) || exit 1
+skipped=$(mktemp) || exit 1
+trap 'rm -f "$countfail" "$blockfail" "$skipped"' EXIT
+if [ ! -x "$BIN" ]; then
+  printf '  (replayed blocks not checked: no host binary at %s)\n' "$BIN"
+else
+  run_f=$(mktemp) || exit 1
+  blk_f=$(mktemp) || exit 1
+  trap 'rm -f "$countfail" "$blockfail" "$skipped" "$run_f" "$blk_f"' EXIT
+  # Word splitting is intended: DOCS is a space-separated file list.
+  # shellcheck disable=SC2086
+  markers=$(grep -Hn -- '<!-- replay: ' $DOCS 2>/dev/null || true)
+  printf '%s\n' "$markers" | while IFS= read -r hit; do
+    [ -n "$hit" ] || continue
+    file=${hit%%:*}
+    rest=${hit#*:}
+    lno=${rest%%:*}
+    spec=$(printf '%s' "${rest#*:}" | sed -n 's/.*<!-- replay: \(.*\) -->.*/\1/p')
+    fixture=${spec%% *}
+    # No space means no flags, and ${spec#* } would leave the fixture itself
+    # there -- passed to kasld as an argument.
+    case $spec in
+    *' '*) flags=${spec#* } ;;
+    *) flags= ;;
+    esac
+    if [ ! -d "$ROOT/$fixture/sysroot" ]; then
+      printf '  %s:%s names no fixture: %s\n' "$file" "$lno" "$fixture"
+      echo BAD >>"$blockfail"
+      continue
+    fi
+    # Skipped rather than failed where the host cannot render this capture: the
+    # block is still checked wherever a matching build exists, and a host that
+    # cannot check it must not report it wrong.
+    if [ "$(printf '%s' "$fixture" | sed -n 's#^tests/fixtures/\([^/]*\)/.*#\1#p')" \
+      != "$host_arch" ]; then
+      printf '  (skipped %s:%s: this %s build cannot render that capture)\n' \
+        "$file" "$lno" "$host_arch"
+      echo SKIP >>"$skipped"
+      continue
+    fi
+    # The command printed for the reader has to be the one that was run, or the
+    # block is reproducible only by someone who reads this guard. Searched from
+    # the top of the document rather than a fixed window above the block: a
+    # second excerpt of the same run is introduced as such rather than by
+    # restating the command, and a window wide enough for that is a number with
+    # nothing behind it. The marker's own line is excluded, or the marker would
+    # satisfy the check by naming the fixture itself.
+    if ! sed -n "1,$((lno - 1))p" "$file" | grep -Fq -- "$fixture"; then
+      printf '  %s:%s replays %s, which no command in the document names\n' \
+        "$file" "$lno" "$fixture"
+      echo BAD >>"$blockfail"
+      continue
+    fi
+    # The fence has to open on the very next line. Anything between the two --
+    # a blank line is enough -- makes the extraction below stop at the OPENING
+    # fence and keep what preceded it, and a block of one blank line matches
+    # any run that contains a blank line. A vacuous pass is the failure this
+    # check exists to prevent, so the layout is required rather than assumed.
+    if [ "$(sed -n "$((lno + 1))p" "$file")" != '```' ]; then
+      printf '  %s:%s is not immediately followed by a fenced block\n' \
+        "$file" "$lno"
+      echo BAD >>"$blockfail"
+      continue
+    fi
+    # The block: the fence opening on the next line, to its closing fence.
+    sed -n "$((lno + 2)),\$p" "$file" |
+      awk '/^```/ { exit } { sub(/[[:space:]]+$/, ""); print }' >"$blk_f"
+    if [ ! -s "$blk_f" ]; then
+      printf '  %s:%s marks no fenced block\n' "$file" "$lno"
+      echo BAD >>"$blockfail"
+      continue
+    fi
+    # Word splitting is intended: the flags are a command line.
+    # shellcheck disable=SC2086
+    KASLD_SYSROOT="$ROOT/$fixture/sysroot" "$BIN" $flags 2>/dev/null |
+      sed 's/[[:space:]]*$//' >"$run_f"
+    # Contiguous-substring test: every block line must match the run, in order,
+    # from one starting offset. Trailing whitespace is stripped from both --
+    # the Layout header pads its last column, and the documents carry none.
+    if ! awk '
+      NR == FNR { blk[FNR] = $0; n = FNR; next }
+      { run[FNR] = $0; m = FNR }
+      END {
+        for (s = 1; s + n - 1 <= m; s++) {
+          for (i = 1; i <= n; i++)
+            if (run[s + i - 1] != blk[i]) break
+          if (i > n) exit 0
+        }
+        exit 1
+      }' "$blk_f" "$run_f"; then
+      printf '  %s:%s is not a contiguous excerpt of: KASLD_SYSROOT=%s/sysroot kasld %s\n' \
+        "$file" "$lno" "$fixture" "$flags"
+      echo BAD >>"$blockfail"
+    fi
+  done
+  # Word splitting is intended, as above. Counted with grep and wc rather than
+  # summed per file, so the check needs no `bc` -- a host without it would
+  # otherwise reach the zero test below and fail for having no calculator.
+  # SC2126: `grep -c` over several files prints one count per file, which is
+  # what needed summing in the first place.
+  # shellcheck disable=SC2086,SC2126
+  replayed=$(grep -h -- '<!-- replay: ' $DOCS 2>/dev/null | wc -l)
+  replayed=$((replayed - $(wc -l <"$skipped")))
+  if [ "${replayed:-0}" -eq 0 ]; then
+    printf '%scheck-readout-docs: FAIL%s (no document marks a replayed block --\n' \
+      "$RED" "$RESET"
+    printf '  the excerpt check is asserting nothing; a marker was renamed or removed)\n'
+    fail=1
+  fi
+fi
+
+if [ -s "$blockfail" ]; then
+  printf '%scheck-readout-docs: FAIL%s (replayed sample blocks)\n' "$RED" "$RESET"
+  fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
-  printf '%scheck-readout-docs: OK%s (samples use current vocabulary, within 100 cols, tallies consistent)\n' \
-    "$GREEN" "$RESET"
+  # The block count is stated only where blocks were actually re-derived, so a
+  # run that checked none cannot read as having checked them and found nothing.
+  if [ "$replayed" -gt 0 ]; then
+    verdict="tallies consistent, $replayed replayed block(s) verbatim"
+  else
+    verdict="tallies consistent"
+  fi
+  printf '%scheck-readout-docs: OK%s (samples use current vocabulary, within 100 cols, %s)\n' \
+    "$GREEN" "$RESET" "$verdict"
 fi
 exit "$fail"

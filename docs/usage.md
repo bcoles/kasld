@@ -140,7 +140,7 @@ The Layout table carries one row per quantity and basis:
 | `Certainty` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
 | `Window` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
 | `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem. `N of M` whenever that set is modelled, **including `N of N`**, which says the set is known and evidence excluded nothing from it. A bare `N` means the opposite: no set is modelled for this quantity, so there is nothing to state the count against — as on the memory-KASLR regions outside x86_64, and on any row whose modelled set is smaller than the count and therefore cannot serve as its denominator. `-` means no window is modelled at all, and `- of N` means the window has an unstated edge, so it is unbounded and what remains cannot be counted — `N` is still the set the row narrows |
-| `Grain` | the spacing the candidates sit on, which is what reconciles the count with the window. Prefixed `>=` where it is only a lower bound — the engine resolves image-base alignment as "at least this", so a coarser true alignment means fewer real candidates than stated and the count beside it is a ceiling. Unprefixed where the architecture fixes the pitch, as the memory-randomization grid does, and the count is exact |
+| `Grain` | the spacing the candidates sit on, which is what reconciles the count with the window. Prefixed `>=` where it is only a lower bound, so a coarser true spacing means fewer real candidates than stated and the count beside it is a ceiling. Unprefixed where the spacing is the pitch itself and the count is exact — either because the architecture fixes it, as the memory-randomization grid does, or because the run resolved it: an image base's slot granularity is a build option (`CONFIG_PHYSICAL_ALIGN` on x86), so a run that read it reports an exact grain and one that did not reports the architectural minimum as a floor. Whether this column is prefixed is therefore a property of the run, not only of the target |
 
 A key naming a quantity reports one of exactly three things: `0xADDR` where the
 engine resolved it, `[0xLO..0xHI]` where it only bounded it (a missing edge is
@@ -186,8 +186,10 @@ own placement window (on x86_64 the base sits within 1024 pages of
 image (riscv64, s390), and by the lowest module address a leak discloses, which
 caps where the region can start.
 
-No leak is required for any of that: the sample above resolves the row to 1025
-candidates with no module address in evidence at all.
+No leak is required for any of that: with no module address in evidence at all,
+the sample below still narrows the row from the architectural band to the 1025
+positions the allocator's window admits — as a `likely` row, since that window
+is the allocator's habit rather than a bound the architecture enforces.
 
 The direct-map base is likewise fixed off x86_64, but still resolved: on a
 32-bit kernel it is the VMSPLIT, read from the boot config or narrowed by an
@@ -205,27 +207,32 @@ endpoints still form columns.
 KASLD 0.3.1-dev  --  Kernel Address Space Layout Derandomization
 Target: x86_64 / 7.0.0
 
-Running 107 of 110 components (3 experimental skipped; use -x to enable)...
-[####################] 100%  107/107  39.1s
+Running 117 of 120 components (3 experimental skipped; use -x to enable)...
+[####################] 100%  117/117  40.9s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
-  Quantity             Certainty   Window                                   Candidates  Grain
-  -------------------  ----------  ---------------------------------------  ----------  --------
-  Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000       1 of 505  >= 2 MiB
-  Physical Image Base  guaranteed            0x200000 -         0x3d400000         481  >= 2 MiB
-  Physical Image Base  likely               0x1000000 -         0x3c345000  474 of 481  >= 2 MiB
-  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000       37547  1 GiB
-  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000       79191  1 GiB
-  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000       85504  1 GiB
-  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000        1025  4 KiB
+  Quantity             Certainty   Window                                   Candidates      Grain
+  -------------------  ----------  ---------------------------------------  --------------  -----
+  Virtual Image Base   guaranteed  0xffffffff81000000 - 0xffffffffbd400000      483 of 505  2 MiB
+  Virtual Image Base   likely      0xffffffff93400000 slide +0x12400000           1 of 483  2 MiB
+  Physical Image Base  guaranteed           0x1000000 -         0x3d400000     474 of 8185  2 MiB
+  Physical Image Base  likely               0x1000000 -         0x3c29d000      474 of 474  2 MiB
+  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000           37547  1 GiB
+  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79191 of 79191  1 GiB
+  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000           85504  1 GiB
+  Module Region Base   guaranteed  0xffffffffa0000000 - 0xffffffffff000000          389121  4 KiB
+  Module Region Base   likely      0xffffffffc0000000 - 0xffffffffc0400000  1025 of 389121  4 KiB
+  Paging Level         guaranteed  48                                               1 of 2  -
 
   Note: physical and virtual text randomize independently
 
-Evidence  (2 findings, 4 components)
+  Note: 1 sub-range excluded from the windows above; the counts
+        already reflect them (-v lists the ranges).
+
+Evidence  (1 finding, 2 components)
   Region             Position  Address             Sources
   -----------------  --------  ------------------  -------
-  virt kernel text   interior  0xffffffffa309cab5        3
-  virt kernel image  base      0xffffffffa2e00000        3
+  virt kernel image  base      0xffffffff93400000        2
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
@@ -269,18 +276,29 @@ confined — its seccomp / capability / no-new-privs state, plus which leak
 sources are readable here: the `/proc` oracles, the system logs, debugfs, and
 the `System.map` and kernel config for the running release.
 
-The identity is not redundant with the
-capability set: several sources answer to discretionary permissions alone, so a
-denial is only explicable with the uid and groups that were refused in view.
 Group names come from `/etc/group` in the tree being analysed, so an offline
 replay names that tree's groups rather than the analysing host's; the ids kasld
 knows gate one of its own sources are named even where the tree cannot name
 them, which is the case on Android, where the file exists but is empty and the
-ids live inside the C library:
+ids live inside the C library.
+
+Each block below is a contiguous excerpt of the run named above it, replayed
+from a capture in the test corpus. What falls between them — the per-component
+stream above all — is not shown, and no block is a whole run.
 
 <details>
-<summary>Click to expand verbose example</summary>
+<summary>Click to expand verbose examples</summary>
 
+An unprivileged Android shell under an enforcing policy. The `/etc/group` in
+that tree is empty, so the ids kasld knows gate one of its own sources are the
+only ones carrying a name:
+
+```sh
+F=tests/fixtures/x86_64/android-13-5.15.119-android13-8-00034-gd34029c8258b-ab10871489-shell
+KASLD_SYSROOT=$F/sysroot ./build/<arch>/kasld -v
+```
+
+<!-- replay: tests/fixtures/x86_64/android-13-5.15.119-android13-8-00034-gd34029c8258b-ab10871489-shell -v -->
 ```
      ▄█   ▄█▄    ▄████████    ▄████████  ▄█       ████████▄
     ███ ▄███▀   ███    ███   ███    ███ ███       ███   ▀███
@@ -292,172 +310,118 @@ ids live inside the C library:
     ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀
     ▀                                   ▀ v0.3.1-dev
 
-Kernel release:               6.15.6
-Kernel version:               #1 SMP PREEMPT_DYNAMIC Wed Jun 17 13:04:17 EDT 2026
+Kernel release:               5.15.119-android13-8-00034-gd34029c8258b-ab10871489
+Kernel version:               #1 SMP PREEMPT Wed Sep 27 18:42:24 UTC 2023
 Kernel arch:                  x86_64
+Fact source:                  replayed capture
 
-kernel.kptr_restrict:         0
-kernel.dmesg_restrict:        0
-kernel.panic_on_oops:         0
+kernel.kptr_restrict:         (unavailable)
+kernel.dmesg_restrict:        (unavailable)
+kernel.panic_on_oops:         (unavailable)
 kernel.perf_event_paranoid:   -1
 Kernel lockdown:              (unavailable)
 
 Container:                    none
-LSM:                          lockdown,capability,landlock,yama,apparmor
-Security context:             unconfined
-Identity:                     uid=1000 gid=1000
-Supplementary groups:         4(adm),24(cdrom),27(sudo),1000(user)
+LSM:                          selinux (enforcing)
+Security context:             u:r:shell:s0
+Identity:                     uid=2000 gid=2000
+Supplementary groups:         1004,1007(log),1011,1015,1028,1078,1079,3001,3002,3003,3006,3009(readproc),
+                              3011,3012(readtracefs)
+Seccomp:                      none
+Effective capabilities:       none
+No new privileges:            no
 
-Readable /proc/kallsyms:      yes
+Readable /proc/kallsyms:      no
 Readable /proc/kcore:         no
-Readable /proc/iomem:         yes
+Readable /proc/iomem:         no
 Readable /proc/modules:       yes
 Readable /var/log/dmesg:      no
 Readable /var/log/kern.log:   no
 Readable /var/log/syslog:     no
-Readable debugfs:             yes
+Readable debugfs:             no
 Readable /boot/System.map:    no
 Readable /boot/config:        no
+```
 
---- (per-component probe logs trimmed for brevity) ---
+The per-region Results table, from a capture whose base the engine resolves.
+Each record is listed with the component that produced it, and the `==>` line
+is what the region resolved to:
 
-[engine] virt_image_base: constrained by 5 independent sources: ceiling_from_image_size image_floor_from_init_size range_from_interior physical_start_lower_bound text_pin_from_observation
-[engine] phys_image_base: constrained by 13 independent sources: ceiling_from_image_size phys_ceiling_from_memtotal phys_bits_ceiling mmio_floor_phys_ceiling phys_hole_filter kernel_image_phys_bound initrd_phys_exclude phys_reservation_exclude ram_map_phys_exclude initrd_above_kernel cmdline_phys_exclude physical_start_lower_bound text_pin_from_observation
-[engine] virt_kaslr_align: constrained by 2 independent sources: kaslr_align_arch_default boot_params_kaslr_align
-[engine] phys_kaslr_align: constrained by 2 independent sources: kaslr_align_arch_default boot_params_kaslr_align
-Components: 94 total, 24 succeeded, 26 unavailable, 44 no result
+```sh
+KASLD_SYSROOT=tests/fixtures/x86_64/mainline-7.0.0/sysroot ./build/<arch>/kasld -v
+```
 
+<!-- replay: tests/fixtures/x86_64/mainline-7.0.0 -v -->
+```
 ========================================
  Results
 ========================================
 
-Kernel text (virtual) / kernel_text [2]:
-  0xffffffff8fe00000  kernel_text:_stext [base] (proc_kallsyms)
-  0xffffffff900a9fc9  kernel_text [interior] (perf_event_open)
-  ==> 0xffffffff8fe00000  (method: parsed, 1 source, 1 conflict)
-      range: 0xffffffff8fe00000 - 0xffffffff900a9fc9  (2.7 MiB)
+Kernel text (virtual) / kernel_text [1]:
+  0xffffffff8ea00000  kernel_text:_stext [base] (proc_kallsyms)
+  ==> 0xffffffff8ea00000  (method: parsed, 1 source)
 
-Kernel text (virtual) / kernel_image [3]:
-  0xffffffff8fe00000  kernel_image:_text [base] (proc_kallsyms)
-  0xffffffff8fe00000  kernel_image [base] (prefetch)
-  0xffffffff90000000  kernel_image [base] (perf_event_open)
-  ==> 0xffffffff8fe00000  (method: parsed, 2 sources, 1 conflict)
-      range: 0xffffffff8fe00000 - 0xffffffff90000000  (2.0 MiB)
+Kernel text (virtual) / kernel_image [1]:
+  0xffffffff8ea00000  kernel_image:_text [base] (proc_kallsyms)
+  ==> 0xffffffff8ea00000  (method: parsed, 1 source)
 
 ----------------------------------------
-Kernel text (physical) / kernel_image [1]:
-  0x0000000034600000  kernel_image:kernel_code [base] (proc_iomem_kernel)
-  ==> 0x0000000034600000  (method: parsed, 1 source)
+Kernel modules (virtual) / module [2]:
+  0xffffffffc0400000  module [interior] (proc_modules)
+  0xffffffffc0401000  module [interior] (proc_modules)
+  ==> spans 0xffffffffc0400000 - 0xffffffffc0401000  (method: parsed; 2 samples, 1 source; 4.0 KiB)
+```
 
-----------------------------------------
-Kernel data (physical) / kernel_data [1]:
-  0x0000000036000000  kernel_data:kernel_data [base] (proc_iomem_kernel)
-  ==> 0x0000000036000000  (method: parsed, 1 source)
+Further down the same run, the KASLR analysis and the two address-space
+diagrams:
 
-----------------------------------------
-Kernel BSS (physical) / kernel_bss [1]:
-  0x0000000036b34000  kernel_bss:kernel_bss [base] (proc_iomem_kernel)
-  ==> 0x0000000036b34000  (method: parsed, 1 source)
-
-----------------------------------------
-Physical DRAM / ram [6]:
-  0x0000000000000000  ram (boot_params_e820)
-  0x0000000000000000  ram (firmware_memmap)
-  0x0000000000001000  ram [interior] (dmesg_free_area_init_node, proc_zoneinfo)
-  0x0000000000100000  ram [base] (boot_params_e820, dmesg_e820_memory_map, dmesg_free_area_init_node, dmesg_last_pfn, proc_zoneinfo, sysfs_firmware_memmap)
-  0x0000000000100000  ram (firmware_memmap)
-  0x0000000000100000  ram (boot_params_e820)
-  ==> 0x0000000000100000  (method: parsed, 3 sources, 3 conflicts)
-      range: 0x0000000000000000 - 0x0000000000100000  (1.0 MiB)
-
-----------------------------------------
-Physical DRAM / initrd [1]:
-  0x000000003efc2000  initrd [base] (boot_params_e820, dmesg_ramdisk)
-  ==> 0x000000003efc2000  (method: parsed, 1 source)
-
-----------------------------------------
-Physical DRAM / cmdline [1]:
-  0x0000000000020000  cmdline [base] (cmdline_region)
-  ==> 0x0000000000020000  (method: parsed, 1 source)
-
-----------------------------------------
-Physical DRAM / numa_node [1]:
-  0x000000003ffdefff  numa_node [interior] (dmesg_node_data)
-  ==> 0x000000003ffdefff  (method: parsed, 1 source)
-
-----------------------------------------
-Physical DRAM / vmcoreinfo [1]:
-  0x00000000011ee000  vmcoreinfo [interior] (sysfs_vmcoreinfo)
-  ==> 0x00000000011ee000  (method: parsed, 1 source)
-
-----------------------------------------
-Physical MMIO / pci_mmio [8]:
-  0x00000000000c0000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource)
-  0x00000000fd000000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource)
-  0x00000000feb40000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
-  0x00000000feb80000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
-  0x00000000feba0000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
-  0x00000000febd0000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
-  0x00000000febd4000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource)
-  0x00000000febd5000  pci_mmio:0000:00:1f.2 [base] (sysfs_pci_resource)
-  ==> 0x00000000000c0000  (method: parsed, 1 source, 7 conflicts)
-      range: 0x00000000000c0000 - 0x00000000febd5000  (4.0 GiB)
-
-----------------------------------------
+<!-- replay: tests/fixtures/x86_64/mainline-7.0.0 -v -->
+```
 KASLR analysis:
-  Quantity             Certainty   Window                                   Candidates  Grain
-  -------------------  ----------  ---------------------------------------  ----------  --------
-  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000        1 of 505  >= 2 MiB
-  Physical Image Base  guaranteed          0x34600000 slide +0x33600000              1  >= 2 MiB
-  Direct Map Base      guaranteed  >= 0xffff800000000000                             -  1 GiB
-  Vmalloc Base         guaranteed  0xffff810040000000 - 0xffffdcffc0000000       94206  1 GiB
-  Vmemmap Base         guaranteed  0xffffa10080000000 - 0xfffffd0000000000       94206  1 GiB
+  Quantity             Certainty   Window                                   Candidates      Grain
+  -------------------  ----------  ---------------------------------------  --------------  -----
+  Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000            1 of 505  2 MiB
+  Physical Image Base  guaranteed          0x19600000 slide +0x18600000          1 of 8185  2 MiB
+  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000           37547  1 GiB
+  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79191 of 79191  1 GiB
+  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000           85504  1 GiB
+  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000            1025  4 KiB
+  Paging Level         guaranteed  48                                               1 of 2  -
 
   Compile-time default: 0xffffffff81000000
   Virtual entropy:      ~0 of 9 bits
-  Physical entropy:     ~0 bits
-  Direct map entropy:   ~17 bits
+  Physical entropy:     ~0 of 13 bits
+  Direct map entropy:   ~16 bits
 
 ----------------------------------------
 Virtual address space (decoupled, not to scale):
 
   0xffffffffffffffff
-      . . .  16 MiB gap  . . .
-  0xffffffffff000000
-      modules (no leak)
-  0xffffffffc0000000
-      . . .  767.3 MiB gap  . . .
-  0xffffffff900a9fc9
-      kernel text
-        leak hi: 0xffffffff900a9fc9
-        leak lo: 0xffffffff8fe00000
-  0xffffffff8fe00000
+      . . .  1020 MiB gap  . . .
+  0xffffffffc0401000
+      modules
+        leak hi: 0xffffffffc0401000
+        leak lo: 0xffffffffc0400000
+  0xffffffffc0400000
+      . . .  794 MiB gap  . . .
+  0xffffffff8ea00000
+      kernel text (pinned) -- leak 0xffffffff8ea00000
+  0xffffffff8ea00000
       . . .  128 TiB gap  . . .
       ^ extent unknown
       direct map (base is a lower bound)
   0xffff800000000000
-      . . .  65408 TiB gap  . . .
+      . . .  63.9 PiB gap  . . .
   0xff00000000000000  (user space + non-canonical hole below)
 
 Physical address space (not to scale):
 
-  0xfebd5000
-      above DRAM
-        0xfebd5000  [mmio] pci_mmio:0000:00:1f.2
-        0xfebd4000  [mmio] pci_mmio:0000:00:01.0
-        0xfebd0000  [mmio] pci_mmio:0000:00:02.0
-        0xfeba0000  [mmio] pci_mmio:0000:00:02.0
-        0xfeb80000  [mmio] pci_mmio:0000:00:02.0
-        0xfeb40000  [mmio] pci_mmio:0000:00:02.0
-        0xfd000000  [mmio] pci_mmio:0000:00:01.0
   0x3ffdefff
       in DRAM
-        0x3efc2000  [dram] initrd
-        0x36b34000  [bss] kernel_bss:kernel_bss
-        0x36000000  [data] kernel_data:kernel_data
-        0x34600000  [text] kernel
-         0x11ee000  [dram] vmcoreinfo
-           0xc0000  [mmio] pci_mmio:0000:00:01.0
+        0x3ee04000  [dram] initrd
+        0x1bdb3000  [bss] kernel_bss:kernel_bss
+        0x1b200000  [data] kernel_data:kernel_data
+        0x19600000  [text] kernel
            0x20000  [dram] cmdline
             0x1000  [dram] ram
          0x0
@@ -801,7 +765,10 @@ The fields a gate keys on:
   count stands on is a lower bound, so a kernel aligned more coarsely than the
   engine could prove sits on fewer placements than `slots` says. A gate reading
   `slots` as an exact search space should treat a `true` here as "at most this
-  many".
+  many". It is the machine-readable twin of the `>=` in the readout's `Grain`
+  column and follows the same rule, so it can differ between two runs against
+  one host: a run that read the slot granularity reports `false` where a run
+  that could not reports `true`.
 - `.kaslr.disabled` / `.kaslr.unsupported` — booleans: KASLR opted out, or not
   applicable to the arch/config.
 
@@ -888,7 +855,12 @@ genuine posture regression is. Exit `0` = no regression, `1` = regression
 (findings printed), `2` = error. Snapshots can be live `-j` or replayed from an
 [extra/collect](../extra/collect) bundle
 (`KASLD_SYSROOT=<bundle>/sysroot kasld -j`), so a baseline captured on one host
-can be checked from another.
+can be checked from another — provided both snapshots are taken the same way. A
+replay reaches only the components a captured tree can answer, so pairing one
+with a live run measures a change of vantage rather than of posture, and
+typically as an improvement, which a gate would pass. The top-level `replay`
+flag is what separates them, and a mismatched pair is refused with exit `2`
+rather than diffed.
 
 ### Fleet summary (`extra/posture-summary`)
 
