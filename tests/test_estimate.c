@@ -106,6 +106,97 @@ static void test_maxalign_meet(void) {
   estimate_meet(&e, &quantities[Q_VIRT_KASLR_ALIGN], &a3);
   assert(e.lo == 0x200000ul); /* unchanged; max stays */
   assert(!estimate_is_bottom(&e, &quantities[Q_VIRT_KASLR_ALIGN]));
+  /* Floors alone leave the ceiling open, which is what keeps a floor a floor.
+   */
+  assert(e.hi == 0);
+}
+
+/* A stated granularity closes the ceiling, and does so whether or not it moves
+ * the floor -- the value a source reads is usually the one already standing,
+ * which is exactly the case that has to register. */
+static void test_maxalign_stated_granularity_closes_the_ceiling(void) {
+  struct estimate e;
+  const struct quantity_def *qd = &quantities[Q_VIRT_KASLR_ALIGN];
+  unsigned long v = 0;
+
+  quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
+  struct constraint floor =
+      mk(Q_VIRT_KASLR_ALIGN, C_AT_LEAST_ALIGN, 0x200000ul, CONF_INFERRED, 1);
+  estimate_meet(&e, qd, &floor);
+  assert(!quantity_pinned(Q_VIRT_KASLR_ALIGN, &e, NULL));
+
+  struct constraint exact =
+      mk(Q_VIRT_KASLR_ALIGN, C_EQUALS, 0x200000ul, CONF_PARSED, 2);
+  estimate_meet(&e, qd, &exact);
+  assert(e.lo == 0x200000ul && e.hi == 0x200000ul);
+  assert(!estimate_is_bottom(&e, qd));
+  assert(quantity_pinned(Q_VIRT_KASLR_ALIGN, &e, &v) && v == 0x200000ul);
+  /* Provenance travels with the edge it set, as on an interval. */
+  assert(e.hi_binding == 2 && e.hi_conf == CONF_PARSED);
+}
+
+/* A granularity coarser than any floor raises both edges together. */
+static void test_maxalign_stated_granularity_raises_the_floor(void) {
+  struct estimate e;
+  const struct quantity_def *qd = &quantities[Q_VIRT_KASLR_ALIGN];
+  unsigned long v = 0;
+  quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
+  struct constraint floor =
+      mk(Q_VIRT_KASLR_ALIGN, C_AT_LEAST_ALIGN, 0x200000ul, CONF_INFERRED, 1);
+  struct constraint exact =
+      mk(Q_VIRT_KASLR_ALIGN, C_EQUALS, 0x1000000ul, CONF_PARSED, 2);
+  estimate_meet(&e, qd, &floor);
+  estimate_meet(&e, qd, &exact);
+  assert(quantity_pinned(Q_VIRT_KASLR_ALIGN, &e, &v) && v == 0x1000000ul);
+  assert(e.lo == 0x1000000ul && e.hi == 0x1000000ul);
+}
+
+/* The ceiling is met, never assigned. A second statement may only tighten it,
+ * and where two disagree the floor passes the ceiling and the estimate reads
+ * bottom -- which is the resolver's cue to drop one, rather than the later
+ * statement silently winning. Asserted in both orders, since an assignment
+ * would look correct in one of them. */
+static void test_maxalign_stated_granularity_only_tightens(void) {
+  const struct quantity_def *qd = &quantities[Q_VIRT_KASLR_ALIGN];
+  struct estimate e;
+  struct constraint fine =
+      mk(Q_VIRT_KASLR_ALIGN, C_EQUALS, 0x200000ul, CONF_PARSED, 1);
+  struct constraint coarse =
+      mk(Q_VIRT_KASLR_ALIGN, C_EQUALS, 0x400000ul, CONF_PARSED, 2);
+
+  /* Coarser first: the finer one tightens the ceiling, and the floor it also
+   * raised has already passed it -- a contradiction, reported as bottom. */
+  quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
+  estimate_meet(&e, qd, &coarse);
+  assert(e.hi == 0x400000ul);
+  estimate_meet(&e, qd, &fine);
+  assert(e.hi == 0x200000ul); /* tightened, never raised */
+  assert(estimate_is_bottom(&e, qd));
+
+  /* Finer first: the coarser one must not raise the ceiling back. */
+  quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
+  estimate_meet(&e, qd, &fine);
+  estimate_meet(&e, qd, &coarse);
+  assert(e.hi == 0x200000ul);
+  assert(estimate_is_bottom(&e, qd));
+}
+
+/* Two sources disagreeing about the grid IS a contradiction, where a pair of
+ * floors never could be. The resolver detects it the same way it detects any
+ * other -- by trialling the meet and asking whether the result is bottom -- so
+ * the weaker claim is dropped rather than silently absorbed by the max. */
+static void test_maxalign_floor_past_a_stated_granularity_is_bottom(void) {
+  struct estimate e;
+  const struct quantity_def *qd = &quantities[Q_VIRT_KASLR_ALIGN];
+  quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
+  struct constraint exact =
+      mk(Q_VIRT_KASLR_ALIGN, C_EQUALS, 0x200000ul, CONF_PARSED, 1);
+  struct constraint floor =
+      mk(Q_VIRT_KASLR_ALIGN, C_AT_LEAST_ALIGN, 0x1000000ul, CONF_INFERRED, 2);
+  estimate_meet(&e, qd, &exact);
+  assert(!estimate_is_bottom(&e, qd));
+  estimate_meet(&e, qd, &floor);
+  assert(estimate_is_bottom(&e, qd));
 }
 
 /* ========================================================================
@@ -380,10 +471,20 @@ static void test_accessors_finset(void) {
 
 static void test_accessors_maxalign_is_not_a_value(void) {
   struct estimate e;
+  struct constraint exact =
+      mk(Q_VIRT_KASLR_ALIGN, C_EQUALS, 0x200000ul, CONF_PARSED, 1);
   quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
-  /* An alignment is not an address set: it never pins, spans no window and
-   * admits nothing — the same answer quantity_ranges already gives. */
+  /* An alignment is not an address set: it spans no window and admits nothing —
+   * the same answer quantity_ranges already gives. Nor is a bare floor a value.
+   */
   assert(!quantity_pinned(Q_VIRT_KASLR_ALIGN, &e, NULL));
+  assert(!quantity_window(Q_VIRT_KASLR_ALIGN, &e, NULL, NULL));
+  assert(!quantity_admits(Q_VIRT_KASLR_ALIGN, &e, e.lo));
+  /* A closed granularity IS a value, and still not an address set: the two
+   * answers are independent, and conflating them would put an alignment into
+   * the window and range accessors an address consumer reads. */
+  estimate_meet(&e, &quantities[Q_VIRT_KASLR_ALIGN], &exact);
+  assert(quantity_pinned(Q_VIRT_KASLR_ALIGN, &e, NULL));
   assert(!quantity_window(Q_VIRT_KASLR_ALIGN, &e, NULL, NULL));
   assert(!quantity_admits(Q_VIRT_KASLR_ALIGN, &e, e.lo));
 }
@@ -913,6 +1014,10 @@ int main(void) {
   RUN(test_interval_meet_bounds);
   RUN(test_interval_meet_equals_and_bottom);
   RUN(test_maxalign_meet);
+  RUN(test_maxalign_stated_granularity_closes_the_ceiling);
+  RUN(test_maxalign_stated_granularity_raises_the_floor);
+  RUN(test_maxalign_stated_granularity_only_tightens);
+  RUN(test_maxalign_floor_past_a_stated_granularity_is_bottom);
   RUN(test_finset_meet);
   RUN(test_finset_bounds_and_excludes);
 

@@ -27,8 +27,13 @@
 /* One resolved quantity value. Representation per lattice:
  *  - LK_INTERVAL: [lo, hi]; lo_binding/hi_binding name the edge-setting
  *    constraints (0 = the top / no constraint bound this edge).
- *  - LK_MAXALIGN: lo holds the alignment; hi unused; lo_binding names the
- *    constraint that set it.
+ *  - LK_MAXALIGN: lo holds the alignment proven from below and hi, when
+ *    non-zero, the alignment proven from above -- so lo == hi is a granularity
+ *    known exactly and hi == 0 is the ordinary "at least lo". Each binding
+ *    names the constraint that set its edge, as on an interval. The two edges
+ *    answer different questions: a rule reasoning about what the base must
+ *    satisfy raises the floor, while one that read the kernel's own placement
+ *    constant states the granularity and closes both.
  *  - LK_FINSET:   lo holds the live-candidate bitmask; hi unused;
  *    lo_binding names the last constraint that narrowed it. */
 struct estimate {
@@ -48,9 +53,10 @@ struct estimate {
    * value satisfies (q % stride) == stride_offset in addition to lying in
    * [lo, hi]. Multiple C_STRIDE constraints fold via CRT in estimate_meet;
    * unsolvable systems push the estimate to bottom. Always 0 on
-   * LK_MAXALIGN / LK_FINSET. On a finite set a C_STRIDE still narrows — it
-   * drops every candidate outside the residue class — but it does so directly,
-   * leaving no annotation to carry afterwards. */
+   * LK_MAXALIGN / LK_FINSET, whose `hi` (where they use it at all) carries an
+   * alignment rather than an address. On a finite set a C_STRIDE still narrows
+   * — it drops every candidate outside the residue class — but it does so
+   * directly, leaving no annotation to carry afterwards. */
   unsigned long stride;
   unsigned long stride_offset;
 };
@@ -116,7 +122,8 @@ int estimate_finset_value(const struct quantity_def *qd,
  * ------------------------------------------------------------------------ */
 
 /* Narrowed to exactly one value? Writes it to *out (may be NULL) and returns 1.
- * An alignment (LK_MAXALIGN) is never a value, so it never pins. */
+ * An alignment (LK_MAXALIGN) pins only where a stated granularity has closed
+ * its ceiling onto its floor; a floor alone is a bound, not a value. */
 int quantity_pinned(enum kasld_quantity q, const struct estimate *e,
                     unsigned long *out);
 

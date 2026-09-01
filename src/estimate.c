@@ -265,10 +265,39 @@ void estimate_meet(struct estimate *e, const struct quantity_def *qd,
 
   case LK_MAXALIGN:
     /* "q divisible by value": combining requires divisibility by both; for
-     * powers of two that is the max. */
+     * powers of two that is the max.
+     *
+     * C_EQUALS states the granularity ITSELF rather than a floor under it --
+     * a source that read the kernel's own placement constant, not one that
+     * reasoned about what the base must at least satisfy. It raises `lo` on
+     * the same max rule and additionally closes `hi`, which is what separates
+     * "at least this coarse" from "exactly this". Recording it has to be
+     * independent of whether `lo` moved: the granularity a kernel is built
+     * with is usually the architecture's own minimum, so the value that
+     * settles the question is typically the one already standing.
+     *
+     * Every other op is ignored here, as it always has been: an alignment
+     * admits no interval arithmetic, and a rule with something else to say
+     * about it has said the wrong thing. */
     if (c->op == C_AT_LEAST_ALIGN && c->value > e->lo) {
       e->lo = c->value;
       e->lo_binding = c->id;
+    } else if (c->op == C_EQUALS) {
+      if (c->value > e->lo) {
+        e->lo = c->value;
+        e->lo_binding = c->id;
+      }
+      /* A meet on the ceiling too, not an assignment. Overwriting it would let
+       * a later statement RAISE a proven ceiling, which no meet may do, and
+       * would silently absorb a disagreement between two sources about the
+       * granularity. Taking the tighter leaves the pair to meet in the middle
+       * -- and where they cannot, lo passes hi and the estimate reads bottom,
+       * which is how the resolver is told to drop one of them. */
+      if (e->hi == 0 || c->value < e->hi) {
+        e->hi = c->value;
+        e->hi_binding = c->id;
+        e->hi_conf = c->conf;
+      }
     }
     break;
 
@@ -318,7 +347,13 @@ int estimate_is_bottom(const struct estimate *e,
       return 1;
     return 0;
   case LK_MAXALIGN:
-    return 0; /* max of powers of two is always a valid alignment */
+    /* A floor alone can never contradict: the max of powers of two is always a
+     * valid alignment. A stated granularity can, and does so exactly when a
+     * floor has been proven past it -- two sources disagreeing about the grid
+     * the kernel placed on. The resolver's own priority order then keeps the
+     * stronger and records the other as a conflict, rather than either being
+     * silently absorbed by the max. */
+    return e->hi != 0 && e->lo > e->hi;
   case LK_FINSET:
     return e->lo == 0; /* no candidates remain */
   }
@@ -448,7 +483,13 @@ int quantity_pinned(enum kasld_quantity q, const struct estimate *e,
       return 0;
     break;
   case LK_MAXALIGN:
-    return 0; /* an alignment is not a value */
+    /* An alignment is a value once both edges name it: a floor that has been
+     * met from above is the granularity itself. Absent a stated ceiling it
+     * stays a bound, which is the ordinary case. */
+    if (e->hi == 0 || e->lo != e->hi)
+      return 0;
+    v = e->lo;
+    break;
   }
   if (out)
     *out = v;
