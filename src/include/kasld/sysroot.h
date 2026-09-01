@@ -241,17 +241,28 @@ kasld_uname_from_proc_version(struct utsname *u) {
  * kernel rather than the machine running the analysis. Under KASLD_SYSROOT
  * they come from the captured /proc/version, which carries both.
  *
- * KASLD_UNAME_RELEASE overrides the release afterwards; it is what a run
- * without a captured /proc/version has, and it propagates to subprocesses via
- * the environment, whereas qemu-user's QEMU_UNAME is not honored after the
- * self-re-exec qemu performs for a foreign-arch child. With neither set
- * (normal runs) => exact uname() pass-through. .machine is never overridden:
- * it is the emulated arch under qemu, and compile-time on native. */
+ * KASLD_UNAME_RELEASE overrides the release afterwards, and only alongside a
+ * sysroot. It names the kernel a CAPTURE was taken from -- what a capture
+ * carrying no /proc/version cannot state for itself -- and it propagates to
+ * subprocesses via the environment, whereas qemu-user's QEMU_UNAME is not
+ * honored after the self-re-exec qemu performs for a foreign-arch child.
+ *
+ * With no sysroot there is no capture for it to name: every fact still comes
+ * from the running kernel, which uname(2) already identifies. Substituting a
+ * release there labels a live scan with a kernel the host is not running,
+ * while the report's own provenance flag still reads as a live run, so nothing
+ * in the document contradicts the label; it also costs the run whatever
+ * sources build their path out of the release. Ignored in that case, and the
+ * orchestrator says so once.
+ *
+ * With neither set (normal runs) => exact uname() pass-through. .machine is
+ * never overridden: it is the emulated arch under qemu, and compile-time on
+ * native. */
 __attribute__((unused)) static int kasld_uname(struct utsname *u) {
   int rc = uname(u);
   if (rc == 0) {
     const char *rel = getenv("KASLD_UNAME_RELEASE");
-    int have_rel = rel && *rel;
+    int have_rel = rel && *rel && kasld_sysroot() != NULL;
 
     /* Under a sysroot, uname(2) answers for the machine reading the capture,
      * not for the capture. Where the capture states no identity of its own,
@@ -283,12 +294,14 @@ __attribute__((unused)) static int kasld_uname(struct utsname *u) {
 
 /* Whether the reported kernel identity describes the system being analysed.
  *
- * A live run's uname(2) is that system by definition. A replay takes release
- * and version from the captured /proc/version; a capture carrying none leaves
- * both at the analysing host's, and KASLD_UNAME_RELEASE can replace only the
- * release, so the build fingerprint stays the host's and matches no per-build
- * entry. The caller warns -- a report naming the wrong kernel is worth saying
- * out loud, since nothing else in it gives the substitution away. */
+ * A live run's uname(2) is that system by definition: the facts and the
+ * identity come from the same kernel, and KASLD_UNAME_RELEASE cannot separate
+ * them there. A replay takes release and version from the captured
+ * /proc/version; a capture carrying none identifies nothing, and
+ * KASLD_UNAME_RELEASE can replace only the release, so the build fingerprint
+ * carries no version and matches no per-build entry. The caller warns -- a
+ * report that cannot name the kernel it describes is worth saying out loud,
+ * since nothing else in it gives the gap away. */
 __attribute__((unused)) static int kasld_uname_describes_target(void) {
   struct utsname probe;
   if (!kasld_sysroot())

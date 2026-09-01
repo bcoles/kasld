@@ -4804,6 +4804,21 @@ int main(int argc, char *argv[]) {
               "  hint:  set KASLD_UNAME_RELEASE to the captured release\n");
   }
 
+  /* The release override names the kernel a capture came from, so with no
+   * capture there is nothing for it to name and it is ignored. Said out loud
+   * for the same reason as the caveat above: honouring it labels a scan of the
+   * running system with a kernel that system is not running, and ignoring it
+   * without a word leaves a caller believing the label it asked for is the one
+   * on the report. */
+  {
+    const char *rel = getenv("KASLD_UNAME_RELEASE");
+    if (!kasld_sysroot() && rel && *rel)
+      fprintf(stderr,
+              "warning: KASLD_UNAME_RELEASE is set without KASLD_SYSROOT; the "
+              "facts come from the running kernel, which uname(2) already "
+              "names, so the release is ignored\n");
+  }
+
   /* Take the environment before anything else looks at the system: every
    * format's readout, the "KASLR disabled" branch and the hardening advisor
    * read it, and the advisor weighs a component's denial against the settings

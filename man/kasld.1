@@ -230,7 +230,12 @@ Override the kernel release reported by
 .BR uname (2).
 Takes precedence over the release read from a captured
 .IR /proc/version ,
-and supplies it for a captured tree that has none.
+and supplies it for a captured tree that has none. Honoured only together with
+.BR KASLD_SYSROOT :
+it names the kernel a capture was taken from, and with no capture every fact
+comes from the running kernel, which
+.BR uname (2)
+already names, so the variable is ignored and a warning is printed.
 .TP
 .B KASLD_DEBUG_CONSTRAINTS
 When set, print each inference constraint and the resulting bounds to standard

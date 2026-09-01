@@ -1,0 +1,99 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-uname-release — KASLD_UNAME_RELEASE names the kernel a CAPTURE came
+# from, so it applies only alongside KASLD_SYSROOT.
+#
+# With no captured tree every fact is still read from the running kernel, which
+# uname(2) already names. A release substituted there labels a scan of the local
+# machine with a kernel the machine is not running, while the document's own
+# provenance flag reads `replay: false` — correctly, since the facts ARE live —
+# so nothing in the report contradicts the label. Any component keying a path on
+# the release loses its source as well.
+#
+# Both halves are asserted, because either one alone can hold for the wrong
+# reason: that the override is ignored live, and that it still supplies the
+# release for a capture that states none.
+#
+# The expectations are relations rather than values: the live release is
+# compared against this host's own uname(2), and the captured one against the
+# string handed to the run. Neither names a kernel, so the guard travels.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
+BIN="$ROOT/build/$HOST_TRIPLE/kasld"
+if [ ! -x "$BIN" ]; then
+  printf '%scheck-uname-release: SKIP%s (no host binary at %s; run make first)\n' \
+    "$YELLOW" "$RESET" "$BIN"
+  exit 0
+fi
+
+# A release no host runs, so a pass cannot come from the two agreeing by
+# accident.
+FICTIONAL=9.9.9-kasld-check-uname-release
+
+# The kernel release the JSON report states. Components are all skipped: the
+# identity is taken before any of them run, and skipping keeps the guard fast
+# and independent of what this host happens to leak.
+release() {
+  "$BIN" -q -s '*' -j 2>/dev/null |
+    sed -n 's/^    "release": "\(.*\)",$/\1/p' | head -n 1
+}
+
+fails=0
+note() {
+  printf '    FAIL: %s\n' "$1"
+  fails=$((fails + 1))
+}
+
+# Live: the override is ignored and the running kernel names itself.
+host_release=$(uname -r)
+got=$(KASLD_UNAME_RELEASE="$FICTIONAL" release)
+[ "$got" = "$host_release" ] ||
+  note "live run with KASLD_UNAME_RELEASE reported '$got', want '$host_release'"
+
+# Ignoring it silently would leave a caller believing the label it asked for is
+# the one on the report, so the run says which release it used.
+warned=$(KASLD_UNAME_RELEASE="$FICTIONAL" "$BIN" -q -s '*' -j 2>&1 >/dev/null |
+  grep -c 'KASLD_UNAME_RELEASE')
+[ "$warned" -ge 1 ] ||
+  note "live run with KASLD_UNAME_RELEASE printed no warning"
+
+# ... and says nothing when there is nothing to say.
+quiet=$( (unset KASLD_UNAME_RELEASE; "$BIN" -q -s '*' -j 2>&1 >/dev/null) |
+  grep -c 'KASLD_UNAME_RELEASE')
+[ "$quiet" -eq 0 ] ||
+  note "live run without the variable set still warned about it"
+
+# Replay: an empty tree states no identity of its own, so the override is what
+# supplies the release and the run stays usable.
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT
+got=$(KASLD_SYSROOT="$TMP" KASLD_UNAME_RELEASE="$FICTIONAL" release)
+[ "$got" = "$FICTIONAL" ] ||
+  note "replay with KASLD_UNAME_RELEASE reported '$got', want '$FICTIONAL'"
+
+if [ "$fails" -ne 0 ]; then
+  printf '%scheck-uname-release: FAIL%s (%d case(s))\n' \
+    "$RED" "$RESET" "$fails" >&2
+  exit 1
+fi
+
+printf '%scheck-uname-release: OK%s (the release override applies to a capture only)\n' \
+  "$GREEN" "$RESET"

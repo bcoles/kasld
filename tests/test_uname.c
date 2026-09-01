@@ -75,7 +75,14 @@ static void test_compiler_version_is_not_the_release(void) {
 
 /* The environment override exists for a run with no captured /proc/version and
  * for qemu-user, which drops QEMU_UNAME across its self-re-exec. Where both are
- * present the explicit one wins. */
+ * present the explicit one wins.
+ *
+ * It names the kernel a CAPTURE came from, so it applies only alongside a
+ * sysroot; every case in this file stages one. The live half -- where it is
+ * ignored, because uname(2) already names the kernel every fact was read from
+ * -- cannot be driven here: the sysroot prefix is resolved once per process, so
+ * one binary cannot be both. tests/check-uname-release asserts it against the
+ * shipped binary. */
 static void test_env_release_overrides_the_capture(void) {
   struct utsname u;
   stage_version(STAGED_LINE);
@@ -153,8 +160,8 @@ static void test_override_identifies_a_capture_that_states_nothing(void) {
 
 /* The predicate the orchestrator warns on. Under a sysroot it answers for the
  * capture, not for the environment override: KASLD_UNAME_RELEASE replaces the
- * release and never the version, so a capture stating nothing still leaves the
- * fingerprint the analysing host's. */
+ * release and never the version, so a capture stating nothing is still a
+ * capture that named no build, whatever the release beside it says. */
 static void test_identity_predicate_answers_for_the_capture(void) {
   stage_version(STAGED_LINE);
   assert(kasld_uname_describes_target() == 1);
