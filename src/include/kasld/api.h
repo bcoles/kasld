@@ -974,6 +974,30 @@ static inline unsigned long kasld_page_offset_if_known(void) {
 #define KASLR_PHYS_ALIGN IMAGE_ALIGN
 #endif
 
+/* KASLR_ALIGN_FIXED — 1 where KASLR_VIRT_ALIGN / KASLR_PHYS_ALIGN are the slot
+ * granularity ITSELF rather than a minimum under a per-build one, so a count
+ * taken over that grain is the size of the set the kernel drew from rather than
+ * a ceiling over it.
+ *
+ * The distinction is the same one the alignment lattice carries (see
+ * estimate.h): the granularity is proven from below by default, and a source
+ * that establishes the value closes it from above as well. Here the source is
+ * the architecture, for the arches whose placement code steps by a constant
+ * with no config in it -- so no evidence is needed and every run on them can
+ * state the value.
+ *
+ * Set it only after reading that architecture's placement code, and for BOTH
+ * axes: kaslr_align_arch_default emits the physical and virtual constraints
+ * alike, so a decoupled arch needs the physical base's granularity established
+ * separately from the virtual one.
+ *
+ * Defaults to 0, which is the floor every architecture can honestly claim.
+ * Omitting it -- or misspelling it, which expands to 0 -- costs precision in a
+ * candidate count and never soundness in a window. */
+#ifndef KASLR_ALIGN_FIXED
+#define KASLR_ALIGN_FIXED 0
+#endif
+
 /* PAGE_OFFSET_FIXED — 1 when the direct-map base is a compile-time
  * architectural constant, so a virt_page_offset reconstructed from a direct-map
  * leak may be pinned to a single value; 0 when that base is runtime-variable
@@ -1957,6 +1981,23 @@ enum kasld_scalar_fact {
    * it is emitted as a raw measurement and interpreted by a rule. Values are
    * non-zero because a scalar fact of 0 reads as absent. */
   SF_PPC64_MMU_MODE,
+  SF_KMSAN_ENABLED, /* 1 if CONFIG_KMSAN=y, 0 where the config was read and  */
+                    /* it is not. Emitted alongside SF_KASAN_ENABLED because  */
+                    /* s390 sizes its kernel stacks on EITHER (thread_info.h  */
+                    /* THREAD_SIZE_ORDER 4 under KASAN or KMSAN, 2 otherwise) */
+                    /* and s390 selects HAVE_ARCH_KMSAN, so KASAN alone does  */
+                    /* not settle the stack size there. The two are mutually  */
+                    /* exclusive in Kconfig (KMSAN depends on !KASAN).        */
+  SF_KASLR_RANDOMIZED, /* 1 where the x86 boot stub recorded that it actually */
+                       /* randomized the kernel this boot: KASLR_FLAG in      */
+                       /* boot_params.hdr.loadflags, which misc.c clears and  */
+                       /* choose_random_location sets only after its nokaslr  */
+  /* early return. The randomizer lives in kaslr.o, built */
+  /* only under CONFIG_RANDOMIZE_BASE, so a set flag also */
+  /* proves that option -- and therefore KERNEL_IMAGE_SIZE */
+  /* and MODULES_VADDR. Emitted only when set: a clear    */
+  /* flag is the KASLR-off signal the SF_*_KASLR_DISABLED */
+  /* facts already carry.                                 */
   SF_VIRT_KASLR_RANDOMIZATION_FAILED, /* 1 if the boot stub attempted    */
   /* virtual KASLR but could not produce a random virt offset (current   */
   /* emitters: arm64/riscv64 "lack of seed", arm64 "FDT remapping        */
@@ -2049,6 +2090,8 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_TEXT_ORDER] = "text_order",
     [SF_VIRT_KERNEL_IMAGE_BASE] = "virt_kernel_image_base",
     [SF_PPC64_MMU_MODE] = "ppc64_mmu_mode",
+    [SF_KMSAN_ENABLED] = "kmsan_enabled",
+    [SF_KASLR_RANDOMIZED] = "kaslr_randomized",
 };
 /* Adding an SF_* without a wire token shrinks this below SF__COUNT -> error. */
 typedef char kasld_sf_wire_table_complete
