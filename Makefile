@@ -215,6 +215,11 @@ KASLD_SRC      := $(SRC_DIR)/orchestrator.c
 # only code that touches untrusted component output, and a fuzz harness should
 # be able to reach it without compiling the orchestrator around it.
 CAPTURE_SRC    := $(SRC_DIR)/capture.c
+# What left the pipeline, and why. Its own translation unit because it is a leaf
+# every layer writes to -- the orchestrator's buffers directly, the engine's caps
+# projected in after the run -- and because a reader of the ledger should not
+# have to take the orchestrator with it.
+DISCARD_SRC    := $(SRC_DIR)/discard.c
 # The observing environment (hardening settings + this process's vantage).
 # Its own translation unit because it answers a different question from the
 # rest: what can be seen from here, rather than where the kernel is.
@@ -394,6 +399,10 @@ $(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -DVERSION='"$(VERSION)"' -c $< -o $@
 
+$(OBJ_DIR)/discard.o: $(DISCARD_SRC) $(HDRS) | $(OBJ_DIR)
+	$(call ccv,CC,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+
 $(OBJ_DIR)/capture.o: $(CAPTURE_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
@@ -429,7 +438,7 @@ $(OBJ_DIR)/rule_%.o: $(SRC_DIR)/rules/%.c $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/capture.o $(OBJ_DIR)/environment.o $(OBJ_DIR)/render.o $(OBJ_DIR)/report.o $(RENDER_MODE_OBJS) $(OBJ_DIR)/region_info.o $(ENGINE_OBJS) | $(OBJ_DIR)
+$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/capture.o $(OBJ_DIR)/discard.o $(OBJ_DIR)/environment.o $(OBJ_DIR)/render.o $(OBJ_DIR)/report.o $(RENDER_MODE_OBJS) $(OBJ_DIR)/region_info.o $(ENGINE_OBJS) | $(OBJ_DIR)
 	$(call ccv,LD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ $(PTHREAD_LIBS) -o $@
 
@@ -454,7 +463,7 @@ TEST_BIN := $(TEST_OBJ_DIR)/test_kasld
 # test_kasld.c #includes render.c and each src/render/*.c so the renderer's
 # static helpers (e.g. json_print_escaped, section_consensus) are reachable
 # without exporting them across the public API.
-$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(CAPTURE_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(CAPTURE_SRC) $(DISCARD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(PTHREAD_LIBS) -o $@
 
@@ -463,7 +472,7 @@ $(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(CAPTURE_SRC) $(ENV_SRC) $(R
 # -DKASLD_TESTING + the pthread flags — but exercises render.c / render/*.c.
 TEST_RENDER_BIN := $(TEST_OBJ_DIR)/test_render
 
-$(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(CAPTURE_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(CAPTURE_SRC) $(DISCARD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_render.c $(PTHREAD_LIBS) -o $@
 

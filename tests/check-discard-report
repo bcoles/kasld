@@ -57,7 +57,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # sits with the store it bounds, the others with the orchestrator's own limits.
 # Searching the set rather than one path keeps a relocation from silently
 # turning this guard into one that reads nothing.
-HDRS="$ROOT/src/include/kasld/internal.h $ROOT/src/include/kasld/capture.h"
+HDRS="$ROOT/src/include/kasld/internal.h $ROOT/src/include/kasld/capture.h \
+      $ROOT/src/include/kasld/discard.h"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
@@ -93,7 +94,7 @@ for pair in "MAX_SCALAR_FACTS:$MAX_SCALARS" "MAX_DISCARDS:$MAX_DISC" \
   "MAX_COMPONENTS:$MAX_COMP"; do
   case ${pair#*:} in
   '' | *[!0-9]*)
-    note "could not read ${pair%%:*} from internal.h as a number"
+    note "could not read ${pair%%:*} from any of $HDRS as a number"
     exit 1
     ;;
   esac

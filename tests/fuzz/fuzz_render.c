@@ -22,6 +22,7 @@
 //   build/fuzz/fuzz_render tests/fuzz/corpus/render/ -timeout=10 -max_len=4096
 
 #include "../../src/capture.c"
+#include "../../src/discard.c"
 #include "../../src/orchestrator.c"
 #include "../../src/region_info.c"
 

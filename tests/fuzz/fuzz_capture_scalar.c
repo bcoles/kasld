@@ -10,19 +10,16 @@
 //     -timeout=10 -max_len=4096
 
 #include "../../src/capture.c"
+#include "../../src/discard.c"
 #include "../../src/region_info.c"
 
 /* capture.c calls outward to five orchestrator-owned symbols: the discard
- * ledger, the origin-name lookup and the store lock. Stubbing them keeps this
- * harness pointed at the parsers alone rather than compiling the orchestrator
- * around them. None of the five affects a parse decision: the ledger only
- * records that a record was refused, the name is for display, and the lock is
- * uncontended in a single-threaded harness. */
-void kasld_discard_record(enum kasld_discard_reason r, const char *source) {
-  (void)r;
-  (void)source;
-}
-void kasld_discard_reset(void) {}
+ * origin-name lookup and the store lock. Stubbing them keeps this harness
+ * pointed at the parsers alone rather than compiling the orchestrator around
+ * them. Neither affects a parse decision: the name is for display, and the lock
+ * is uncontended in a single-threaded harness. The discard ledger is taken for
+ * real -- it is a leaf, so a rejected record still lands where it would in a
+ * live run. */
 const char *kasld_origin_name(int idx) {
   (void)idx;
   return "";
