@@ -675,16 +675,27 @@ void render_json(const struct summary *s) {
       printf(",\n      \"speculative\": true");
     printf("\n    }");
   }
-  if (!s->kaslr.disabled && !s->kaslr.unsupported && rp &&
-      rp->guaranteed.candidates > 0 && (p_spec || !rp->has_point)) {
+  /* The physical axis on the same terms as the virtual one above, and for the
+   * same reason: a proven window is worth emitting whenever the engine resolved
+   * one, including on a KASLR-disabled or non-KASLR kernel where it is often
+   * the only thing known about the base. Gating this on the KASLR state while
+   * the virtual axis was freed from it withheld a quantity the readout printed
+   * -- arm32 and riscv32 draw a Physical Image Base row with a count while this
+   * published nothing at all, so the two formats disagreed about whether the
+   * unknown existed. Slots and entropy stay gated on a live count, exactly as
+   * they are above: no randomization means no residual entropy, and it does not
+   * mean no window. */
+  if (rp && rp->guaranteed.present && (p_spec || !rp->has_point)) {
     printf(",\n    \"inferred_physical\": {\n");
     json_addr_pair("range_min", "range_max", &rp->guaranteed);
-    printf(",\n      \"slots\": %lu,\n", rp->guaranteed.candidates);
-    if (rp->entropy_top > 0)
-      printf("      \"slots_initial\": %lu,\n"
-             "      \"entropy_bits_initial\": %d,\n",
-             rp->entropy_top, rp->top_bits);
-    printf("      \"entropy_bits\": %d", rp->guaranteed.bits);
+    if (rp->guaranteed.candidates > 0) {
+      printf(",\n      \"slots\": %lu", rp->guaranteed.candidates);
+      if (rp->entropy_top > 0)
+        printf(",\n      \"slots_initial\": %lu"
+               ",\n      \"entropy_bits_initial\": %d",
+               rp->entropy_top, rp->top_bits);
+      printf(",\n      \"entropy_bits\": %d", rp->guaranteed.bits);
+    }
     json_excluded(&rp->guaranteed);
     printf("\n");
     printf("    }");

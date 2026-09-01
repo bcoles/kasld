@@ -278,15 +278,29 @@ HEAD = re.compile(r"^  (?P<label>[A-Za-z][A-Za-z0-9 ]*[A-Za-z])  +"
 # no count -- the window has an unstated edge -- and taking the 4194305 from it
 # would compare a denominator against json's count and call the difference a
 # disagreement.
+# The Grain cell carries a `>= ` prefix wherever the pitch is only a lower
+# bound, which is most rows on most architectures. Omitting it from this pattern
+# did not loosen the comparison -- it silently DROPPED every such row, so the
+# guard reported passing runs while checking a fraction of what it appeared to.
 TAIL = re.compile(r"(?:^|\s)(?P<cell>-(?: of \d+)?|\d+(?: of \d+)?)"
-                  r"\s+(?:-|[\d.]+\s[A-Za-z]+)\s*$")
+                  r"\s+(?:-|(?:>= )?[\d.]+\s[A-Za-z]+)\s*$")
 
-bad, checked = [], 0
+bad, checked, parsed = [], 0, 0
 for line in text.splitlines():
     h = HEAD.match(line)
     t = TAIL.search(line)
+    if h and not t:
+        # A row the label pattern claims but the cell pattern cannot read. Left
+        # to `continue`, this is how the whole comparison goes quiet: the guard
+        # keeps reporting passing runs while checking a shrinking share of what
+        # it appears to. Named as a failure so a format change has to be
+        # answered here rather than absorbed.
+        bad.append("%s: row parsed by label but not by cells: %s"
+                   % (h.group("label"), line.strip()))
+        continue
     if not h or not t:
         continue
+    parsed += 1
     cell = t.group("cell")
     if cell.startswith("-"):
         continue                      # no count stated; nothing to compare
@@ -335,6 +349,9 @@ for line in text.splitlines():
         bad.append("%s [%s]: readout counts against %d, json publishes no "
                    "baseline" % (key[0], key[1], want_base))
 
+if parsed == 0:
+    bad.append("no Layout row could be read at all -- the readout's shape "
+               "changed and this guard is asserting nothing")
 if bad:
     print("; ".join(bad))
     sys.exit(1)
