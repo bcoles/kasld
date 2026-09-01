@@ -8,8 +8,36 @@
 //   build/fuzz/fuzz_parse_hex tests/fuzz/corpus/parse_hex/ \
 //     -timeout=10 -max_len=64
 
-#include "../../src/orchestrator.c"
+#include "../../src/capture.c"
 #include "../../src/region_info.c"
+
+/* capture.c calls outward to five orchestrator-owned symbols: the discard
+ * ledger, the origin-name lookup and the store lock. Stubbing them keeps this
+ * harness pointed at the parsers alone rather than compiling the orchestrator
+ * around them. None of the five affects a parse decision: the ledger only
+ * records that a record was refused, the name is for display, and the lock is
+ * uncontended in a single-threaded harness. */
+void kasld_discard_record(enum kasld_discard_reason r, const char *source) {
+  (void)r;
+  (void)source;
+}
+void kasld_discard_reset(void) {}
+const char *kasld_origin_name(int idx) {
+  (void)idx;
+  return "";
+}
+void kasld_result_lock(void) {}
+void kasld_result_unlock(void) {}
+
+/* The two output flags capture reads before reporting a rejection, and the
+ * reporter itself. A harness prints nothing, so these are inert -- but they are
+ * the parser's only remaining reach outside its own translation unit, and
+ * naming them here keeps that surface visible rather than implied. */
+int verbose = 0;
+int quiet = 1;
+__attribute__((format(printf, 1, 2))) void progress_note(const char *fmt, ...) {
+  (void)fmt;
+}
 
 #include <stdint.h>
 #include <stdlib.h>

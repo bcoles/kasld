@@ -8,6 +8,7 @@
 //   build/fuzz/fuzz_parse_meta tests/fuzz/corpus/parse_meta/ \
 //     -timeout=10 -max_len=4096
 
+#include "../../src/capture.c"
 #include "../../src/orchestrator.c"
 #include "../../src/region_info.c"
 

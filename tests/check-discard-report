@@ -53,7 +53,11 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-HDR="$ROOT/src/include/kasld/internal.h"
+# The caps live wherever the tree declares them, and that moves: MAX_SCALAR_FACTS
+# sits with the store it bounds, the others with the orchestrator's own limits.
+# Searching the set rather than one path keeps a relocation from silently
+# turning this guard into one that reads nothing.
+HDRS="$ROOT/src/include/kasld/internal.h $ROOT/src/include/kasld/capture.h"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
@@ -79,7 +83,8 @@ note() {
 # runs in a subshell, so an exit there ends the subshell and returns to a script
 # that carries on with an empty value -- which is how a guard comes to announce
 # FAIL and exit 0. The values are checked below, in the shell that can act.
-cap() { grep -E "^#define $1 [0-9]+" "$HDR" | awk '{print $3}'; }
+# shellcheck disable=SC2086  # HDRS is a path list, split intentionally
+cap() { grep -hE "^#define $1 [0-9]+" $HDRS | awk '{print $3}' | head -1; }
 MAX_SCALARS=$(cap MAX_SCALAR_FACTS)
 MAX_DISC=$(cap MAX_DISCARDS)
 MAX_COMP=$(cap MAX_COMPONENTS)

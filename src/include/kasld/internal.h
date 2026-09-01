@@ -36,7 +36,7 @@
 #ifndef MAX_COMPONENTS
 #define MAX_COMPONENTS 512
 #endif
-#define MAX_RESULTS 4096
+/* MAX_RESULTS, struct result and the capture stores: kasld/capture.h */
 /* NAME_LEN / ORIGIN_LEN are the wire-field widths, defined once in api.h. */
 /* Captured-stdout lines are kept only for --verbose / --json output. The log
  * is grown geometrically on demand from this initial capacity; there is no
@@ -243,6 +243,35 @@ const char *kasld_discard_reason_name(enum kasld_discard_reason r);
  * it once at start so a re-entry cannot inherit a previous run's ledger. */
 void kasld_discard_reset(void);
 
+/* Store names used as the `source` of a DISCARD_CAPACITY entry. Spelled once
+ * here because report_discards() matches on them to choose which cap's prose to
+ * print: a typo would silently degrade a specific diagnostic into the generic
+ * line, which is the failure this ledger exists to stop. */
+#define DSRC_RESULTS "results"
+#define DSRC_SCALARS "scalar-facts"
+#define DSRC_COMPONENTS "components"
+#define DSRC_COMPONENT_LINES "component-log"
+#define DSRC_CONSTRAINTS "constraints"
+#define DSRC_CONSTRAINT_FACTS "constraint-facts"
+#define DSRC_VERDICTS "verdicts"
+#define DSRC_RULE_EMIT "rule-emit"
+#define DSRC_VRULE_EMIT "verdict-rule-emit"
+#define DSRC_META "component-meta"
+#define DSRC_ESTIMATE_WORK "estimate-work"
+#define DSRC_CONFLICT_STORE "conflict-store"
+#define DSRC_CURATION_ROUNDS "curation-rounds"
+
+/* Take the lock guarding the evidence store. Defined in orchestrator.c, which
+ * owns the lock: it also covers the progress counter and the worker pool's
+ * cursor, so there is one lock rather than one per store. */
+void kasld_result_lock(void);
+void kasld_result_unlock(void);
+
+/* Report a line without disturbing the progress bar. Used by capture to surface
+ * a rejected record under --verbose, so a refusal is visible rather than
+ * indistinguishable from a component that found nothing. */
+__attribute__((format(printf, 1, 2))) void progress_note(const char *fmt, ...);
+
 /* =========================================================================
  * Result: (extent, position, confidence) over a typed region
  *
@@ -345,6 +374,12 @@ static inline int origin_set_has(const struct origin_set *s, int idx) {
   return (s->w[idx / 32] & (1u << (idx % 32))) != 0;
 }
 
+/* The captured evidence store: the three record types a component's wire output
+ * becomes, and the stores holding them. Included here rather than standing
+ * alone because a result carries its provenance as an origin_set, which is a
+ * bitset over discovery slots and so is defined above. */
+#include "capture.h"
+
 static inline void origin_set_union(struct origin_set *a,
                                     const struct origin_set *b) {
   for (int i = 0; i < ORIGIN_WORDS; i++)
@@ -377,25 +412,6 @@ static inline int origin_set_count(const struct origin_set *s) {
   return n;
 }
 
-struct result {
-  enum kasld_addr_type type;
-  enum kasld_region region;
-  char name[NAME_LEN]; /* "" if no specific instance */
-
-  kasld_addr_t lo, hi;
-  kasld_addr_t sample;
-  kasld_addr_t base_align;
-  uint32_t set_mask;
-
-  enum kasld_position pos;
-  enum kasld_confidence conf;
-
-  /* The components that corroborate this record, and method_set, the union of
-   * their methods. */
-  struct origin_set origins;
-  uint16_t method_set; /* bitmask over enum kasld_method */
-};
-
 /* Origin slots below zero name a producer that is not a discovered component.
  * A result's provenance only ever holds real component slots (every result
  * arrives on a component's wire channel); the sentinels exist for the scalar
@@ -409,36 +425,9 @@ struct result {
  * table. */
 const char *kasld_origin_name(int idx);
 
-#define HAS_LO(r) ((r)->set_mask & LO_SET)
-#define HAS_HI(r) ((r)->set_mask & HI_SET)
-#define HAS_SAMPLE(r) ((r)->set_mask & SAMPLE_SET)
-#define HAS_BASE_ALIGN(r) ((r)->set_mask & BASE_ALIGN_SET)
-
-/* Zero-initialise a result. set_mask=0, no contributors, all enums to their
- * _UNKNOWN values, empty strings — all the correct unset state. */
-static inline void result_init(struct result *r) { memset(r, 0, sizeof(*r)); }
-
 /* is_phys_dram_region and is_kernel_image_region are defined once, in
  * kasld/regions.h (included above). Rules and the orchestrator share the
  * single definition so the two cannot drift apart silently. */
-
-/* Pick the most representative address from a result. Prefers a known
- * base (when pos=BASE and lo is set), else any interior sample, else
- * any set bound, else 0. Used by the engine bridge and the renderer
- * when they need a single representative address. */
-static inline unsigned long anchor_addr(const struct result *r) {
-  if (!r)
-    return 0;
-  if (r->pos == POS_BASE && HAS_LO(r))
-    return r->lo;
-  if (HAS_SAMPLE(r))
-    return r->sample;
-  if (HAS_LO(r))
-    return r->lo;
-  if (HAS_HI(r))
-    return r->hi;
-  return 0;
-}
 
 /* =========================================================================
  * Region info table
@@ -485,10 +474,6 @@ int conf_weight(enum kasld_confidence c);
  * merge. */
 const struct result *select_anchor(enum kasld_addr_type type,
                                    enum kasld_region region);
-
-/* Run the merge pass over results[]. Idempotent on its own output; called
- * after each collection state to deduplicate before the engine reads them. */
-void merge_results(void);
 
 /* =========================================================================
  * Component metadata, logs, outcomes.
@@ -955,45 +940,11 @@ extern struct kasld_environment kasld_env;
 void kasld_env_snapshot(void);
 
 extern struct kasld_layout layout;
-extern struct result results[MAX_RESULTS];
-extern int num_results;
+
 /* Indexed by discovery slot; see struct component_log. Iterate against
  * num_components and skip slots whose `ran` is 0. */
 extern struct component_log comp_logs[MAX_COMPONENTS];
 extern int num_components;
-
-/* Scalar system facts collected from components' `S` wire records, parallel to
- * results[]. The engine bridge copies these to OBS_SCALAR observations; the
- * orchestrator and renderer also read them directly (e.g.
- * SF_VIRT_KASLR_DISABLED drives s->kaslr.disabled and the "Detected by:" list).
- */
-struct scalar_fact_record {
-  enum kasld_scalar_fact fact;
-  unsigned long value;
-  enum kasld_confidence conf;
-  int origin; /* discovery slot of the producing component; -1 if unattributed
-               */
-};
-#define MAX_SCALAR_FACTS 64
-extern struct scalar_fact_record scalar_facts[MAX_SCALAR_FACTS];
-extern int num_scalar_facts;
-
-/* Direct constraints collected from components' `C` wire records, parallel to
- * scalar_facts[]. The engine bridge copies these to OBS_CONSTRAINT
- * observations, which a passthrough rule folds into the meet as the named C_*
- * constraint. A component uses this channel for a bound on a known quantity it
- * cannot state as a located address (see kasld_emit_constraint). */
-struct constraint_fact_record {
-  enum kasld_quantity q;
-  enum constraint_op op;
-  unsigned long value;
-  enum kasld_confidence conf;
-  int origin; /* discovery slot of the producing component; -1 if unattributed
-               */
-};
-#define MAX_CONSTRAINT_FACTS 64
-extern struct constraint_fact_record constraint_facts[MAX_CONSTRAINT_FACTS];
-extern int num_constraint_facts;
 
 /* =========================================================================
  * Shared functions (defined in orchestrator.c)
