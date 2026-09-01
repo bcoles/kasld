@@ -1,11 +1,12 @@
-// libFuzzer harness for the report model and the renderers — the path from a
-// resolved engine state to the bytes an operator reads.
+// libFuzzer harness for the report model — the finished description of a run,
+// built from a resolved engine state and read the way a format reads it.
 //
 // The six sibling harnesses stop at the parsers, which is where untrusted bytes
 // enter. Nothing exercises what happens after: the model built from the
-// resolved estimates, and the five formats that draw it. That code carries the
-// fixed-width table cells, the column-width arithmetic sized from the run's own
-// content, and the model's bounded arrays — none of it reached by a search.
+// resolved estimates, and the bounded arrays it carries. No format is linked
+// here, so the harness reads every field a format would read instead — a bad
+// projection into the model is caught whether or not a renderer would have
+// drawn it.
 //
 // The input is read as a SCRIPT OF LEGAL MOVES, not as struct bytes. Each
 // record becomes a constraint applied through estimate_meet(), exactly as a
@@ -23,6 +24,7 @@
 
 #include "../../src/capture.c"
 #include "../../src/discard.c"
+#include "../../src/meta.c"
 #include "../../src/orchestrator.c"
 #include "../../src/region_info.c"
 

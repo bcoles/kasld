@@ -23,6 +23,7 @@
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #include "../src/capture.c"
 #include "../src/discard.c"
+#include "../src/meta.c"
 #include "../src/orchestrator.c"
 #pragma GCC diagnostic pop
 /* The engine's value model, after orchestrator.c so its feature-test

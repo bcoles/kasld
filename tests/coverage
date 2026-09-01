@@ -75,11 +75,10 @@ drive estimate    test_estimate.c           "$COV/estimate.o" "$COV/quantities.o
 drive evidence    test_evidence.c           "$COV/evidence.o"
 
 # Orchestrator internals + environment + render + region_info: test_kasld.c is
-# ONE TU that #includes orchestrator.c, environment.c, render.c and
-# region_info.c under -DKASLD_TESTING (which compiles out main() + the engine
-# bridge — those lines are only covered by the end-to-end run,
-# tests/coverage-e2e). pthread is added when available, matching what
-# `make test` builds.
+# ONE TU that #includes the sources under test directly, under -DKASLD_TESTING
+# (which compiles out main() + the engine bridge — those lines are only covered
+# by the end-to-end run, tests/coverage-e2e). pthread is added when available,
+# matching what `make test` builds.
 PTH_C=""; PTH_L=""
 if echo 'int main(void){return 0;}' | $CC -xc - -lpthread -o "$COV/.pthr" 2>/dev/null; then
   PTH_C="-DHAVE_PTHREAD"; PTH_L="-lpthread"; rm -f "$COV/.pthr"

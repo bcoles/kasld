@@ -1,13 +1,19 @@
 # Parser fuzz harnesses
 
-libFuzzer harnesses for the parsers that consume external input. The first five
-are the pure string→struct parsers in `src/orchestrator.c` — each consumes
+libFuzzer harnesses for the parsers that consume external input. Most target the
+pure string→struct parsers that read what a component produced — `src/capture.c`
+for the tagged wire records, `src/meta.c` for the metadata a component declares
+about itself, `src/orchestrator.c` for the disposition line. Each consumes
 attacker-influenced input (component stdout, ELF section payload, dmesg) in the
-privileged orchestrator process, so a bug there is a real exposure surface. The
-sixth, `fuzz_btf`, walks the binary BTF type info in
+privileged orchestrator process, so a bug there is a real exposure surface.
+
+`fuzz_btf` walks the binary BTF type info in
 `src/components/btf_struct_page_size.c`: kernel-provided input rather than an
 attacker surface, but the most intricate binary parser in the tree, so it is
-fuzzed for over-read / overflow / unbounded-loop safety.
+fuzzed for over-read / overflow / unbounded-loop safety. `fuzz_render` picks up
+where the parsers stop, building the report model from a script of constraints
+the engine could actually have applied and reading every field a format draws
+from.
 
 | Harness | Target | Wire format |
 |---|---|---|
@@ -17,6 +23,7 @@ fuzzed for over-read / overflow / unbounded-loop safety.
 | `fuzz_parse_meta` | `parse_meta(raw, *m)` | newline-delimited `key:value` pairs |
 | `fuzz_parse_disposition` | `parse_disposition(s, *d)` | `cat=<category> [gate=<token>] [msg="<text>"]` (the `R`-line body) |
 | `fuzz_btf` | `btf_struct_size(buf, len, name)` | BTF blob: header + type / string sections |
+| `fuzz_render` | `kasld_report_build()` + every field a format reads | a script of constraints applied through `estimate_meet()` |
 
 ## Table of Contents
 

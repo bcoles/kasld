@@ -3,11 +3,10 @@
 // Unit tests for the orchestrator internals: the result model (parser, merge
 // pass, select_anchor, result_in_bounds), compute_kaslr_info, the
 // engine->layout projection (engine_sync_authoritative), region_info, and the
-// renderers. Compiled via `make check`, which includes orchestrator.c,
-// region_info.c, render.c, and each src/render/*.c with -DKASLD_TESTING so the
-// renderer's static helpers (json_print_escaped, render_summary,
-// section_consensus, etc.) are reachable as a single TU. main() and the live
-// engine run are compiled out.
+// renderers. Compiled via `make check` as a single TU: the sources under test
+// are #included directly below, with -DKASLD_TESTING, so their static helpers
+// (json_print_escaped, render_summary, section_consensus, etc.) are reachable
+// without exporting them. main() and the live engine run are compiled out.
 // ---
 // <bcoles@gmail.com>
 
@@ -27,6 +26,7 @@
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #include "../src/capture.c"
 #include "../src/discard.c"
+#include "../src/meta.c"
 #include "../src/orchestrator.c"
 #pragma GCC diagnostic pop
 /* The engine's value model, after orchestrator.c so its feature-test

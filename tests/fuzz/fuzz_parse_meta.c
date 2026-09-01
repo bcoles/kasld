@@ -1,17 +1,15 @@
-// libFuzzer harness for orchestrator's parse_meta() — reads
-// newline-delimited key:value pairs from a component's .kasld_meta ELF
-// section. The raw bytes are extracted from the component binary by
-// extract_elf_section; this harness fuzzes the parse step that consumes
-// those bytes after extraction.
+// libFuzzer harness for parse_meta() — reads newline-delimited key:value
+// pairs from a component's .kasld_meta ELF section. The raw bytes are
+// extracted from the component binary by extract_elf_section; this harness
+// fuzzes the parse step that consumes those bytes after extraction.
 //
 // Run with the seed corpus:
 //   build/fuzz/fuzz_parse_meta tests/fuzz/corpus/parse_meta/ \
 //     -timeout=10 -max_len=4096
 
-#include "../../src/capture.c"
-#include "../../src/discard.c"
-#include "../../src/orchestrator.c"
-#include "../../src/region_info.c"
+/* Only the declaration reader: parse_meta() takes no lock and reads no state,
+ * so the harness drives it without the orchestrator around it. */
+#include "../../src/meta.c"
 
 #include <stdint.h>
 #include <stdlib.h>

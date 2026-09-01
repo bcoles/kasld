@@ -13,6 +13,7 @@
 
 #include "../../src/capture.c"
 #include "../../src/discard.c"
+#include "../../src/meta.c"
 #include "../../src/orchestrator.c"
 #include "../../src/region_info.c"
 

@@ -13,9 +13,10 @@ KASLD has seven test layers, in increasing order of setup cost:
 5. **Live cross-architecture validation** (`tests/vm/run`) — boots real
    publicly-fetchable kernels under `qemu-system` and checks the inferred range
    contains the live kernel's true base, across arches and privilege profiles.
-6. **Parser fuzz harnesses** (`tests/fuzz/`) — libFuzzer harnesses for the five
-   pure string→struct parsers in `src/orchestrator.c`, plus the BTF binary
-   parser. Opt-in (`make fuzz`), not part of CI.
+6. **Parser fuzz harnesses** (`tests/fuzz/`) — libFuzzer harnesses for the pure
+   string→struct parsers that read component output (`src/capture.c`,
+   `src/meta.c`, `src/orchestrator.c`), the BTF binary parser, and the report
+   model. Opt-in (`make fuzz`), not part of CI.
 7. **Container / cgroup execution** (`make test-container`) — runs kasld under a
    masked `/proc`, a seccomp filter, and cpu/memory/pids caps. Opt-in; snapshots
    the live host, so it is not part of the hermetic `make test`.
@@ -71,7 +72,7 @@ that `make test` builds and runs is `TEST_ALL_BINS` in the Makefile.
 | `test_evidence` | observation store + verdict application | `evidence.c` |
 | `test_engine` | every rule in `src/rules/` over synthetic evidence | engine core + all rules |
 | `test_engine_integration` | the full production rule registry against leak-bearing evidence | engine core + `engine_rules.c` + all rules |
-| `test_kasld` | orchestrator internals (parse, merge, anchor select), the engine→layout projection, the environment gatherer, region_info | `orchestrator.c` / `environment.c` / `region_info.c` under `-DKASLD_TESTING` |
+| `test_kasld` | orchestrator internals (parse, merge, anchor select), the engine→layout projection, the environment gatherer, region_info | `orchestrator.c` / `capture.c` / `discard.c` / `meta.c` / `environment.c` / `region_info.c` under `-DKASLD_TESTING` |
 | `test_render` | the renderers (text / json / markdown / oneline / hardening) — split out of `test_kasld` | `render.c` / `render/*.c` under `-DKASLD_TESTING` |
 | `test_align` | the text-base floor helpers (`kasld_floor_aligned_suboffset` / `kasld_floor_text_base`) | `api.h` (header-only) |
 | `test_text_order` | the kernel-text ordering classifier (`classify_text_order`) | `text_order.h` (header-only) |

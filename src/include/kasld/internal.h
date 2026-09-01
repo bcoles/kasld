@@ -1,9 +1,12 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Internal header for kasld orchestrator. Shared types and extern
-// declarations between orchestrator.c, render.c, and the region_info table.
+// Internal header for the kasld program: the shared types and extern
+// declarations its translation units read. A component never includes this —
+// it is a separate process, and needs only kasld/api.h.
 //
-// Components don't include this — they only need kasld/api.h.
+// Parts of that surface have their own headers — capture.h, discard.h, meta.h
+// — and are included from here rather than left to each reader, so one include
+// still brings the whole internal surface with it.
 // ---
 // <bcoles@gmail.com>
 
@@ -415,29 +418,11 @@ enum component_outcome {
   OUTCOME_CRASHED,
 };
 
-/* Cap on `key:value` lines kept from one component's .kasld_meta section. The
- * busiest component in the tree declares 8. Overflow is reported through the
- * discard ledger rather than dropped quietly: a lost `phase:` reassigns a
- * component's scheduling and a lost mitigation key changes the hardening
- * report, so a component that outgrew this must not do so in silence. */
-#define META_MAX_ENTRIES 16
-
-/* One `key:value` pair, as pointers INTO the raw section the component's log
- * slot owns — not copies. parse_meta() terminates each field in place, so the
- * whole table costs two pointers per entry over the section itself (under 150
- * bytes for every component in the tree) instead of a fixed key and value
- * buffer per slot. Both stay valid for as long as that raw section does, which
- * is the lifetime of the log slot holding it, so a pointer handed out by
- * meta_get() is good for the run. */
-struct meta_entry {
-  const char *key;
-  const char *value;
-};
-
-struct component_meta {
-  struct meta_entry entries[META_MAX_ENTRIES];
-  int num_entries;
-};
+/* What a component declares about itself, read from the ELF sections it
+ * embeds in its own binary. A leaf: no state, no lock. Included here rather
+ * than by each reader because a component's log slot carries its parsed
+ * metadata, so every user of struct component_log needs these types. */
+#include "meta.h"
 
 /* A component's self-reported disposition, parsed from an `R` wire line (see
  * kasld_disposition in api.h): why it produced no tagged result, as a closed
@@ -606,8 +591,13 @@ extern int kasld_test_projection;
 #endif
 
 /* =========================================================================
- * Shared globals (defined in orchestrator.c)
- * ========================================================================= */
+ * Shared program state, and the calls that take or read it
+ * =========================================================================
+ *
+ * Where a declaration's definition lives is stated with the declaration when
+ * it matters, rather than claimed for the whole section: the state below is
+ * owned by several translation units, and a section-wide claim goes stale
+ * silently the first time one of them is split. */
 extern int verbose;
 extern int quiet;
 extern int json_output;
@@ -867,9 +857,6 @@ extern int num_components;
 /* =========================================================================
  * Shared functions (defined in orchestrator.c)
  * ========================================================================= */
-const char *meta_get(const struct component_meta *m, const char *key);
-int meta_get_all(const struct component_meta *m, const char *key,
-                 const char **values, int max_values);
 /* Seeded before any component runs; projected onto the summary after. */
 void seed_arch_kaslr_facts(void);
 void summarize_kaslr_state(struct summary *s);

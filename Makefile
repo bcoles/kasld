@@ -220,6 +220,11 @@ CAPTURE_SRC    := $(SRC_DIR)/capture.c
 # projected in after the run -- and because a reader of the ledger should not
 # have to take the orchestrator with it.
 DISCARD_SRC    := $(SRC_DIR)/discard.c
+# What a component declares about itself, read out of its own binary. Its own
+# translation unit because reading a declaration is not running a component:
+# it takes no lock and holds no state, so a caller that only wants to know what
+# a component claims does not compile the orchestrator to find out.
+META_SRC       := $(SRC_DIR)/meta.c
 # The observing environment (hardening settings + this process's vantage).
 # Its own translation unit because it answers a different question from the
 # rest: what can be seen from here, rather than where the kernel is.
@@ -403,6 +408,10 @@ $(OBJ_DIR)/discard.o: $(DISCARD_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -c $< -o $@
 
+$(OBJ_DIR)/meta.o: $(META_SRC) $(HDRS) | $(OBJ_DIR)
+	$(call ccv,CC,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+
 $(OBJ_DIR)/capture.o: $(CAPTURE_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
@@ -438,7 +447,7 @@ $(OBJ_DIR)/rule_%.o: $(SRC_DIR)/rules/%.c $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/capture.o $(OBJ_DIR)/discard.o $(OBJ_DIR)/environment.o $(OBJ_DIR)/render.o $(OBJ_DIR)/report.o $(RENDER_MODE_OBJS) $(OBJ_DIR)/region_info.o $(ENGINE_OBJS) | $(OBJ_DIR)
+$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/capture.o $(OBJ_DIR)/discard.o $(OBJ_DIR)/meta.o $(OBJ_DIR)/environment.o $(OBJ_DIR)/render.o $(OBJ_DIR)/report.o $(RENDER_MODE_OBJS) $(OBJ_DIR)/region_info.o $(ENGINE_OBJS) | $(OBJ_DIR)
 	$(call ccv,LD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ $(PTHREAD_LIBS) -o $@
 
@@ -463,7 +472,7 @@ TEST_BIN := $(TEST_OBJ_DIR)/test_kasld
 # test_kasld.c #includes render.c and each src/render/*.c so the renderer's
 # static helpers (e.g. json_print_escaped, section_consensus) are reachable
 # without exporting them across the public API.
-$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(CAPTURE_SRC) $(DISCARD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(CAPTURE_SRC) $(DISCARD_SRC) $(META_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(PTHREAD_LIBS) -o $@
 
@@ -472,7 +481,7 @@ $(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(CAPTURE_SRC) $(DISCARD_SRC)
 # -DKASLD_TESTING + the pthread flags — but exercises render.c / render/*.c.
 TEST_RENDER_BIN := $(TEST_OBJ_DIR)/test_render
 
-$(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(CAPTURE_SRC) $(DISCARD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(CAPTURE_SRC) $(DISCARD_SRC) $(META_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_render.c $(PTHREAD_LIBS) -o $@
 
@@ -1027,7 +1036,7 @@ FUZZ_SRCS    := src/estimate.c src/quantities.c src/report.c
 # A hand-kept list has to be extended whenever a harness includes something new,
 # and forgetting reinstates exactly the silent staleness this exists to prevent
 # -- a failure that shows up as a guard passing, which is the hardest kind to
-# notice. Relinking all six costs about four seconds.
+# notice. Relinking every harness costs a few seconds.
 FUZZ_DEPS    := $(wildcard src/*.c src/render/*.c src/rules/*.c \
                            src/components/*.c src/include/kasld/*.h \
                            src/include/kasld/arch/*.h)
