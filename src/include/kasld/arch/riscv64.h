@@ -164,6 +164,16 @@
 // https://elixir.bootlin.com/linux/v6.6/source/arch/riscv/include/asm/efi.h#L41
 #define IMAGE_ALIGN (2 * MB)
 
+// The granularity is the architecture's, not a build's, and the two axes are
+// established separately because they are decoupled here. Virtual:
+// `kernel_map.virt_offset = (kaslr_seed % nr_pos) * PMD_SIZE`, with PMD_SHIFT
+// an unconditional 21. Physical: the boot contract requires the image be
+// "placed at a PMD boundary (2MB aligned for rv64)", which is what
+// kernel_map.phys_addr then takes from the loader.
+// https://elixir.bootlin.com/linux/latest/source/arch/riscv/mm/init.c
+// https://elixir.bootlin.com/linux/latest/source/Documentation/arch/riscv/boot.rst
+#define KASLR_ALIGN_FIXED 1
+
 // EFI_KIMG_ALIGN is the alignment the EFI stub uses when calling
 // AllocatePages() for the kernel image. On riscv64 this is PMD_SIZE
 // (2 MiB) — see arch/riscv/include/asm/efi.h. Used by efi_loader_kernel_pick

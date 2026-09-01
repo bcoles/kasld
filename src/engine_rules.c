@@ -68,6 +68,8 @@ static const rule_fn k_rules[] = {
     /* KASLR alignment */
     rule_kaslr_align_arch_default,
     rule_boot_params_kaslr_align,
+    rule_kaslr_align_from_phys_base,
+    rule_s390_thread_size_align,
     rule_arm64_efi_kimg_align,
     rule_config_max_offset_ceiling,
     rule_base_align_cross_validate,
@@ -83,6 +85,7 @@ static const rule_fn k_rules[] = {
     rule_module_text_bracket,
     rule_module_base_bounds,
     rule_module_base_execmem_window,
+    rule_module_base_no_kaslr_ceiling,
     rule_module_base_from_text,
     rule_loongarch64_module_base,
     rule_module_base_ppc64_vmalloc,

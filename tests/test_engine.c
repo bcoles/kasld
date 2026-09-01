@@ -240,6 +240,76 @@ static void test_image_base_grid_align_sound(void) {
 #endif
 }
 
+/* SOUNDNESS: the snap must not exclude a base the ARCHITECTURE admits, as
+ * distinct from one the default config produces.
+ *
+ * The grid the rule snaps to is IMAGE_ALIGN, which api.h defines as the
+ * alignment _text is guaranteed to have. Guaranteed means over every config the
+ * architecture admits, not the one it defaults to: where a kernel may be built
+ * with a finer placement granularity, _text sits off the assumed grid and
+ * raising a lower bound onto it can pass the true base.
+ *
+ * x86_32 is where the two diverge -- CONFIG_PHYSICAL_ALIGN is a range, not a
+ * constant, and its floor is 0x2000 against a 0x200000 default, with KASLR
+ * stepping its slot array by whichever the kernel was built with. The case is
+ * built from that floor rather than from IMAGE_ALIGN, so the assertion is about
+ * the architecture and not about whatever the constant currently says.
+ *
+ * Stated for x86_32 because that is the arch whose Kconfig range is established
+ * here; the same question is open for the arches whose minimum has not been
+ * read off their placement code. */
+static void test_image_base_grid_align_admits_a_finely_aligned_base(void) {
+#if defined(__i386__) && IMAGE_BASE_RESIDUE_FIXED
+  /* arch/x86/Kconfig: PHYSICAL_ALIGN is `range 0x2000 0x1000000 if X86_32`. */
+  const unsigned long kconfig_min = 0x2000ul;
+  struct estimate top, est[Q__COUNT];
+  struct constraint out[4];
+  unsigned long truth, lo;
+  int n, i;
+
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  /* A base on the architecture's finest grid, deliberately off any coarser
+   * one: one step above a grid point the rule would snap to. */
+  truth = kasld_ceil_text_base(top.lo + 0x1000000ul) + kconfig_min;
+  /* A sound lower bound just under it, off-grid so the rule engages. */
+  lo = truth - kconfig_min / 2;
+  mk_est_virt_base(est, lo, top.hi, CONF_INFERRED);
+  n = rule_image_base_grid_align(NULL, est, out, 4);
+  for (i = 0; i < n; i++)
+    if (out[i].op == C_LOWER_BOUND)
+      /* The floor may rise, but never past a base the architecture admits. */
+      assert(out[i].value <= truth);
+#endif
+}
+
+/* SOUNDNESS: every position the architecture can place _text at lies on the
+ * grid its candidates are counted over.
+ *
+ * The count is `window / grain + 1`, so a grain coarser than the real spacing
+ * reports fewer placements than a search has to cover -- understating what is
+ * left to find, which is the same direction as claiming recovery that did not
+ * happen. Where the snap rule is live a coarse grain is worse still, since it
+ * moves the window itself; where it is inert this is the whole of the damage,
+ * and it is damage worth a gate.
+ *
+ * arm32 is where two admissible positions are far enough apart to demonstrate
+ * it. The architecture randomizes nothing, so the positions come from the
+ * configs it admits: arch/arm/Makefile links _text at TEXT_OFFSET, one of
+ * 0x8000, 0x108000, 0x208000 or 0x308000. Two of those differ by 0x100000, so
+ * a grid that cannot divide that difference cannot hold both -- and the pair,
+ * not the constant, is what this asserts against. */
+static void test_image_align_spans_every_admissible_text_position(void) {
+#if defined(__arm__) && !defined(__aarch64__)
+  /* arch/arm/Makefile: textofs-y is 0x8000, with SoC overrides at 0x108000,
+   * 0x208000 and 0x308000. */
+  const unsigned long a = 0x8000ul, b = 0x108000ul;
+  assert((b - a) % (unsigned long)KASLR_VIRT_ALIGN == 0);
+  /* And the ordinary position itself sits on the grid, which a 2 MiB grain
+   * cannot manage for an offset of 0x8000. */
+  assert(a % (unsigned long)KASLR_VIRT_ALIGN == 0);
+#endif
+}
+
 /* FUNCTIONAL end-to-end: with the raw interior-sample ceiling as the tightest
  * bound, the rule snaps the resolved ceiling down to the grid — except where
  * the residue is not architecturally fixed (arm32), where it leaves the raw
@@ -1426,27 +1496,34 @@ static void test_dram_floor_bound(void) {
            top.lo); /* the rule raised the floor */
   }
 #else
-  /* Virtual floor: the resolved linear-map base alone, rounded DOWN to a slot.
-   * The DRAM offset is deliberately NOT added — `pdram_lo - PHYS_OFFSET` is the
+  /* A coupled arch gets no virtual floor from this rule, and that is the
+   * contract worth pinning: the floor a coupled text base does get follows from
+   * the resolved linear-map base rather than from where DRAM begins, so
+   * deriving it here would credit it to a DRAM witness that did not establish
+   * it. Asserted as the rule's own answer.
+   *
+   * Deliberately NOT by re-deriving the untouched window from IMAGE_BASE_OFFSET
+   * and the grain. Where the rule emits nothing the estimate is the honest top
+   * by construction, so such a check compares the architecture against itself:
+   * it passes for whatever the header currently says, and it moves whenever the
+   * header moves. The previous form did exactly that, and its guard skipped the
+   * comparison outright on any arch whose offset rounded away under the grain.
+   */
+  struct constraint probe[4];
+  assert(rule_dram_floor_bound(&e.ev, e.est, probe, 4) == 0);
+
+  /* The soundness property, which is about the estimate rather than the rule
+   * and holds however the floor was arrived at: a LOWER bound on the text base
+   * may never exceed the lowest text base the evidence still admits. This is
+   * the failure the fixture exists for -- `pdram_lo - PHYS_OFFSET` is the
    * image's distance above the base only where the arch's PHYS_OFFSET is the
    * kernel's memstart, which on arm32 it is not (memstart is a runtime board
-   * property; the header says 0). Adding it counted the DRAM base twice and put
-   * the FLOOR above the true text base on a 2G-split arm32 boot.
-   *
-   * This fixture carries no page-offset evidence, so the resolved window is the
-   * honest top and its lower edge is the lowest base the arch admits. */
+   * property; the header says 0), and adding it counted the DRAM base twice and
+   * put the floor above the true text base on a 2G-split arm32 boot. */
   unsigned long po_lo = 0;
   quantity_window(Q_PAGE_OFFSET, &e.est[Q_PAGE_OFFSET], &po_lo, NULL);
-  unsigned long lowest_text = po_lo + (unsigned long)IMAGE_BASE_OFFSET;
-  unsigned long expect = lowest_text & ~(KASLR_VIRT_ALIGN - 1);
-  if (expect > KASLR_VIRT_TEXT_MIN &&
-      expect <= (unsigned long)KERNEL_VIRT_TEXT_MAX)
-    assert(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
-  /* The invariant the formula must satisfy, stated separately so a future
-   * rewrite is checked against the property and not against its own
-   * arithmetic: a LOWER bound on the text base may never exceed the lowest text
-   * base the evidence still admits. */
-  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= lowest_text);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <=
+         po_lo + (unsigned long)IMAGE_BASE_OFFSET);
 #endif
 }
 
@@ -5014,9 +5091,205 @@ static void test_boot_params_kaslr_align(void) {
    * treatment — physical and virtual offsets are locked on both. */
   assert(e.est[Q_VIRT_KASLR_ALIGN].lo == big);
   assert(e.est[Q_PHYS_KASLR_ALIGN].lo == big);
+  /* The parsed constant IS the slot granularity, so it closes the alignment
+   * rather than merely raising its floor: a count over the resulting grain is
+   * the size of the set the kernel drew from, not a ceiling over it. */
+  {
+    unsigned long pitch = 0;
+    assert(quantity_pinned(Q_VIRT_KASLR_ALIGN, &e.est[Q_VIRT_KASLR_ALIGN],
+                           &pitch) &&
+           pitch == big);
+    assert(quantity_pinned(Q_PHYS_KASLR_ALIGN, &e.est[Q_PHYS_KASLR_ALIGN],
+                           &pitch) &&
+           pitch == big);
+  }
 #else
   assert(e.est[Q_VIRT_KASLR_ALIGN].lo ==
          (unsigned long)KASLR_VIRT_ALIGN); /* inert */
+#endif
+}
+
+/* The module base where the allocator drew no random offset.
+ *
+ * execmem_arch_setup() takes its offset only when kaslr_enabled(); otherwise
+ * the range starts at MODULES_VADDR exactly. Which MODULES_VADDR depends on
+ * CONFIG_RANDOMIZE_BASE, which a KASLR-off run has not established -- so the
+ * coarser of the two placements is a ceiling and the rule states that much.
+ *
+ * Asserted in both directions: an off-signal caps the base, and its absence
+ * leaves the base alone. The second arm is what keeps this from passing on a
+ * rule that caps unconditionally, which would put a ceiling under a randomized
+ * kernel's module region. */
+static void test_module_base_no_kaslr_ceiling(void) {
+#if defined(MODULES_BASE_RANDOMIZED)
+  struct engine e;
+  struct constraint out[2];
+
+  /* No signal: silent. */
+  engine_init(&e);
+  assert(rule_module_base_no_kaslr_ceiling(&e.ev, e.est, out, 2) == 0);
+
+  /* KASLR off: a ceiling at the randomized placement, no tighter. */
+  engine_init(&e);
+  struct observation d = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+  evidence_add(&e.ev, &d);
+  assert(rule_module_base_no_kaslr_ceiling(&e.ev, e.est, out, 2) == 1);
+  assert(out[0].q == Q_MODULE_BASE);
+  assert(out[0].op == C_UPPER_BOUND);
+  assert(out[0].value == (unsigned long)MODULES_BASE_RANDOMIZED);
+  assert(out[0].conf == CONF_PARSED); /* no stronger than its signal */
+
+  /* A sub-floor signal carries its own confidence through, so an unkeyed
+   * config shapes the likely window and not the guaranteed one. */
+  engine_init(&e);
+  struct observation h = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_HEURISTIC);
+  evidence_add(&e.ev, &h);
+  assert(rule_module_base_no_kaslr_ceiling(&e.ev, e.est, out, 2) == 1);
+  assert(out[0].conf == CONF_HEURISTIC);
+#endif
+}
+
+/* The execmem window is licensed by the boot stub's own record of having
+ * randomized, not only by a resolved base that moved -- which is what lets it
+ * speak on a run that resolved no base at all. */
+static void test_module_base_execmem_window_from_kaslr_flag(void) {
+#if defined(MODULES_BASE_RANDOMIZED) && defined(MODULES_BASE_RANDOM_SPAN)
+  struct engine e;
+  struct constraint out[4];
+
+  /* Nothing resolved and no flag: the placement is unknown, so silent. */
+  engine_init(&e);
+  assert(rule_module_base_execmem_window(&e.ev, e.est, out, 4) == 0);
+
+  /* The flag alone, with no base resolved, is enough. */
+  engine_init(&e);
+  struct observation r = mk_scalar(SF_KASLR_RANDOMIZED, 1, CONF_PARSED);
+  evidence_add(&e.ev, &r);
+  int n = rule_module_base_execmem_window(&e.ev, e.est, out, 4);
+  assert(n == 2);
+  for (int i = 0; i < n; i++) {
+    assert(out[i].q == Q_MODULE_BASE);
+    if (out[i].op == C_LOWER_BOUND)
+      assert(out[i].value == (unsigned long)MODULES_BASE_RANDOMIZED);
+    if (out[i].op == C_UPPER_BOUND)
+      assert(out[i].value == (unsigned long)MODULES_BASE_RANDOMIZED +
+                                 (unsigned long)MODULES_BASE_RANDOM_SPAN);
+  }
+#endif
+}
+
+/* s390's granularity is THREAD_SIZE, and the config settles which one.
+ *
+ * Both facts are required: a config that could not be read states neither, and
+ * assuming the ordinary case would put a guess where the arch baseline already
+ * has a sound floor. Asserted across all three outcomes so no single answer can
+ * be accidental. */
+static void test_s390_thread_size_align(void) {
+#if defined(__s390x__) || defined(__s390__)
+  struct engine e;
+  struct constraint out[4];
+  unsigned long pitch = 0;
+
+  /* Neither fact: silent, and the baseline's floor stands. */
+  engine_init(&e);
+  assert(rule_s390_thread_size_align(&e.ev, e.est, out, 4) == 0);
+
+  /* One fact alone is still not an answer. */
+  engine_init(&e);
+  struct observation k0 = mk_scalar(SF_KASAN_ENABLED, 0, CONF_PARSED);
+  evidence_add(&e.ev, &k0);
+  assert(rule_s390_thread_size_align(&e.ev, e.est, out, 4) == 0);
+
+  /* Both clear: the ordinary 16 KiB, stated as the value. */
+  struct observation m0 = mk_scalar(SF_KMSAN_ENABLED, 0, CONF_PARSED);
+  evidence_add(&e.ev, &m0);
+  int n = rule_s390_thread_size_align(&e.ev, e.est, out, 4);
+  assert(n == 2);
+  for (int i = 0; i < n; i++) {
+    assert(out[i].op == C_EQUALS && out[i].value == 0x4000ul);
+    assert(out[i].q == Q_VIRT_KASLR_ALIGN || out[i].q == Q_PHYS_KASLR_ALIGN);
+  }
+
+  /* Instrumented stacks: four times coarser, and it reaches the estimate. */
+  engine_init(&e);
+  struct observation k1 = mk_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
+  struct observation m1 = mk_scalar(SF_KMSAN_ENABLED, 0, CONF_PARSED);
+  evidence_add(&e.ev, &k1);
+  evidence_add(&e.ev, &m1);
+  const rule_fn rules[] = {rule_kaslr_align_arch_default,
+                           rule_s390_thread_size_align};
+  engine_run(&e, rules, 2);
+  assert(
+      quantity_pinned(Q_VIRT_KASLR_ALIGN, &e.est[Q_VIRT_KASLR_ALIGN], &pitch) &&
+      pitch == 0x10000ul);
+#endif
+}
+
+/* The granularity read off a resolved physical base alone.
+ *
+ * x86 places the kernel on a CONFIG_PHYSICAL_ALIGN grid whatever
+ * CONFIG_PHYSICAL_START is, so the granularity divides the base and the largest
+ * power of two dividing it is a ceiling. Where that meets the architecture's
+ * minimum from above, the two fix the granularity between them -- which is what
+ * a vantage with no boot_params, config or image has to work with.
+ *
+ * Both outcomes are asserted from the same fixture shape, so a build that
+ * answered the same way regardless would fail: a base whose lowest set bit IS
+ * the minimum pins, and one lying on a coarser grid leaves the granularity open
+ * between the two and states nothing. */
+static void test_kaslr_align_from_phys_base(void) {
+#if defined(__x86_64__) || defined(__i386__)
+  const unsigned long floor = (unsigned long)KASLR_PHYS_ALIGN;
+  struct estimate est[Q__COUNT];
+  struct constraint out[4];
+  int q, n;
+
+  /* Pinned one granule above the floor: lowest set bit == the floor. */
+  for (q = 0; q < Q__COUNT; q++)
+    quantities[q].init_top(&est[q]);
+  est[Q_PHYS_IMAGE_BASE].kind = LK_INTERVAL;
+  est[Q_PHYS_IMAGE_BASE].lo = est[Q_PHYS_IMAGE_BASE].hi = floor * 3;
+  est[Q_PHYS_IMAGE_BASE].lo_binding = est[Q_PHYS_IMAGE_BASE].hi_binding = 1;
+  est[Q_PHYS_IMAGE_BASE].lo_conf = est[Q_PHYS_IMAGE_BASE].hi_conf = CONF_PARSED;
+  n = rule_kaslr_align_from_phys_base(NULL, est, out, 4);
+  assert(n == 2);
+  for (int i = 0; i < n; i++) {
+    assert(out[i].op == C_EQUALS && out[i].value == floor);
+    assert(out[i].conf == CONF_PARSED); /* no more trusted than the base */
+    assert(out[i].q == Q_VIRT_KASLR_ALIGN || out[i].q == Q_PHYS_KASLR_ALIGN);
+  }
+
+  /* A base on a grid twice as coarse: the granularity is genuinely open between
+   * the floor and that ceiling, so nothing is stated. */
+  est[Q_PHYS_IMAGE_BASE].lo = est[Q_PHYS_IMAGE_BASE].hi = floor * 4;
+  assert(rule_kaslr_align_from_phys_base(NULL, est, out, 4) == 0);
+
+  /* An unpinned base states nothing either: a window has no lowest set bit. */
+  for (q = 0; q < Q__COUNT; q++)
+    quantities[q].init_top(&est[q]);
+  assert(rule_kaslr_align_from_phys_base(NULL, est, out, 4) == 0);
+#endif
+}
+
+/* The pin reaches the engine and makes the reported grain exact, which is the
+ * whole point of deriving it -- a count over a granularity the run proved is
+ * the size of the set the kernel drew from rather than a ceiling over it. */
+static void test_kaslr_align_from_phys_base_pins_the_grain(void) {
+#if defined(__x86_64__) || defined(__i386__)
+  struct engine e;
+  unsigned long pitch = 0;
+  engine_init(&e);
+  struct observation p = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE,
+                                (unsigned long)KASLR_PHYS_ALIGN * 3, LO_SET,
+                                POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &p);
+  const rule_fn rules[] = {rule_kaslr_align_arch_default,
+                           rule_text_pin_from_observation,
+                           rule_kaslr_align_from_phys_base};
+  engine_run(&e, rules, 3);
+  assert(
+      quantity_pinned(Q_PHYS_KASLR_ALIGN, &e.est[Q_PHYS_KASLR_ALIGN], &pitch));
+  assert(pitch == (unsigned long)KASLR_PHYS_ALIGN);
 #endif
 }
 
@@ -5031,6 +5304,61 @@ static void test_boot_params_kaslr_align_subdefault(void) {
   engine_run(&e, rules, 2);
   /* max-align never drops below the baseline. */
   assert(e.est[Q_VIRT_KASLR_ALIGN].lo == (unsigned long)KASLR_VIRT_ALIGN);
+  /* And the reading is not treated as the granularity: the Kconfig range starts
+   * at the architecture's minimum, so a value beneath it describes no kernel
+   * this architecture builds. Left unstated rather than contradicting the
+   * baseline -- which of the two the resolver would then discard is not a
+   * question worth having.
+   *
+   * Asserted only where the rule under test is live. Elsewhere it emits
+   * nothing, so an unpinned alignment would be saying something about
+   * kaslr_align_arch_default's own declaration rather than about this rule --
+   * and on an architecture that fixes its granularity that statement is simply
+   * false. */
+#if defined(__x86_64__) || defined(__i386__)
+  assert(
+      !quantity_pinned(Q_VIRT_KASLR_ALIGN, &e.est[Q_VIRT_KASLR_ALIGN], NULL));
+  assert(
+      !quantity_pinned(Q_PHYS_KASLR_ALIGN, &e.est[Q_PHYS_KASLR_ALIGN], NULL));
+#endif
+}
+
+/* The baseline states the value it is entitled to and no more.
+ *
+ * Where the architecture's placement code steps by a constant,
+ * KASLR_ALIGN_FIXED says so and the baseline IS the granularity, on both axes
+ * -- the arch is the source, so no evidence is needed and every run can state
+ * it. Where a build can choose a coarser step the same constant is only a
+ * floor, and a run with no source for the real value must report a grain it can
+ * merely bound.
+ *
+ * Both arms are asserted from one fixture so that neither answer can be
+ * accidental, and the arm taken is the architecture's own declaration rather
+ * than a list of arch names kept in step by hand. Under `make test-cross` this
+ * runs on every supported architecture, so each one is held to what it
+ * declares. */
+static void test_kaslr_align_arch_default_matches_its_declaration(void) {
+  struct engine e;
+  unsigned long pitch = 0;
+  engine_init(&e);
+  const rule_fn rules[] = {rule_kaslr_align_arch_default};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo == (unsigned long)KASLR_VIRT_ALIGN);
+  assert(e.est[Q_PHYS_KASLR_ALIGN].lo == (unsigned long)KASLR_PHYS_ALIGN);
+#if KASLR_ALIGN_FIXED
+  assert(
+      quantity_pinned(Q_VIRT_KASLR_ALIGN, &e.est[Q_VIRT_KASLR_ALIGN], &pitch) &&
+      pitch == (unsigned long)KASLR_VIRT_ALIGN);
+  assert(
+      quantity_pinned(Q_PHYS_KASLR_ALIGN, &e.est[Q_PHYS_KASLR_ALIGN], &pitch) &&
+      pitch == (unsigned long)KASLR_PHYS_ALIGN);
+#else
+  (void)pitch;
+  assert(
+      !quantity_pinned(Q_VIRT_KASLR_ALIGN, &e.est[Q_VIRT_KASLR_ALIGN], NULL));
+  assert(
+      !quantity_pinned(Q_PHYS_KASLR_ALIGN, &e.est[Q_PHYS_KASLR_ALIGN], NULL));
+#endif
 }
 
 static void test_arm64_efi_kimg_align(void) {
@@ -8485,6 +8813,10 @@ int main(void) {
   RUN(test_engine_interior_band_capped);
   RUN(test_engine_interior_band_does_not_displace_image);
   RUN(test_image_base_grid_align_sound);
+  RUN(test_image_base_grid_align_admits_a_finely_aligned_base);
+  RUN(test_module_base_no_kaslr_ceiling);
+  RUN(test_module_base_execmem_window_from_kaslr_flag);
+  RUN(test_image_align_spans_every_admissible_text_position);
   RUN(test_image_base_grid_align_tightens);
   RUN(test_image_base_grid_align_noop);
   RUN(test_arm64_text_base_off_2mib_stays_in_window);
@@ -8621,6 +8953,10 @@ int main(void) {
   RUN(test_kaslr_align_arch_default);
   RUN(test_boot_params_kaslr_align);
   RUN(test_boot_params_kaslr_align_subdefault);
+  RUN(test_s390_thread_size_align);
+  RUN(test_kaslr_align_from_phys_base);
+  RUN(test_kaslr_align_from_phys_base_pins_the_grain);
+  RUN(test_kaslr_align_arch_default_matches_its_declaration);
   RUN(test_arm64_efi_kimg_align);
   RUN(test_ceiling_uses_resolved_align);
   RUN(test_resolved_grid_align_pins_x86_64);

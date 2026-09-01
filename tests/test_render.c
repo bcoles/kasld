@@ -246,7 +246,7 @@ stage_item(struct kasld_report *r, enum kasld_quantity q, const char *label,
    * deciding it separately would drift from what a real run produces, and the
    * grain cell would then be marked one way in tests and another in the field.
    */
-  it->align_exact = q_grain_exact(q);
+  it->align_exact = q_grain_exact(q, NULL, grain);
   it->entropy_top = top;
   it->search_top = top;
   /* Through the builder's own conversion, as `bits` is: a denominator staged
@@ -1640,7 +1640,10 @@ static void test_render_grain_states_a_floor_as_one(void) {
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
 
-  /* The image base is a floor on every arch: no rule caps its alignment. */
+  /* An image base whose alignment nothing resolved is a floor on every arch:
+   * the architectural minimum is a bound, not the granularity the kernel was
+   * built with. The converse -- a resolved granularity dropping the marker --
+   * belongs with the report model, which is where the estimate lives. */
   line = strstr(render_cap, "| Virtual Image Base |");
   assert(line != NULL);
   {
@@ -1654,7 +1657,8 @@ static void test_render_grain_states_a_floor_as_one(void) {
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
   assert(strstr(render_cap, "\"slots_upper_bound\": true") != NULL);
-  assert(q_grain_exact(Q_VIRT_IMAGE_BASE) == 0);
+  assert(q_grain_exact(Q_VIRT_IMAGE_BASE, NULL,
+                       (unsigned long)KASLR_VIRT_ALIGN) == 0);
 }
 
 static void test_render_memory_kaslr_slots_reach_machine_formats(void) {

@@ -848,6 +848,7 @@ lint :
 	    $(TEST_DIR)/check-page-offset-substitution \
 	    $(TEST_DIR)/check-render-default \
 	    $(TEST_DIR)/check-image-size \
+	    $(TEST_DIR)/check-image-align \
 	    $(TEST_DIR)/check-dram-base \
 	    $(TEST_DIR)/check-fdt-unflatten \
 	    $(TEST_DIR)/check-ksymoff \
@@ -877,6 +878,7 @@ lint :
 	    $(TEST_DIR)/check-render-color \
 	    $(TEST_DIR)/check-wire-text \
 	    $(TEST_DIR)/check-sysroot-containment \
+	    $(TEST_DIR)/check-uname-release \
 	    $(TEST_DIR)/hardening-fixtures \
 	    $(TEST_DIR)/cli-flags
 

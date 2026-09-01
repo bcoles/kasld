@@ -122,9 +122,20 @@ int main(void) {
    * page_offset / vmalloc / vmemmap stay at their compile-time defaults even
    * with CONFIG_RANDOMIZE_MEMORY=y. Consumed by directmap_kaslr_disabled_pin.
    */
-  if (is_kconfig_set(fp, "CONFIG_KASAN")) {
-    kasld_info("CONFIG_KASAN=y");
-    kasld_emit_scalar(SF_KASAN_ENABLED, 1, cfg_conf);
+  /* Emitted either way, as in proc_config: a consumer asking whether the stack
+   * size is the small one needs the negative to be an answer. CONFIG_KMSAN
+   * sizes the same stacks on s390 and is read beside it. An unkeyed file
+   * carries cfg_conf below the sound floor, so a stale config's "not set"
+   * shapes only the likely window. */
+  {
+    int kasan = is_kconfig_set(fp, "CONFIG_KASAN") ? 1 : 0;
+    int kmsan = is_kconfig_set(fp, "CONFIG_KMSAN") ? 1 : 0;
+    if (kasan)
+      kasld_info("CONFIG_KASAN=y");
+    if (kmsan)
+      kasld_info("CONFIG_KMSAN=y");
+    kasld_emit_scalar(SF_KASAN_ENABLED, (unsigned long)kasan, cfg_conf);
+    kasld_emit_scalar(SF_KMSAN_ENABLED, (unsigned long)kmsan, cfg_conf);
   }
 
   /* Kernel-text function ordering (canonical / static-reorder / FG-KASLR) —

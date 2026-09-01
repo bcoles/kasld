@@ -107,8 +107,8 @@ With only this one leak the result is still a window — several slots wide:
 
 ```
   Quantity            Certainty   Window                                   Candidates  Grain
-  ------------------  ----------  ---------------------------------------  ----------  -----
-  Virtual Image Base  guaranteed  0xffffffff81000000 - 0xffffffff81e00000    8 of 505  2 MiB
+  ------------------  ----------  ---------------------------------------  ----------  --------
+  Virtual Image Base  guaranteed  0xffffffff81000000 - 0xffffffff81e00000    8 of 505  >= 2 MiB
 ```
 
 A second observation — a `_stext` base witness, a DRAM floor, or the
@@ -122,8 +122,8 @@ base and its slide:
 
 ```
   Quantity            Certainty   Window                              Candidates  Grain
-  ------------------  ----------  ----------------------------------  ----------  -----
-  Virtual Image Base  guaranteed  0xffffffff81e00000 slide +0xe00000    1 of 505  2 MiB
+  ------------------  ----------  ----------------------------------  ----------  --------
+  Virtual Image Base  guaranteed  0xffffffff81e00000 slide +0xe00000    1 of 505  >= 2 MiB
 ```
 
 That is the whole path: a log line becomes an observation, a rule turns it into a
@@ -602,7 +602,24 @@ independent scalar facts because real kernels can disable one axis without the
 other. A handful of components detect a definitive opt-out and emit the pair —
 proc_cmdline (`nokaslr`), boot_config / proc_config (no `CONFIG_RANDOMIZE_BASE`),
 dmesg_kaslr_disabled, hibernation_nokaslr, riscv64_no_seed,
-loongarch_kexec_file_nokaslr, s390_kdump_nokaslr. The orchestrator reads
+loongarch_kexec_file_nokaslr, s390_kdump_nokaslr, and on x86 boot_params_facts —
+which differs in kind from the rest. Each of the others reads an expression of
+intent: a command line, a config option, a log line. boot_params_facts reads
+`KASLR_FLAG` in `boot_params.hdr.loadflags`, which the boot stub clears on entry
+and sets only after randomizing, so it is the randomizer's own record of what it
+did. The same component emits the pair for a kernel built without
+`CONFIG_RELOCATABLE`, which cannot be randomized because it ignores the address
+the boot loader chose and decompresses to the one it was compiled for.
+
+That flag also answers in the positive, which nothing else does. Set, it is
+emitted as `SF_KASLR_RANDOMIZED` — and because the code that sets it is compiled
+in only under `CONFIG_RANDOMIZE_BASE`, it carries that option with it, and
+therefore `KERNEL_IMAGE_SIZE` and the placement of `MODULES_VADDR`. That is what
+licenses `module_base_execmem_window` on a run that has resolved no base at all,
+where previously only a base observed away from its compile-time default could
+establish the same premise. Read from `/sys/kernel/boot_params/data` alone: the
+bit is written at runtime, and the copy in the `/boot` image carries the
+build-time value, which is clear on every kernel. The orchestrator reads
 `SF_VIRT_KASLR_DISABLED` to set the summary's `kaslr.disabled` flag (driving the
 "kernel sits at default text base" banner and `slide`/`slot` zeroing). The
 engine's `virt_kaslr_disabled_pin` pins `Q_VIRT_IMAGE_BASE` to the compile-time

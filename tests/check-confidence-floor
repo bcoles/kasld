@@ -76,11 +76,37 @@ RULES=$ROOT/src/rules
 #   arm64_va_bits_from_vmemmap    computed, but capped at CONF_HEURISTIC: the
 #                                 pre-v5.4 vmemmap overlaps the modern VA52 one,
 #                                 so the witness is ambiguous. Likely window only
+#   s390_thread_size_align        read: CONFIG_KASAN and CONFIG_KMSAN from a
+#                                 readable kernel config. s390 places with
+#                                 round_down(.., THREAD_SIZE) and fixes PAGE_SIZE
+#                                 at 4 KiB, so those two options decide the
+#                                 granularity outright -- 16 KiB, or 64 KiB where
+#                                 either is set. Both facts required: their
+#                                 absence is not a negative, and the arch
+#                                 baseline's floor already covers that case
+#   kaslr_align_from_phys_base    computed: the largest power of two dividing a
+#                                 RESOLVED physical base. x86 places the kernel
+#                                 on a CONFIG_PHYSICAL_ALIGN grid whatever
+#                                 CONFIG_PHYSICAL_START is, so the granularity
+#                                 divides that base and this is a ceiling on it.
+#                                 Stated only where the ceiling meets the arch
+#                                 minimum from above, which fixes the value
+#                                 between the two; a ceiling above the minimum
+#                                 leaves it open and is not emitted. Capped at
+#                                 the confidence of the edge that pinned the base
 #   base_align_cross_validate     read: the largest alignment a component states a
 #                                 leaked base is known to have. A floor on the
 #                                 slot granularity, not a claim about the grid
 #   boot_params_kaslr_align       read: parsed CONFIG_PHYSICAL_ALIGN, which is the
-#                                 slot granularity itself
+#                                 slot granularity itself -- so it is stated as a
+#                                 value (C_EQUALS), closing the alignment from
+#                                 above as well as below rather than only raising
+#                                 its floor. A reading below the architecture's
+#                                 own minimum is dropped: the Kconfig range
+#                                 starts there, so a smaller value describes no
+#                                 kernel the arch builds, and as a value it would
+#                                 contradict the baseline instead of being
+#                                 dominated by it
 #   cmdline_memmap_phys_exclude   computed: bases whose image would overlap a
 #                                 memmap= reservation the placer refuses. Rests on
 #                                 the image size as well as the reservation, and
@@ -98,11 +124,17 @@ RULES=$ROOT/src/rules
 #   efi_loader_kernel_pick        read: a surviving candidate's own value
 #   initrd_phys_exclude           computed: bases whose image would overlap the
 #                                 initrd; same size dependency and cap
-#   kaslr_align_arch_default      the arch's minimum KASLR granularity, as an
-#                                 at-least floor. Sound only while each arch's
-#                                 KASLR_*_ALIGN is the MINIMUM over every config
-#                                 it admits -- a value taken from one config is
-#                                 too coarse and excludes the finer-aligned bases
+#   kaslr_align_arch_default      the arch's minimum KASLR granularity. Sound
+#                                 only while each arch's KASLR_*_ALIGN is the
+#                                 MINIMUM over every config it admits -- a value
+#                                 taken from one config is too coarse and
+#                                 excludes the finer-aligned bases. Stated as an
+#                                 at-least floor by default; as the granularity
+#                                 itself (C_EQUALS) only where the arch header
+#                                 sets KASLR_ALIGN_FIXED, which asserts its
+#                                 placement code steps by a constant with no
+#                                 config in it, on BOTH axes. The floor is the
+#                                 default, so an unread architecture claims less
 #   loongarch64_module_base       computed: vm_map_base + addend + pages. The
 #                                 shift is the width the KERNEL places the region
 #                                 with, which is not always the width cpuinfo
@@ -165,6 +197,7 @@ arm64_va_bits_from_scalar
 arm64_va_bits_from_vmemmap
 base_align_cross_validate
 boot_params_kaslr_align
+kaslr_align_from_phys_base
 cmdline_memmap_phys_exclude
 cmdline_memmap_too_large_phys_pin
 cmdline_phys_exclude
@@ -173,6 +206,7 @@ efi_loader_kernel_pick
 initrd_phys_exclude
 kaslr_align_arch_default
 loongarch64_module_base
+s390_thread_size_align
 module_base_ppc64_vmalloc
 page_offset_from_config
 page_offset_from_leak

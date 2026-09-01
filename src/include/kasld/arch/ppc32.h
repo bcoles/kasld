@@ -128,7 +128,23 @@
 #define MODULES_START MODULES_START_FOR(KERNEL_VIRT_VAS_START)
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 
-// page aligned
+// Page aligned, and it stays page aligned even though ppc32's own KASLR is
+// coarser than that.
+//
+// The 85xx randomizer rounds its offset down to SZ_16K and searches downward in
+// SZ_16K steps, and memstart_addr cancels out of the result, so an offset it
+// chooses IS a multiple of 16 KiB (arch/powerpc/mm/nohash/kaslr_booke.c). It is
+// tempting to count on that grid. It cannot be counted on, because the same
+// CONFIG_RELOCATABLE that KASLR depends on states of ppc32: "there is no any
+// alignment restrictions" -- a relocatable kernel runs from wherever the boot
+// loader put it, at any alignment, with CONFIG_PHYSICAL_START ignored
+// (arch/powerpc/Kconfig). A base that differs from the compile-time default is
+// therefore evidence of relocation, not of randomization, and nothing on ppc32
+// separates the two the way x86's KASLR_FLAG does.
+//
+// Raising this to 16 KiB would narrow the candidate set fourfold on evidence
+// that does not support it. The page is what every ppc32 kernel can be relied
+// on to satisfy.
 #define IMAGE_ALIGN 0x1000ul
 
 // BookE (PPC_85xx) KASLR uses 16 KiB alignment within 64 MiB windows.

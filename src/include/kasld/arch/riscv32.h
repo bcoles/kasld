@@ -90,6 +90,14 @@
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
 #define IMAGE_ALIGN (4 * MB)
 
+// The granularity is the architecture's, not a build's. The virtual offset is
+// a whole number of PGDIR_SIZE -- the 2-level sv32 layout has no PMD, so the
+// KASLR step folds onto it -- and the boot contract requires the same of the
+// physical load address: "placed at a PMD boundary (2MB aligned for rv64 and
+// 4MB aligned for rv32)". Both axes, and neither is config-dependent.
+// https://elixir.bootlin.com/linux/latest/source/Documentation/arch/riscv/boot.rst
+#define KASLR_ALIGN_FIXED 1
+
 // .head.text section size (8 KiB) before _stext.
 #define IMAGE_BASE_OFFSET 0x2000
 

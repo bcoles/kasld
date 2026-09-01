@@ -203,6 +203,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-render-default` | no output format names a compile-time layout default (`PAGE_OFFSET`, `KERNEL_VIRT_TEXT_DEFAULT`) in code † |
 | `check-text-region` | the `KERNEL_TEXT` vs `KERNEL_IMAGE` base contract holds — only reviewed emitters may publish a `_stext` base |
 | `check-image-size` | the kernel image size is read only through the evidence accessors, never re-derived in a component |
+| `check-image-align` | every captured x86 kernel's own statement of its architectural minimum alignment (`boot_params.hdr.min_alignment`) agrees with the `IMAGE_ALIGN` the matching build carries † |
 | `check-dram-base` | where physical RAM begins is read only through `evidence_lowest_dram_base()`, never re-scanned in a rule † |
 | `check-hash-parity` | every hashed offset-table row's key recomputes to the stored value under the shipped `kasld_fnv1a64()`, so the runtime hash and the offline generator's cannot drift apart |
 | `check-manpages` | the set of long options in each program's `--help` exactly matches the set its man page documents, so a new or removed flag cannot skip its manual entry |
@@ -216,9 +217,10 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-render-color` | coloured output is byte-identical to plain output once the escape sequences are removed, and markdown, JSON and oneline carry no escapes at all † |
 | `check-wire-text` | a component cannot put an escape sequence on the terminal: a record whose `name`, or a disposition whose `gate` or `msg`, leaves printable ASCII is rejected, and the verbose echo of component output strips control bytes † |
 | `check-sysroot-containment` | a `KASLD_SYSROOT` too long to build a fact path with fails the read instead of falling back to the analysing host's own `/proc` and `/sys` † |
+| `check-uname-release` | `KASLD_UNAME_RELEASE` applies only alongside `KASLD_SYSROOT`: it names the kernel a capture came from, so a live run reports the kernel it is actually running rather than the one the variable names † |
 | `check-guard-docs` | this table lists exactly the guards `make lint` runs — the same parity check `check-manpages` applies to flags, applied to the guard list itself |
 | `check-matrix-summary` | the summary table in `docs/reproducibility.md` restates the full per-scenario matrix it precedes: same cells, same KASLR state, same `default` and `perf-open` results in both directions |
-| `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 100 columns (live output is measured separately by `check-render-width`) † |
+| `check-readout-docs` | documented sample output uses the renderer's current vocabulary; the readout blocks among them fit 100 columns; and a block marked as replayed appears verbatim and contiguously in the output of the command the document prints beside it (live output is measured separately by `check-render-width`) † |
 | `check-doc-structure` | every committed `.md` has balanced code fences, a complete table of contents where it has one, and a stated section count that matches its numbered sections † |
 | `check-doc-identifiers` | documentation names things that exist: project identifiers cited in backticks resolve somewhere in the tree, and every documented `KASLD_META` key is read by the code † |
 | `check-diagram-data` | a diagram drawn from a table still agrees with it: every architecture, version and constant the source table names appears in the SVG and nothing else does, and every diagram is referenced, well-formed, and free of glyphs a generic sans-serif may not carry † |
@@ -558,6 +560,45 @@ escaped. A live run supplies the control: a host exposing no more facts than
 the empty sysroot does leaves nothing to detect, and the guard skips rather
 than passing on an absence.
 
+**`check-uname-release`** — `KASLD_UNAME_RELEASE` names the kernel a capture
+came from, and honouring it with no capture labelled a scan of the local machine
+with a kernel that machine is not running. The document's own provenance flag
+still read `replay: false` — correctly, since every fact was live — so nothing
+in the report contradicted the substituted release, and a source whose path
+carries the release stopped resolving as well. Both halves are asserted, since
+either alone can hold for the wrong reason: ignored on a live run, still
+supplying the release for a capture that states none.
+
+The two expectations are relations rather than values — the live release against
+this host's own `uname(2)`, the captured one against the string handed to the
+run — so the guard asserts nothing about the kernel it happens to run on.
+
+**`check-image-align`** — `IMAGE_ALIGN` is the alignment `_text` is *guaranteed*
+to have: the smallest an admissible build can use, not the value a default build
+happens to get. The distinction is load-bearing, because the constant drives the
+grid `image_base_grid_align` snaps a resolved window onto — so a figure taken
+from one config raises a floor past a finely aligned base and drops the truth
+out of the guaranteed window.
+
+x86_32 carried the Kconfig default (2 MiB) where the range starts at `0x2000`,
+with the header comment beside it recording the real range the whole time.
+Nothing compared the two.
+
+x86 kernels publish the answer, so on x86 it can be compared rather than
+reasoned about: the setup header's `min_alignment` at offset 0x235 is
+`MIN_KERNEL_ALIGN_LG2`, which is `PMD_SHIFT` on x86_64 and
+`PAGE_SHIFT + THREAD_SIZE_ORDER` on x86_32 — all three unconditional, so it is a
+constant of the architecture rather than of the build, and the Kconfig range for
+`CONFIG_PHYSICAL_ALIGN` starts at exactly it. Every captured x86 kernel in the
+corpus is checked against the build for its architecture; each is a different
+real kernel, so a disagreement means this tree's arch header is wrong about the
+architecture rather than about one boot.
+
+Not a component or an engine rule, deliberately: the value equals the
+architectural floor `kaslr_align_arch_default` already asserts as an axiom, so
+reading it at runtime would emit a constraint the engine holds already. Its
+worth is entirely as a check on the constant.
+
 **`check-doc-structure`** — Three failures markdown accepts silently and a
 reader meets as a broken page: an unclosed fence swallows the rest of the
 document, a heading added without its TOC line is unreachable from the contents
@@ -593,11 +634,29 @@ examples, and including it would let any identifier it mentions satisfy the chec
 it exists to make.
 
 **`check-readout-docs`** — Documented sample output uses the renderer's current
-vocabulary and fits 100 columns (live output is measured separately by
-`check-render-width`) — the README and `docs/` carry hand-maintained copies of
+vocabulary, and the readout blocks among them fit 100 columns (live output is
+measured separately by `check-render-width`, against the tool's own wider
+budget) — the README and `docs/` carry hand-maintained copies of
 rendered output with nothing tying them to the renderer, so a rename or column
 change silently leaves them describing a version of the tool that no longer
 exists.
+
+Vocabulary and arithmetic are not enough on their own: a sample assembled from
+several runs passes both while describing a run that never happened. One did —
+a bare `-` candidate count beside an entropy line that prints only when the
+count is above zero, and two region rows whose stated counts were each one
+short of what their own windows imply. So a block a document presents as output
+is re-derived rather than read: `<!-- replay: <fixture> <flags> -->` above the
+fence names the run, the guard repeats it, and the block must appear in the
+output as a *contiguous* run of lines. Contiguity is the load-bearing part —
+it is the property a composite fails. Trailing whitespace is stripped from both
+sides, since the Layout header pads its last column and the documents carry
+none.
+
+The fixture must also be named by a command earlier in the document, so the
+block stays reproducible by a reader rather than only by this guard. That is
+searched from the top rather than within a fixed window: a second excerpt of one
+run is introduced as such rather than by restating the command.
 
 **`hardening-fixtures`** — The `-H` hardening advisor holds its structural
 invariants when driven over the captured x86_64 sysroots. `test_render.c`

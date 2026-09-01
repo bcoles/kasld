@@ -347,6 +347,8 @@ R(x86_64_efi_phys_seed_zero);
 /* KASLR alignment */
 R(kaslr_align_arch_default);
 R(boot_params_kaslr_align);
+R(kaslr_align_from_phys_base);
+R(s390_thread_size_align);
 R(arm64_efi_kimg_align);
 R(config_max_offset_ceiling);
 R(base_align_cross_validate);
@@ -362,6 +364,7 @@ R(module_text_bound);
 R(module_text_bracket);
 R(module_base_bounds);
 R(module_base_execmem_window);
+R(module_base_no_kaslr_ceiling);
 R(module_base_from_text);
 R(loongarch64_module_base);
 R(module_base_ppc64_vmalloc);

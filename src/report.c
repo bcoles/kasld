@@ -65,6 +65,61 @@ static int q_is_member(enum kasld_quantity q) {
   }
 }
 
+/* The alignment quantity governing a base, or Q__COUNT where none does. Named
+ * once so the grain and the test for whether it is exact cannot end up reading
+ * different quantities. */
+static enum kasld_quantity q_align_quantity(enum kasld_quantity q) {
+  switch (q) {
+  case Q_VIRT_IMAGE_BASE:
+    return Q_VIRT_KASLR_ALIGN;
+  case Q_PHYS_IMAGE_BASE:
+    return Q_PHYS_KASLR_ALIGN;
+  default:
+    return Q__COUNT;
+  }
+}
+
+/* Whether a quantity's grain is the pitch itself or only a floor under it.
+ *
+ * Two ways to be exact, and they are not interchangeable. The
+ * memory-randomization grid is fixed by the kernel's own layout code, so it is
+ * exact for every run on the architecture that has one -- no evidence required,
+ * which is why that arm needs no estimate. An image base's granularity is a
+ * build option, so it is exact only for a run that resolved it: the alignment
+ * quantity is proven from below by default, and a source that read the kernel's
+ * placement constant closes it to a value (see estimate.h). Anything short of
+ * that leaves a kernel built more coarsely aligned than the engine could prove
+ * sitting on fewer placements than a count on this grain states. */
+static int q_grain_exact(enum kasld_quantity q, const struct estimate *est,
+                         unsigned long grain) {
+  enum kasld_quantity aq;
+  unsigned long pitch;
+  switch (q) {
+  case Q_PAGE_OFFSET:
+  case Q_VMALLOC_BASE:
+  case Q_VMEMMAP_BASE:
+    return RANDOMIZE_MEMORY_ALIGN > 0;
+  case Q_MODULE_BASE:
+    /* Exact where the architecture states the allocator's step rather than
+     * leaving the page-granular floor to stand for it: the placement is that
+     * step times a whole number, so the candidates sit on it exactly. */
+#ifdef MODULES_BASE_RANDOM_STEP
+    return 1;
+#else
+    return 0;
+#endif
+  default:
+    break;
+  }
+  aq = q_align_quantity(q);
+  if (aq == Q__COUNT || est == NULL)
+    return 0;
+  /* The resolved granularity has to BE the grain being qualified. Where the
+   * architecture's own minimum is coarser it is the grain instead, and a
+   * statement about a finer one says nothing about it. */
+  return quantity_pinned(aq, &est[aq], &pitch) && pitch == grain;
+}
+
 /* The grain this quantity's candidates are counted on.
  *
  * Each quantity is counted at ITS OWN granularity. RANDOMIZE_MEMORY_ALIGN is
@@ -74,28 +129,8 @@ static int q_is_member(enum kasld_quantity q) {
  * quantity that sits on no modelled grid returns 0, and has no candidate count
  * to state; that is a property of the quantity, not a judgement about whether
  * the count is worth showing. */
-/* Whether a quantity's grain is the pitch itself or only a floor under it.
- *
- * A property of the quantity and the architecture rather than of the evidence,
- * which is what lets a caller ask without an estimate in hand. Exact only where
- * the kernel's own layout code fixes the pitch: the memory-randomization grid.
- * Both image bases resolve their alignment with C_AT_LEAST_ALIGN and nothing
- * caps it, so a kernel built more coarsely aligned than the engine could prove
- * has fewer candidates than a count on this grain states. */
-static int q_grain_exact(enum kasld_quantity q) {
-  switch (q) {
-  case Q_PAGE_OFFSET:
-  case Q_VMALLOC_BASE:
-  case Q_VMEMMAP_BASE:
-    return RANDOMIZE_MEMORY_ALIGN > 0;
-  default:
-    return 0;
-  }
-}
-
-static unsigned long q_grain(enum kasld_quantity q, const struct estimate *est,
-                             int *exact) {
-  *exact = q_grain_exact(q);
+static unsigned long q_grain_value(enum kasld_quantity q,
+                                   const struct estimate *est) {
   switch (q) {
   /* The resolved alignment or the architecture's own, whichever is coarser.
    *
@@ -130,12 +165,24 @@ static unsigned long q_grain(enum kasld_quantity q, const struct estimate *est,
     return KASLD_LAYOUT_GRANULE;
 #endif
   case Q_MODULE_BASE:
+#ifdef MODULES_BASE_RANDOM_STEP
+    /* The allocator's own step, where the architecture states one. */
+    return (unsigned long)MODULES_BASE_RANDOM_STEP;
+#else
     return KASLD_LAYOUT_GRANULE;
+#endif
   case Q_VA_BITS:
     return 0; /* a finite set of sizes sits on no grid */
   default:
     return 0;
   }
+}
+
+static unsigned long q_grain(enum kasld_quantity q, const struct estimate *est,
+                             int *exact) {
+  unsigned long grain = q_grain_value(q, est);
+  *exact = q_grain_exact(q, est, grain);
+  return grain;
 }
 
 /* Bits of entropy from a candidate count: ceil(log2(v)) for v >= 1, 0 for 0.

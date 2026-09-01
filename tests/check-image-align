@@ -1,0 +1,155 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-image-align — the architecture's own minimum alignment, checked against
+# the kernel's statement of it rather than against a reading of Kconfig.
+#
+# IMAGE_ALIGN is documented as the alignment _text is GUARANTEED to have, which
+# means the smallest an admissible build can use — not the value a default build
+# happens to get. Getting that distinction wrong is not cosmetic: the constant
+# drives the grid image_base_grid_align SNAPS a resolved window onto, so a
+# too-coarse figure raises a floor past a finely aligned base and drops the
+# truth out of the guaranteed window.
+#
+# It has been wrong. x86_32 carried the Kconfig DEFAULT (2 MiB) where the range
+# starts at 0x2000, and the header comment beside it recorded the real range all
+# along. Nothing compared the two.
+#
+# x86 publishes the answer, so on x86 it can be compared. The setup header
+# carries min_alignment at offset 0x235 as a log2 — MIN_KERNEL_ALIGN_LG2, which
+# is PMD_SHIFT on x86_64 and PAGE_SHIFT + THREAD_SIZE_ORDER on x86_32, all three
+# unconditional, so it is a constant OF THE ARCHITECTURE and not of the build.
+# The Kconfig range for CONFIG_PHYSICAL_ALIGN starts at exactly that value, and
+# that floor is what IMAGE_ALIGN is defined to be. So for every captured x86
+# kernel:
+#
+#     1 << boot_params[0x235]  ==  the build's IMAGE_ALIGN
+#
+# Read from the corpus rather than from one host: each fixture is a different
+# real kernel, and the field is the kernel's own, so a disagreement means this
+# tree's arch header is wrong about the architecture.
+#
+# Deliberately NOT a component or an engine rule. The value equals the
+# architectural floor kaslr_align_arch_default already asserts as an axiom, so
+# reading it at runtime would emit a constraint the engine already holds and
+# narrow nothing. Its whole worth is as a check on the constant itself, and a
+# check belongs here.
+#
+# Covers the two architectures whose kernels publish the figure. The other ten
+# have no such field; theirs is established by reading their placement code.
+#
+# Usage: tests/check-image-align   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+# boot_params.hdr offsets, and the boot protocol version each field arrived in
+# (Documentation/arch/x86/boot.rst, "The Real-Mode Kernel Header"). The header
+# is self-describing: "HdrS" and the version are 2.00+ fields, so the magic is
+# what licenses reading the version, and the version is what licenses reading
+# anything later. Below min_alignment's own version the offset holds real-mode
+# setup code rather than the field.
+MAGIC_OFF=514     # 0x202, "HdrS"
+VERSION_OFF=518   # 0x206, (major << 8) + minor
+MIN_ALIGN_OFF=565 # 0x235, min_alignment -- protocol 2.10+
+MIN_ALIGN_VER=522 # 0x020a
+
+# The compile-time IMAGE_ALIGN of a build, which `-j` publishes as image_align.
+# Every component is skipped -- the field is a constant of the binary, not a
+# measurement -- but the run is still pointed at the capture under test, for two
+# reasons: it reads no fact from the machine running the guard, and a 32-bit
+# build declines outright against a 64-bit kernel, so a live run of it here
+# would report an error document and no layout at all.
+image_align_of() {
+  KASLD_SYSROOT="$2" "$1" -q -s '*' -j 2>/dev/null |
+    sed -n 's/^ *"image_align": "0x\([0-9a-f]*\)",*$/\1/p' | head -n 1
+}
+
+fails=0
+checked=0
+skipped=
+
+# arch-dir:binary-triples — the fixture tree names each capture's architecture,
+# and only a build for that architecture states the constant under test.
+for pair in \
+  "x86_64:x86_64-linux-musl x86_64-linux-gnu" \
+  "x86_32:i686-unknown-linux-musl"; do
+  arch=${pair%%:*}
+  bin=
+  for triple in ${pair#*:}; do
+    cand="$ROOT/build/$triple/kasld"
+    # Executability is tested by running it: a cross binary for a foreign
+    # architecture is present but cannot answer here.
+    if [ -x "$cand" ] && "$cand" -V >/dev/null 2>&1; then
+      bin=$cand
+      break
+    fi
+  done
+  if [ -z "$bin" ]; then
+    skipped="$skipped $arch"
+    continue
+  fi
+
+  for d in "$ROOT/tests/fixtures/$arch"/*/; do
+    bp="$d/sysroot/sys/kernel/boot_params/data"
+    [ -f "$bp" ] || continue
+    # The header must say it carries the field before the byte is read as one.
+    magic=$(dd if="$bp" bs=1 skip="$MAGIC_OFF" count=4 2>/dev/null)
+    [ "$magic" = "HdrS" ] || continue
+    lo=$(dd if="$bp" bs=1 skip="$VERSION_OFF" count=1 2>/dev/null |
+      od -An -tu1 | tr -d ' \n')
+    hi=$(dd if="$bp" bs=1 skip="$((VERSION_OFF + 1))" count=1 2>/dev/null |
+      od -An -tu1 | tr -d ' \n')
+    { [ -n "$lo" ] && [ -n "$hi" ]; } || continue
+    [ "$((hi * 256 + lo))" -ge "$MIN_ALIGN_VER" ] || continue
+
+    lg2=$(dd if="$bp" bs=1 skip="$MIN_ALIGN_OFF" count=1 2>/dev/null |
+      od -An -tu1 | tr -d ' \n')
+    # A capture too short to hold the field, or one whose loader left it zero,
+    # states nothing; it is not evidence against the header.
+    { [ -n "$lg2" ] && [ "$lg2" -gt 0 ] 2>/dev/null; } || continue
+    # 1 << lg2, in hex, without assuming the shell has arithmetic shifts.
+    got=$(awk -v n="$lg2" 'BEGIN { printf "%x", 2 ^ n }')
+    want=$(image_align_of "$bin" "$d/sysroot")
+    if [ -z "$want" ]; then
+      printf '  %s: no image_align in the report for this capture\n' \
+        "$(basename "$d")"
+      fails=$((fails + 1))
+      continue
+    fi
+    checked=$((checked + 1))
+    if [ "$got" != "$want" ]; then
+      printf '  %s: kernel says min alignment 0x%s (1 << %s), build says 0x%s\n' \
+        "$(basename "$d")" "$got" "$lg2" "$want"
+      fails=$((fails + 1))
+    fi
+  done
+done
+
+if [ "$fails" -ne 0 ]; then
+  printf '%scheck-image-align: FAIL%s (%d capture(s) disagree with IMAGE_ALIGN)\n' \
+    "$RED" "$RESET" "$fails" >&2
+  exit 1
+fi
+if [ "$checked" -eq 0 ]; then
+  printf '%scheck-image-align: SKIP%s (no x86 build and capture pair available)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+fi
+printf '%scheck-image-align: OK%s (%d x86 capture(s) agree with IMAGE_ALIGN%s)\n' \
+  "$GREEN" "$RESET" "$checked" \
+  "$([ -n "$skipped" ] && printf ';%s not built' "$skipped")"

@@ -122,6 +122,20 @@
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/include/asm/efi.h#L30
 #define IMAGE_ALIGN 0x10000ul
 
+// The granularity is the architecture's, not a build's: relocate.c computes
+// `random_offset = get_random_boot() << 16`, a constant shift, and physical and
+// virtual text move together here.
+// https://elixir.bootlin.com/linux/latest/source/arch/loongarch/kernel/relocate.c
+//
+// The 64 KiB grid survives the wrap path for a reason the expression does not
+// state. Where the drawn offset lands below the kernel image, relocate.c adds
+// ALIGN(kernel_length, 0xffff) to it -- a non-power-of-two argument, so the
+// mask is ~0xfffe, which clears bits 1 through 15 and leaves bit 0 alone. The
+// sum stays a multiple of 64 KiB only because the image length is even. The
+// grid is right; it is reached by accident of that expression, which is worth
+// knowing if the expression ever changes.
+#define KASLR_ALIGN_FIXED 1
+
 // EFI_KIMG_ALIGN is the alignment the EFI stub uses when calling
 // AllocatePages() for the kernel image — SZ_2M on LoongArch per the
 // kernel header linked above. Distinct from IMAGE_ALIGN (the KASLR

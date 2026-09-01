@@ -25,6 +25,9 @@
 #define KASLD_BOOT_PARAMS_INIT_SIZE 0x260ul
 /* kernel_alignment (CONFIG_PHYSICAL_ALIGN) is hdr+0x3f => boot_params+0x230. */
 #define KASLD_BOOT_PARAMS_KERNEL_ALIGN 0x230ul
+#define KASLD_BOOT_PARAMS_RELOCATABLE 0x234ul
+#define KASLD_BOOT_PARAMS_LOADFLAGS 0x211ul
+#define KASLD_BOOT_PARAMS_KASLR_FLAG (1u << 1) /* bootparam.h KASLR_FLAG */
 /* cmd_line_ptr (physical address of the cmdline buffer) is hdr+0x37
  * => boot_params+0x228, __u32. cmdline_size is hdr+0x47 => boot_params+0x238.
  */
@@ -61,6 +64,59 @@ kasld_read_boot_kernel_align(void) {
   return (n == 4) ? (unsigned long)align : 0;
 #else
   return 0;
+#endif
+}
+
+/* boot_params.hdr.relocatable_kernel: 1 where the kernel was built with
+ * CONFIG_RELOCATABLE, 0 where it was not, and -1 where the field could not be
+ * read. A kernel built without it decompresses to the address it was compiled
+ * for whatever the boot loader chose (arch/x86/Kconfig, PHYSICAL_ALIGN help),
+ * so it is not relocated and cannot be randomized -- CONFIG_RANDOMIZE_BASE
+ * depends on CONFIG_RELOCATABLE. The caller turns a 0 into the KASLR-off
+ * scalars; the tri-state keeps "said no" apart from "could not ask", which a
+ * plain int cannot carry. */
+__attribute__((unused)) static int kasld_read_boot_relocatable(void) {
+#if defined(__x86_64__) || defined(__i386__)
+  int fd = kasld_open(KASLD_BOOT_PARAMS_PATH, O_RDONLY);
+  if (fd < 0)
+    return -1;
+  uint8_t v = 0;
+  ssize_t n = pread(fd, &v, 1, KASLD_BOOT_PARAMS_RELOCATABLE);
+  close(fd);
+  return (n == 1) ? (v ? 1 : 0) : -1;
+#else
+  return -1;
+#endif
+}
+
+/* Did the boot stub randomize the kernel THIS BOOT? 1 yes, 0 no, -1 unreadable.
+ *
+ * boot_params.hdr.loadflags carries KASLR_FLAG, which the decompressor clears
+ * on entry (misc.c) and sets in choose_random_location() -- after that
+ * function's early return on a `nokaslr` command line, and from a translation
+ * unit the build includes only under CONFIG_RANDOMIZE_BASE. So the bit answers
+ * three questions at once: whether randomization happened, whether the option
+ * was even compiled in, and hence which KERNEL_IMAGE_SIZE (and therefore which
+ * MODULES_VADDR) the kernel is using.
+ *
+ * READ ONLY FROM /sys/kernel/boot_params/data. The bit is written at RUNTIME
+ * into the copy the kernel kept; the same header in /boot/vmlinuz-<release>
+ * carries the build-time value, where it is clear on every kernel ever built.
+ * Falling back to the image -- as the alignment and relocatable readers above
+ * deliberately do, both of those being build-time constants -- would report
+ * "KASLR did not run" universally. There is no fallback here, and there must
+ * not be one. */
+__attribute__((unused)) static int kasld_read_boot_kaslr_randomized(void) {
+#if defined(__x86_64__) || defined(__i386__)
+  int fd = kasld_open(KASLD_BOOT_PARAMS_PATH, O_RDONLY);
+  if (fd < 0)
+    return -1;
+  uint8_t v = 0;
+  ssize_t n = pread(fd, &v, 1, KASLD_BOOT_PARAMS_LOADFLAGS);
+  close(fd);
+  return (n == 1) ? ((v & KASLD_BOOT_PARAMS_KASLR_FLAG) ? 1 : 0) : -1;
+#else
+  return -1;
 #endif
 }
 

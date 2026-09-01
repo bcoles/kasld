@@ -108,15 +108,45 @@ kasld_image_size_from_header(const char *release) {
   return 0;
 }
 
-/* Exact x86 image size from the bzImage setup header in
- * /boot/vmlinuz-<release>. The setup header carries "HdrS" at offset 0x202 and,
- * since boot protocol 2.10, a u32 LE init_size at offset 0x260 — the exact
- * footprint the boot loader reserves (the same value boot_params exposes),
- * readable from the public vmlinuz with no privilege. The "HdrS" gate rejects
- * other arches' MZ images. Returns 0 if not a bzImage or the field predates
- * protocol 2.10. */
-__attribute__((unused)) static unsigned long
-kasld_image_size_from_bzimage(const char *release) {
+/* The x86 bzImage setup header, read from /boot/vmlinuz-<release>.
+ *
+ * boot_params IS this header: the kernel copies it into the structure sysfs
+ * publishes at /sys/kernel/boot_params/data, field for field at the same
+ * offsets. So the image on disk answers the same questions as that file, and
+ * answers them where it is unreadable or absent -- which is not the same
+ * vantage in either direction, since the two carry different permissions and
+ * distros disagree about both.
+ *
+ * Fields taken, all gated on "HdrS" at 0x202 (which rejects other arches' MZ
+ * images):
+ *   init_size (0x260, u32 LE, boot protocol 2.10) -- the exact in-memory
+ *     footprint the boot loader reserves.
+ *   kernel_alignment (0x230, u32 LE) -- CONFIG_PHYSICAL_ALIGN, the KASLR slot
+ *     granularity itself.
+ *   relocatable_kernel (0x234, u8) -- 0 for a kernel built without
+ *     CONFIG_RELOCATABLE, which decompresses to the address it was compiled
+ *     for whatever the boot loader chose, and therefore cannot be randomized.
+ *
+ * Each field is populated only from the boot protocol version that introduced
+ * it. Below that version the offset is not the field: it holds real-mode setup
+ * code, and reading it yields whatever instruction byte happens to sit there.
+ * The versions are per field and are named individually below, so a field added
+ * here later cannot silently inherit a neighbour's gate -- which is how
+ * relocatable_kernel came to be read unconditionally beside a gated init_size.
+ *
+ * Each output pointer may be NULL. Returns 1 if the header was read and passed
+ * its gates, 0 otherwise. A field the protocol does not carry is reported as
+ * unknown, which for the tri-state relocatable is -1 and NOT 0 -- a zero there
+ * means "this kernel cannot be relocated", which the caller turns into a
+ * KASLR-off pin. */
+/* Documentation/arch/x86/boot.rst, "The Real-Mode Kernel Header": the version
+ * column beside each offset. */
+#define KASLD_BZ_VER_KERNEL_ALIGN 0x0205u /* 0230/4 */
+#define KASLD_BZ_VER_RELOCATABLE 0x0205u  /* 0234/1 */
+#define KASLD_BZ_VER_INIT_SIZE 0x020au    /* 0260/4 */
+__attribute__((unused)) static int
+kasld_read_bzimage_hdr(const char *release, unsigned long *init_size,
+                       unsigned long *kernel_align, int *relocatable) {
   char path[256];
   uint8_t b[0x264];
   snprintf(path, sizeof(path), "/boot/vmlinuz-%s", release);
@@ -131,11 +161,33 @@ kasld_image_size_from_bzimage(const char *release) {
   if (b[0x202] != 'H' || b[0x203] != 'd' || b[0x204] != 'r' || b[0x205] != 'S')
     return 0;
   unsigned version = (unsigned)b[0x206] | ((unsigned)b[0x207] << 8);
-  if (version < 0x020a) /* init_size was added in boot protocol 2.10 */
+
+  if (init_size)
+    *init_size =
+        version < KASLD_BZ_VER_INIT_SIZE
+            ? 0
+            : ((unsigned long)b[0x260] | ((unsigned long)b[0x261] << 8) |
+               ((unsigned long)b[0x262] << 16) |
+               ((unsigned long)b[0x263] << 24));
+  if (kernel_align)
+    *kernel_align =
+        version < KASLD_BZ_VER_KERNEL_ALIGN
+            ? 0
+            : ((unsigned long)b[0x230] | ((unsigned long)b[0x231] << 8) |
+               ((unsigned long)b[0x232] << 16) |
+               ((unsigned long)b[0x233] << 24));
+  if (relocatable)
+    *relocatable = version < KASLD_BZ_VER_RELOCATABLE ? -1 : (b[0x234] ? 1 : 0);
+  return 1;
+}
+
+/* Exact x86 image size from the setup header above, or 0 where the image is
+ * not a bzImage or the field predates protocol 2.10. */
+__attribute__((unused)) static unsigned long
+kasld_image_size_from_bzimage(const char *release) {
+  unsigned long init_size = 0;
+  if (!kasld_read_bzimage_hdr(release, &init_size, NULL, NULL))
     return 0;
-  unsigned long init_size =
-      (unsigned long)b[0x260] | ((unsigned long)b[0x261] << 8) |
-      ((unsigned long)b[0x262] << 16) | ((unsigned long)b[0x263] << 24);
   return init_size >= KIMG_MIN_BYTES ? init_size : 0;
 }
 

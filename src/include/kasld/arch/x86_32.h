@@ -116,11 +116,21 @@
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 // Module region is fixed; does not shift with KASLR.
 
-// For x86_32, possible max alignment is 0x100_0000 (16MiB) with default of
-// 0x20_0000 (2MiB) in increments of 0x2000 (8KiB).
+// The alignment _text is GUARANTEED to have, which on x86_32 is the smallest
+// CONFIG_PHYSICAL_ALIGN the architecture admits and not the one it defaults to.
+// Kconfig ranges the option over [0x2000, 0x100_0000] with a 0x20_0000 default,
+// and the boot stub steps its slot array by whichever value the kernel was
+// built with, so a base need only be 8 KiB-aligned. Physical and virtual are
+// coupled here, so the same granularity governs both.
+//
+// The default is the wrong value to hold, not merely a loose one: this drives
+// the grid image_base_grid_align SNAPS a resolved window onto, so a coarser
+// figure raises a floor past a finely aligned base and drops the truth from the
+// guaranteed window. A run that reads the real value recovers the precision --
+// boot_params_kaslr_align states it as the granularity itself.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/boot/compressed/kaslr.c#L850
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2182
-#define IMAGE_ALIGN (2 * MB)
+#define IMAGE_ALIGN 0x2000ul
 
 #define IMAGE_BASE_OFFSET 0
 

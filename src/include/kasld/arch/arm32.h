@@ -116,8 +116,24 @@
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 // Module region is fixed below PAGE_OFFSET; does not shift with KASLR.
 
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/efi.h
-#define IMAGE_ALIGN (2 * MB)
+// The alignment _text is GUARANTEED to have. arm32 randomizes nothing, so this
+// is the granularity of the positions a kernel can be LINKED and loaded at, and
+// it is set by TEXT_OFFSET rather than by where the image as a whole is placed:
+// vmlinux.lds.S puts _text at KERNEL_OFFSET + TEXT_OFFSET, and
+// arch/arm/Makefile admits 0x8000, 0x108000, 0x208000 and 0x308000 across the
+// SoC configs. Their greatest common divisor is 0x8000, and no admissible _text
+// is 2 MiB-aligned -- the ordinary one is PAGE_OFFSET + 0x8000. Two of those
+// offsets differ by 0x100000, so a coarser grid cannot even hold both.
+//
+// Not EFI_PHYS_ALIGN (asm/efi.h), which is max(SZ_2M, TEXT_OFFSET rounded up):
+// that is where the EFI stub places the IMAGE, and _text sits TEXT_OFFSET into
+// it. The legacy decompressor lands in the same place by another route,
+// computing the base as (pc & 0xf8000000) + TEXT_OFFSET (compressed/head.S).
+// A grain coarser than the truth counts fewer placements than a search must
+// actually cover, which understates what is left to find.
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/kernel/vmlinux.lds.S
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Makefile#L145
+#define IMAGE_ALIGN 0x8000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Makefile#L145
 #define IMAGE_BASE_OFFSET 0x8000
@@ -176,13 +192,16 @@
 
 #define KASLR_SUPPORTED 0
 
-// _text's offset within the 2 MiB KASLR_VIRT_ALIGN grid is NOT an architectural
-// constant: ARM's TEXT_OFFSET is config-dependent (0x8000 default, 0x208000 and
-// larger on other platforms/configs) and _stext is padded up to the 1 MiB
-// section boundary, so the residue varies by kernel (a multi_v7 build links
-// _stext at PAGE_OFFSET + 0x300000, residue 0x100000, not 0x8000). Disable
-// image_base_grid_align's grid-snap, which would otherwise floor an
-// interior-sample ceiling below the true base on such a kernel.
+// _text's residue modulo KASLR_VIRT_ALIGN is 0 on every kernel this header
+// admits: each admissible TEXT_OFFSET is a multiple of IMAGE_ALIGN (0x8000,
+// 0x108000, 0x208000 and 0x308000 -- arch/arm/Makefile textofs-y), and every
+// VMSPLIT PAGE_OFFSET is far coarser than that grid. The residue is not a
+// constant against a coarser one: a multi_v7 build links _stext at PAGE_OFFSET
+// + 0x300000, which is 0x100000 into a 2 MiB granule.
+//
+// Held at 0 even so. The axis licenses image_base_grid_align's grid-snap, whose
+// worth is recovering a randomized base onto the grid it was drawn from, and
+// this architecture randomizes none.
 #define IMAGE_BASE_RESIDUE_FIXED 0
 
 #endif /* KASLD_ARM32_H */

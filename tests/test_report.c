@@ -496,6 +496,95 @@ int main(void) {
     CHECK(r.n_quantities == 0);
   }
 
+  /* 11. The grain a count stands on is a floor by default and the granularity
+   *     itself once the alignment quantity is closed. The image base's
+   *     granularity is a build option, so this is a property of the RUN, not of
+   *     the architecture -- which is why the model reads it from the estimate
+   *     rather than from a table keyed on the quantity.
+   *
+   *     Asserted in both directions from one staging, so a build that answered
+   *     the same way regardless would fail: the same quantity, same window and
+   *     same count, differing only in whether the alignment was closed. */
+  {
+    const struct kasld_report_quantity *it;
+    unsigned long grain;
+
+    tops(gest);
+    gv.est = gest;
+    gv.cs = NULL;
+    gv.n_cs = 0;
+    gv.floor = CONF_INFERRED;
+    lv.est = NULL;
+    lv.cs = NULL;
+    lv.n_cs = 0;
+    lv.floor = CONF_BRUTE;
+
+    /* A floor alone: the architecture's minimum bounds the grain from below and
+     * says nothing about the kernel this run is looking at. */
+    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
+    CHECK(it != NULL);
+    CHECK(!it->align_exact);
+    grain = it->align_min;
+    CHECK(grain > 0);
+
+    /* The same run, with the granularity resolved to the grain already in use.
+     * The count does not move -- only what the count is claimed to be. */
+    gest[Q_VIRT_KASLR_ALIGN].lo = grain;
+    gest[Q_VIRT_KASLR_ALIGN].hi = grain;
+    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
+    CHECK(it != NULL);
+    CHECK(it->align_min == grain);
+    CHECK(it->align_exact);
+
+    /* A granularity resolved to something FINER than the architecture's own
+     * minimum qualifies a grain that is not the one being reported, so it must
+     * not mark it exact. The arch minimum is what the model counts on there. */
+    if (grain > 1) {
+      gest[Q_VIRT_KASLR_ALIGN].lo = grain / 2;
+      gest[Q_VIRT_KASLR_ALIGN].hi = grain / 2;
+      kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+      it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
+      CHECK(it != NULL);
+      CHECK(it->align_min == grain);
+      CHECK(!it->align_exact);
+    }
+  }
+
+  /* 12. The module row is counted on the allocator's own step where the
+   *     architecture states one, and marked exact because that step IS the
+   *     pitch rather than a floor under it. Where no step is declared the
+   *     page-granular floor stands and the count is a ceiling.
+   *
+   *     Asserted against the declaration rather than against a value, so this
+   *     holds on every architecture `make test-cross` runs it on. */
+  {
+    const struct kasld_report_quantity *it;
+
+    tops(gest);
+    gv.est = gest;
+    gv.cs = NULL;
+    gv.n_cs = 0;
+    gv.floor = CONF_INFERRED;
+    lv.est = NULL;
+    lv.cs = NULL;
+    lv.n_cs = 0;
+    lv.floor = CONF_BRUTE;
+    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+
+    it = kasld_report_find(&r, Q_MODULE_BASE);
+    if (it != NULL) {
+#ifdef MODULES_BASE_RANDOM_STEP
+      CHECK(it->align_min == (unsigned long)MODULES_BASE_RANDOM_STEP);
+      CHECK(it->align_exact);
+#else
+      CHECK(it->align_min == (unsigned long)KASLD_LAYOUT_GRANULE);
+      CHECK(!it->align_exact);
+#endif
+    }
+  }
+
   printf("test_report: OK (%d checks)\n", checks);
   return 0;
 }

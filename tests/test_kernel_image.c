@@ -91,6 +91,87 @@ static void test_bzimage(void) {
   assert(kasld_image_size_from_bzimage("bz") == 60u * 1024 * 1024);
 }
 
+/* The other two setup-header fields the same read yields.
+ *
+ * kernel_alignment (0x230) and relocatable_kernel (0x234) sit at the offsets
+ * boot_params uses, because boot_params IS this header -- so the image answers
+ * where the sysfs copy is unreadable. Staged with values no default carries, so
+ * a pass cannot come from a zeroed buffer or from the sysfs path being taken
+ * instead. Both edges of the tri-state are asserted: a 0 byte has to read as
+ * "not relocatable" rather than as "could not tell". */
+static void test_bzimage_align_and_relocatable(void) {
+  uint8_t b[0x264] = {0};
+  unsigned long size = 0, align = 0;
+  int reloc = -1;
+  b[0x202] = 'H';
+  b[0x203] = 'd';
+  b[0x204] = 'r';
+  b[0x205] = 'S';
+  put_le(b + 0x206, 0x020f, 2);
+  put_le(b + 0x230, 0x400000, 4); /* 4 MiB: neither arch default */
+  b[0x234] = 1;
+  put_le(b + 0x260, 60u * 1024 * 1024, 4);
+  wr("vmlinuz-hdrfields", b, sizeof(b));
+  assert(kasld_read_bzimage_hdr("hdrfields", &size, &align, &reloc) == 1);
+  assert(size == 60u * 1024 * 1024);
+  assert(align == 0x400000);
+  assert(reloc == 1);
+
+  b[0x234] = 0;
+  wr("vmlinuz-hdrnoreloc", b, sizeof(b));
+  reloc = -1;
+  assert(kasld_read_bzimage_hdr("hdrnoreloc", NULL, NULL, &reloc) == 1);
+  assert(reloc == 0);
+
+  /* Absent image: nothing is claimed, and the caller's tri-state is untouched
+   * so an unreadable header cannot read as a non-relocatable kernel. */
+  reloc = -1;
+  align = 0;
+  assert(kasld_read_bzimage_hdr("hdrmissing", NULL, &align, &reloc) == 0);
+  assert(reloc == -1 && align == 0);
+}
+
+/* Each field answers for its own protocol version, and for no other.
+ *
+ * A header too old for init_size (2.10) still states the alignment (2.05), and
+ * one too old for either states neither. The second half is the one that bites:
+ * below 2.05 the byte at 0x234 is real-mode setup code, and reporting whatever
+ * sits there as relocatable_kernel == 0 would tell the caller this kernel
+ * cannot be relocated -- which it turns into a KASLR-off pin inside the
+ * guaranteed window. Unknown must stay -1 there, never 0. */
+static void test_bzimage_fields_gate_on_their_own_version(void) {
+  uint8_t b[0x264] = {0};
+  unsigned long size = 1, align = 1;
+  int reloc = 1;
+  b[0x202] = 'H';
+  b[0x203] = 'd';
+  b[0x204] = 'r';
+  b[0x205] = 'S';
+  put_le(b + 0x230, 0x200000, 4);
+  b[0x234] = 0; /* a zero byte where the field would be */
+  put_le(b + 0x260, 60u * 1024 * 1024, 4);
+
+  /* 2.09: alignment and relocatable are carried, init_size is not. */
+  put_le(b + 0x206, 0x0209, 2);
+  wr("vmlinuz-hdr209", b, sizeof(b));
+  assert(kasld_read_bzimage_hdr("hdr209", &size, &align, &reloc) == 1);
+  assert(size == 0);
+  assert(align == 0x200000);
+  assert(reloc == 0);
+
+  /* 2.04: none of the three exists yet. The zero at 0x234 is setup code, and
+   * must read as "cannot tell" rather than "not relocatable". */
+  size = 1;
+  align = 1;
+  reloc = 1;
+  put_le(b + 0x206, 0x0204, 2);
+  wr("vmlinuz-hdr204", b, sizeof(b));
+  assert(kasld_read_bzimage_hdr("hdr204", &size, &align, &reloc) == 1);
+  assert(size == 0);
+  assert(align == 0);
+  assert(reloc == -1);
+}
+
 /* A bzImage predating protocol 2.10 has no init_size field; reject it. */
 static void test_bzimage_old_protocol(void) {
   uint8_t b[0x264] = {0};
@@ -237,6 +318,8 @@ int main(void) {
   RUN(test_image_header);
   RUN(test_bzimage);
   RUN(test_bzimage_old_protocol);
+  RUN(test_bzimage_align_and_relocatable);
+  RUN(test_bzimage_fields_gate_on_their_own_version);
   RUN(test_elf64_le);
   RUN(test_elf32_be);
   RUN(test_sysmap);

@@ -177,7 +177,16 @@ __extension__ _Static_assert(PAGE_OFFSET_MAX == KERNEL_VIRT_TEXT_MIN,
 // MODULES_VADDR exactly.
 // https://elixir.bootlin.com/linux/v7.2/source/arch/x86/mm/init.c#L1066
 #define MODULES_BASE_RANDOMIZED 0xffffffffc0000000ul
-#define MODULES_BASE_RANDOM_SPAN 0x400000ul // 1024 * PAGE_SIZE
+// execmem_arch_setup() places the module range at MODULES_VADDR + a whole
+// number of PAGE_SIZE, drawn from get_random_u32_inclusive(1, 1024) -- and 0
+// where kaslr_enabled() is false, which needs CONFIG_RANDOMIZE_MEMORY and not
+// merely RANDOMIZE_BASE, so an image that moved does not rule the zero out. The
+// span therefore spans 1025 positions, not 1024. The STEP is x86_64's
+// PAGE_SIZE, which is 4 KiB unconditionally, so it is the pitch itself and not
+// a floor under one.
+// https://elixir.bootlin.com/linux/latest/source/arch/x86/mm/init.c
+#define MODULES_BASE_RANDOM_STEP 0x1000ul
+#define MODULES_BASE_RANDOM_SPAN (1024ul * MODULES_BASE_RANDOM_STEP)
 // Module region is fixed at MODULES_VADDR; does not shift with KASLR.
 
 // For x86_64, possible max alignment is 0x100_0000 (16MiB) with default of

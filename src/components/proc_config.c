@@ -259,9 +259,20 @@ int main(void) {
    * so page_offset / vmalloc / vmemmap stay at their compile-time defaults even
    * when CONFIG_RANDOMIZE_MEMORY=y. Consumed by directmap_kaslr_disabled_pin
    * (x86_64). The fact is arch-neutral; the rule gates on the arch. */
-  if (is_kconfig_set(fp, "CONFIG_KASAN")) {
-    kasld_info("CONFIG_KASAN=y");
-    kasld_emit_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
+  /* Emitted either way, not only when set. A consumer asking "is the stack
+   * size the small one?" needs the negative as an answer, and a config this
+   * component could read is entitled to give it; consumers that only act on a
+   * positive already test the value. CONFIG_KMSAN sizes the same stacks on
+   * s390 and is read beside it. */
+  {
+    int kasan = is_kconfig_set(fp, "CONFIG_KASAN") ? 1 : 0;
+    int kmsan = is_kconfig_set(fp, "CONFIG_KMSAN") ? 1 : 0;
+    if (kasan)
+      kasld_info("CONFIG_KASAN=y");
+    if (kmsan)
+      kasld_info("CONFIG_KMSAN=y");
+    kasld_emit_scalar(SF_KASAN_ENABLED, (unsigned long)kasan, CONF_PARSED);
+    kasld_emit_scalar(SF_KMSAN_ENABLED, (unsigned long)kmsan, CONF_PARSED);
   }
 
   /* Kernel-text function ordering (canonical / static-reorder / FG-KASLR) —
