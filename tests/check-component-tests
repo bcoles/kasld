@@ -1,0 +1,163 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-component-tests — every parsing component is exercised by a test.
+#
+# The engine has this guarantee already: check-rule-registry refuses a rule that
+# no test names, so the rule layer cannot grow an untested member. Nothing said
+# the same about components, and the component layer is where the tree grows
+# fastest — a new leak technique is a new file, and its parser is the part that
+# turns a kernel's text into an address. A parser that mis-reads fabricates an
+# address or drops a real one, and neither shows up as a crash.
+#
+# Scoped to `method:parsed` because that is the axis that already distinguishes
+# a technique that reads and parses a source from one that times an oracle.
+# It is declared in KASLD_META, and check-component-meta holds it to a closed
+# vocabulary, so this guard reuses a validated field rather than inventing a
+# second classification that could disagree with it. A timing or brute component
+# has no deterministic input to feed it, so requiring a unit test of one would
+# be a test of the host's cache behaviour.
+#
+# "Exercised" means a test translation unit #includes the component source --
+# the established idiom here (the component's main is renamed and its parser
+# called directly, as tests/test_dmesg_layout.c and tests/test_btf.c do). A
+# passing mention in a comment is not coverage, so a name match is not enough.
+#
+# The UNTESTED allowlist is the parsing components that predate this guard. It
+# is a debt list, not a permission: an entry may be removed by writing the test,
+# and nothing may be added without review. The guard keeps it honest -- an entry
+# must name a real parsing component, and must NOT be included by a test (once
+# it is, the entry is stale and must go).
+#
+# Usage: tests/check-component-tests   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+COMP=$ROOT/src/components
+
+# Parsing components without a test, at the time this guard was written. Keep
+# alphabetical. Removing an entry is the point; adding one needs a reason.
+UNTESTED="
+alsa_seq_ext_ptr
+arm64_no_seed
+bootconfig_facts
+bpf_verifier_ksym
+bpf_verifier_log
+cmdline_region
+cpuinfo_facts
+devicetree_facts
+dmesg_acpi_dynamic_ssdt
+dmesg_android_ion_snapshot
+dmesg_check_for_initrd
+dmesg_driver_component_ops
+dmesg_e820_memory_map
+dmesg_early_init_dt_add_memory_arch
+dmesg_efi_memmap
+dmesg_ex_handler_msr
+dmesg_fake_numa_init
+dmesg_free_area_init_node
+dmesg_free_reserved_area
+dmesg_last_pfn
+dmesg_mmu_idmap
+dmesg_node_data
+dmesg_ramdisk
+dmesg_reserved_mem_opensbi
+dmesg_riscv_relocation
+efi_present
+fdt_facts
+firmware_memmap
+ioctl_mmio_phys
+kernel_image_facts
+kernel_notes_buildid
+mali_timeline
+meminfo_facts
+page_size
+perf_amd_branch_user
+perf_event_open
+perf_ksymbol_leak
+perf_lbr_sampling
+perf_text_poke_leak
+pppd_kallsyms
+proc_iomem_kernel
+proc_modules
+proc_pid_syscall
+proc_stat_wchan
+proc_zoneinfo
+qemu_tcg_iret
+riscv64_no_seed
+sidt
+sysfs_devicetree_initrd
+sysfs_devicetree_kernel_end
+sysfs_devicetree_memory_limit
+sysfs_devicetree_uefi_mmap
+sysfs_firmware_memmap
+sysfs_kernel_notes_xen
+sysfs_memory_blocks
+sysfs_module_sections
+sysfs_nf_conntrack
+sysfs_vmcoreinfo
+zfs_dbgmsg
+"
+
+hdr_shown=0
+fail() {
+  [ "$hdr_shown" = 1 ] || { printf '%scheck-component-tests: FAIL%s\n' "$RED" "$RESET" >&2; hdr_shown=1; }
+  printf '  %s\n' "$1" >&2
+}
+contains() { # $1=needle $2=list (whitespace/newline separated)
+  for _x in $2; do [ "$_x" = "$1" ] && return 0; done
+  return 1
+}
+
+# Components a test translation unit pulls in directly.
+included=$(grep -ho 'components/[a-z0-9_]*\.c' "$ROOT"/tests/*.c 2>/dev/null |
+           sed 's|components/||; s|\.c$||' | sort -u)
+
+# The parsing components, from the method: each one declares.
+parsed=""
+for f in "$COMP"/*.c; do
+  [ -f "$f" ] || continue
+  b=$(basename "$f" .c)
+  m=$(grep -o '"method:[a-z]*' "$f" | sed 's/"method://' | head -1)
+  [ "$m" = parsed ] || continue
+  parsed="$parsed $b"
+done
+
+n=0
+for b in $parsed; do
+  n=$((n + 1))
+  contains "$b" "$included" && continue
+  contains "$b" "$UNTESTED" && continue
+  fail "untested parser: $b — #include \"../src/components/$b.c\" from a test
+  in tests/ and call its parser, or add $b to UNTESTED in tests/check-component-tests"
+done
+
+# Keep the allowlist honest.
+for a in $UNTESTED; do
+  contains "$a" "$parsed" ||
+    fail "UNTESTED lists $a, which is not a method:parsed component in src/components"
+  contains "$a" "$included" &&
+    fail "$a is now included by a test — remove it from UNTESTED"
+done
+
+[ "$hdr_shown" = 0 ] || {
+  printf 'A parser no test exercises turns kernel text into an address unchecked.\n' >&2
+  exit 1
+}
+
+guard_scope "check-component-tests" "$n" 60
+
+nun=$(printf '%s\n' "$UNTESTED" | grep -c .)
+printf '%scheck-component-tests: OK%s (%d parsing components, %d tested, %d allowlisted)\n' \
+  "$GREEN" "$RESET" "$n" "$((n - nun))" "$nun"
