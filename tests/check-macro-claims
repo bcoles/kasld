@@ -1,0 +1,247 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-macro-claims — a comment that states a macro's value states the truth.
+#
+# Comments routinely pin down an arch axis in passing: "the phys pin is inert
+# (KASLR_DISABLED_PINS_PHYS=0 ...)", "a (DIRECTMAP_STATIC=1) arch". Nothing read
+# them, so nothing noticed when the header disagreed. Two did: arm64_no_seed.c
+# and riscv64_no_seed.c both claimed KASLR_DISABLED_PINS_VIRT_TEXT=1 for their
+# architecture where the header says 0 -- a copy-paste pair describing a pin
+# that does not happen, each naming the wrong rule as a consequence. Both files
+# built, ran and passed every suite, because a comment is not compiled.
+#
+# The claim is machine-checkable whenever the file is bound to an architecture,
+# so this checks it. Sources of truth, all derived rather than listed, so a new
+# axis or a new architecture is picked up without editing this guard:
+#
+#   the checkable macros  -- integer object-like #defines in arch/*.h
+#   their values          -- the same #defines, plus api.h's #ifndef defaults
+#   architecture binding  -- api.h's own dispatch chain maps a predicate token
+#                            (__aarch64__, __riscv, ...) to an arch header
+#
+# Only axes whose value is 0 or 1 are checked. A macro holding a size or an
+# address is written in prose with units and in hex -- s390_text_no_random.c has
+# both "IMAGE_BASE_OFFSET = 0x100000" and "IMAGE_BASE_OFFSET = 1 MiB" -- and a
+# pattern that reads a value out of that text reads the leading digits of one
+# and the unit-stripped digits of the other, so it would call the first 0 and
+# the second 1 and fail the file for disagreeing with itself. Restricting the
+# question to the boolean axes removes the ambiguity at its source instead of
+# accumulating exceptions for each way a number can be written; a claimed value
+# is also refused when a digit, letter or dot follows it, which is the same
+# nesting trap that lets "hi=0xffffff" match "hi=0xffffffff".
+#
+# A textual read of the headers is exact here rather than approximate: every
+# integer object macro in every arch header is defined unconditionally, directly
+# inside the include guard. Should one ever become conditional, this guard reads
+# the first definition and can be wrong -- check-arch-headers is the one that
+# asks the preprocessor, and is where a conditional axis belongs.
+#
+# Deliberately silent in two cases, because a guard that invents failures gets
+# switched off:
+#
+#   A file with no architecture gate makes no claim about a particular
+#   architecture, so "TEXT_TRACKS_DIRECTMAP=0" in shared code is shorthand for
+#   the arches where it holds, not an assertion about any one of them.
+#
+#   A gate whose tokens reach several arch headers -- __powerpc__ selects ppc32
+#   but appears in ppc64's arm too -- is only checked where every candidate
+#   agrees on the value. Where they differ the claim is genuinely ambiguous and
+#   is left alone.
+#
+# Both are counted and reported, so the scope is visible rather than implied.
+#
+# Usage: tests/check-macro-claims   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+API=$ROOT/src/include/kasld/api.h
+ARCH=$ROOT/src/include/kasld/arch
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+[ -f "$API" ] || {
+  printf '%scheck-macro-claims: FAIL%s (missing %s)\n' "$RED" "$RESET" "$API" >&2
+  exit 1
+}
+
+# Claims that are deliberately not about the file's own architecture. An entry
+# is "<path>:<MACRO>" and needs a reason; it is not a place to park a wrong
+# comment.
+ALLOW="
+components/dmesg_reserved_mem_opensbi.c:DIRECTMAP_STATIC
+"
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/kasld-macroclaims.XXXXXX") || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# ---- values: "<arch> <MACRO> <value>", from the headers themselves ----------
+for h in "$ARCH"/*.h; do
+  [ -f "$h" ] || continue
+  awk -v A="$(basename "$h" .h)" '
+    /^[ \t]*#[ \t]*(if|ifdef|ifndef)/ { d++ }
+    /^[ \t]*#[ \t]*endif/             { d-- }
+    /^[ \t]*#[ \t]*define[ \t]/ {
+      line = $0
+      sub(/^[ \t]*#[ \t]*define[ \t]+/, "", line)
+      n = split(line, p, /[ \t]+/)
+      if (d == 1 && n >= 2 && p[1] ~ /^[A-Z_][A-Z0-9_]*$/ && (p[2] == "0" || p[2] == "1"))
+        print A, p[1], p[2]
+    }' "$h"
+done >"$TMP/vals"
+
+# The checkable set: any macro an arch header gives an integer value.
+awk '{print $2}' "$TMP/vals" | sort -u >"$TMP/macros"
+
+# ---- api.h defaults: "#ifndef X / #define X N / #endif" --------------------
+awk '
+  /^#ifndef [A-Za-z_][A-Za-z0-9_]*/ { m = $2; next }
+  /^#define [A-Za-z_][A-Za-z0-9_]*[ \t]+[0-9]+[ \t]*$/ {
+    if (m != "" && $2 == m) print $2, $3
+    m = ""
+  }
+  /^#endif/ { m = "" }
+' "$API" >"$TMP/defaults"
+
+# ---- dispatch: "<arch> <__token__>", from api.h's own #elif chain ----------
+awk '
+  { line = $0 }
+  cont { pred = pred " " line; if (line !~ /\\[ \t]*$/) cont = 0; next }
+  line ~ /^#[ \t]*(if|elif)[ \t]/ {
+    pred = line; if (line ~ /\\[ \t]*$/) cont = 1; next
+  }
+  line ~ /^#[ \t]*include[ \t]*"arch\// {
+    name = line; sub(/.*arch\//, "", name); sub(/\.h".*/, "", name)
+    rest = pred
+    while (match(rest, /__[A-Za-z0-9_]+/)) {
+      print name, substr(rest, RSTART, RLENGTH)
+      rest = substr(rest, RSTART + RLENGTH)
+    }
+    pred = ""
+  }
+' "$API" >"$TMP/dispatch"
+
+if [ ! -s "$TMP/vals" ] || [ ! -s "$TMP/dispatch" ]; then
+  printf '%scheck-macro-claims: FAIL%s (derived nothing from api.h or arch/ — has their shape changed?)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+
+# value_of <arch> <macro> -> prints the value, or nothing when undefined
+value_of() {
+  v=$(awk -v a="$1" -v m="$2" '$1==a && $2==m {print $3; exit}' "$TMP/vals")
+  [ -n "$v" ] || v=$(awk -v m="$2" '$1==m {print $2; exit}' "$TMP/defaults")
+  printf '%s' "$v"
+}
+
+fail=0
+nchecked=0
+nunbound=0
+nambiguous=0
+
+find "$ROOT/src" -name '*.c' -o -name '*.h' | sort >"$TMP/files"
+
+while read -r f; do
+  case $f in
+    "$ARCH"/*|"$API") continue ;;
+  esac
+  rel=${f#"$ROOT"/src/}
+
+  # Comments only: a macro's value appears in code as #define or ==, never as
+  # "NAME=0", so what is left after stripping code is where a claim can live.
+  awk '
+    {
+      line = $0; out = ""
+      while (1) {
+        if (inc) {
+          e = index(line, "*/")
+          if (e == 0) { out = out " " line; line = ""; break }
+          out = out " " substr(line, 1, e - 1); line = substr(line, e + 2); inc = 0
+          continue
+        }
+        b = index(line, "/*"); s = index(line, "//")
+        if (s > 0 && (b == 0 || s < b)) { out = out " " substr(line, s + 2); break }
+        if (b == 0) break
+        line = substr(line, b + 2); inc = 1
+      }
+      if (out != "") print NR "\t" out
+    }' "$f" |
+  awk -F'\t' '{
+    rest = $2
+    while (match(rest, /[A-Z_][A-Z0-9_]+[ \t]*(=[ \t]*|[ \t]+is[ \t]+)[0-9]+/)) {
+      s = substr(rest, RSTART, RLENGTH)
+      after = substr(rest, RSTART + RLENGTH, 1)
+      rest = substr(rest, RSTART + RLENGTH)
+      if (after ~ /[0-9A-Za-z_.]/) continue
+      name = s; sub(/[ \t]*(=|[ \t]is[ \t]).*$/, "", name)
+      val = s;  sub(/^.*[^0-9]/, "", val)
+      print $1, name, val
+    }
+  }' | while read -r ln name val; do
+    grep -qx "$name" "$TMP/macros" || continue
+    printf '%s %s %s\n' "$ln" "$name" "$val"
+  done >"$TMP/claims"
+  [ -s "$TMP/claims" ] || continue
+
+  # The architecture gate: the first #if/#elif naming a token the dispatch
+  # chain knows. A file without one is not bound to an architecture.
+  arches=$(awk '
+    { line = $0 }
+    cont { pred = pred " " line; if (line !~ /\\[ \t]*$/) { print pred; exit } next }
+    line ~ /^#[ \t]*(if|elif)[ \t]/ && line ~ /__/ {
+      pred = line
+      if (line ~ /\\[ \t]*$/) { cont = 1; next }
+      print pred; exit
+    }' "$f" |
+    grep -oE '__[A-Za-z0-9_]+' |
+    while read -r t; do awk -v t="$t" '$2==t {print $1}' "$TMP/dispatch"; done |
+    sort -u)
+
+  if [ -z "$arches" ]; then
+    nunbound=$((nunbound + $(wc -l <"$TMP/claims")))
+    continue
+  fi
+
+  while read -r ln name val; do
+    case "$ALLOW" in *"$rel:$name"*) continue ;; esac
+
+    truth=; disagree=0
+    for a in $arches; do
+      v=$(value_of "$a" "$name")
+      if [ -z "$v" ]; then disagree=1; break; fi
+      if [ -z "$truth" ]; then truth=$v
+      elif [ "$truth" != "$v" ]; then disagree=1; break; fi
+    done
+    if [ "$disagree" = 1 ] || [ -z "$truth" ]; then
+      nambiguous=$((nambiguous + 1)); continue
+    fi
+
+    nchecked=$((nchecked + 1))
+    if [ "$val" != "$truth" ]; then
+      printf '  %s:%s: comment says %s=%s; %s says %s\n' \
+        "$rel" "$ln" "$name" "$val" "$(echo "$arches" | tr '\n' '/' | sed 's|/$||')" \
+        "$truth" >&2
+      fail=1
+    fi
+  done <"$TMP/claims"
+done <"$TMP/files"
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-macro-claims: FAIL%s (a comment states a macro value the header contradicts)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+
+guard_scope "check-macro-claims" "$nchecked" 4
+
+printf '%scheck-macro-claims: OK%s (%d claims checked; %d unbound, %d ambiguous)\n' \
+  "$GREEN" "$RESET" "$nchecked" "$nunbound" "$nambiguous"

@@ -14,8 +14,11 @@
 //
 // Emits SF_VIRT_KASLR_DISABLED only — single axis. arm64 physical placement is
 // EFI/bootloader-determined and independent of the virtual seed, so the phys
-// axis is left unconstrained. virt_kaslr_disabled_pin pins Q_VIRT_IMAGE_BASE
-// (KASLR_DISABLED_PINS_VIRT_TEXT=1 on arm64).
+// axis is left unconstrained. The signal is consumed by arm64_text_base, not by
+// virt_kaslr_disabled_pin (KASLR_DISABLED_PINS_VIRT_TEXT is 0 on arm64): the
+// base is KIMAGE_VADDR exactly, but the module-region size that places it is
+// unknown, so the sound emission is an upper bound at the largest candidate
+// rather than a C_EQUALS pin.
 //
 // Conservative: EFI present, ACPI boot (no /proc/device-tree), a present seed
 // property, or an 'rng' hwcap each cause a skip, so the assertion fires only on

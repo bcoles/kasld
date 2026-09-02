@@ -7,10 +7,11 @@
 // when Zkr returns 0, so the 'zkr' guard is required to avoid a false KASLR-off
 // verdict on Zkr-capable hardware. On riscv64 the same seed feeds both virt and
 // phys placement pre-EFI, so absence of the seed disables both axes. Emits
-// SF_VIRT_KASLR_DISABLED + SF_PHYS_KASLR_DISABLED; virt_kaslr_disabled_pin
-// pins Q_VIRT_IMAGE_BASE (KASLR_DISABLED_PINS_VIRT_TEXT=1 on riscv64); the phys
-// pin is inert (KASLR_DISABLED_PINS_PHYS=0 — riscv64 phys placement is
-// firmware-determined).
+// SF_VIRT_KASLR_DISABLED + SF_PHYS_KASLR_DISABLED. The virt pin is owned by
+// riscv64_text_base, which pins Q_VIRT_IMAGE_BASE to arch_default_text_base()
+// capped at CONF_INFERRED, not by virt_kaslr_disabled_pin
+// (KASLR_DISABLED_PINS_VIRT_TEXT is 0 on riscv64); the phys pin is inert
+// (KASLR_DISABLED_PINS_PHYS=0 — riscv64 phys placement is firmware-determined).
 // riscv64 only — gated at compile time so non-riscv64 builds skip via the
 // Makefile's `cc-component` wrapper instead of shipping a no-op binary.
 // ---
