@@ -5238,10 +5238,102 @@ static void test_render_hardening_text_no_rand_failed_silent(void) {
  * directions. */
 static void stage_render_sysroot(void) { th_sysroot_init("render"); }
 
+/* The text-order class is reported twice over: a prose label for the reader and
+ * a token for JSON consumers. The two vocabularies are written side by side and
+ * nothing but their shape distinguishes them, so a swap reads as a rename until
+ * a consumer parses `reordered (static)` as a class name. Asserted here: every
+ * class has both forms, the JSON form stays a bare token, the two are
+ * one-to-one so no class is reported as another, and anything outside the enum
+ * lands on the fallback rather than on whichever case the switch happened to
+ * end with. */
+static const enum kasld_text_order th_orders[] = {
+    TEXT_ORDER_CANONICAL, TEXT_ORDER_STATIC, TEXT_ORDER_DYNAMIC,
+    TEXT_ORDER_UNKNOWN};
+
+static void test_text_order_labels_cover_every_class(void) {
+  assert(strcmp(text_order_label(TEXT_ORDER_CANONICAL), "canonical") == 0);
+  assert(strcmp(text_order_label(TEXT_ORDER_STATIC), "reordered (static)") ==
+         0);
+  assert(strcmp(text_order_label(TEXT_ORDER_DYNAMIC), "reordered (per-boot)") ==
+         0);
+  /* The actionable half: what a System.map is worth under each class. */
+  assert(strcmp(symbol_resolution_label(TEXT_ORDER_CANONICAL),
+                "generic System.map OK") == 0);
+  assert(strcmp(symbol_resolution_label(TEXT_ORDER_STATIC),
+                "needs this build's System.map") == 0);
+  assert(strcmp(symbol_resolution_json(TEXT_ORDER_DYNAMIC), "none") == 0);
+}
+
+static void test_text_order_json_classes_are_bare_tokens(void) {
+  /* A JSON class is consumed by machine: no spaces, no parentheses, and never
+   * empty. The prose labels deliberately carry both, which is what makes a
+   * swap between the two vocabularies silent. */
+  for (unsigned i = 0; i < sizeof(th_orders) / sizeof(th_orders[0]); i++) {
+    const char *j = text_order_json_class(th_orders[i]);
+    const char *s = symbol_resolution_json(th_orders[i]);
+    assert(j && *j && s && *s);
+    assert(strchr(j, ' ') == NULL && strchr(j, '(') == NULL);
+    assert(strchr(s, ' ') == NULL && strchr(s, '(') == NULL);
+  }
+  /* And the prose form is the one allowed to be prose. */
+  assert(strchr(text_order_label(TEXT_ORDER_STATIC), '(') != NULL);
+}
+
+static void test_text_order_vocabularies_are_injective(void) {
+  /* Two classes sharing a string would report one as the other. */
+  for (unsigned i = 0; i < sizeof(th_orders) / sizeof(th_orders[0]); i++) {
+    for (unsigned k = i + 1; k < sizeof(th_orders) / sizeof(th_orders[0]);
+         k++) {
+      assert(strcmp(text_order_label(th_orders[i]),
+                    text_order_label(th_orders[k])) != 0);
+      assert(strcmp(text_order_json_class(th_orders[i]),
+                    text_order_json_class(th_orders[k])) != 0);
+      assert(strcmp(symbol_resolution_label(th_orders[i]),
+                    symbol_resolution_label(th_orders[k])) != 0);
+      assert(strcmp(symbol_resolution_json(th_orders[i]),
+                    symbol_resolution_json(th_orders[k])) != 0);
+    }
+  }
+}
+
+static void test_text_order_unknown_is_the_fallback(void) {
+  /* 0 is "fact absent in the scalar pipeline", and a value past the enum is
+   * what a future class looks like to today's build. Both must read as
+   * unknown rather than inheriting a neighbour's answer. */
+  const enum kasld_text_order off[] = {(enum kasld_text_order)0,
+                                       (enum kasld_text_order)99};
+  for (unsigned i = 0; i < sizeof(off) / sizeof(off[0]); i++) {
+    assert(strcmp(text_order_label(off[i]), "unknown") == 0);
+    assert(strcmp(text_order_json_class(off[i]), "unknown") == 0);
+    assert(strcmp(symbol_resolution_label(off[i]), "unknown") == 0);
+    assert(strcmp(symbol_resolution_json(off[i]), "unknown") == 0);
+  }
+  assert(strcmp(text_order_label(TEXT_ORDER_UNKNOWN), "unknown") == 0);
+}
+
+static void test_disclosure_eq_null_handling(void) {
+  /* Components without a `discloses` key reach this with NULL, and two of them
+   * are equal in the sense the caller groups by. A plain strcmp would fault. */
+  assert(disclosure_eq(NULL, NULL));
+  assert(!disclosure_eq(NULL, "virtual"));
+  assert(!disclosure_eq("virtual", NULL));
+  assert(disclosure_eq("virtual", "virtual"));
+  assert(!disclosure_eq("virtual", "physical"));
+  assert(disclosure_eq("", ""));
+  assert(!disclosure_eq("", "virtual"));
+}
+
 int main(void) {
   TEST_SUITE("render — renderer unit suite");
   stage_render_sysroot();
   test_init_layout_engine_bounds();
+
+  BEGIN_CATEGORY("Hardening — text-order vocabulary");
+  RUN(test_text_order_labels_cover_every_class);
+  RUN(test_text_order_json_classes_are_bare_tokens);
+  RUN(test_text_order_vocabularies_are_injective);
+  RUN(test_text_order_unknown_is_the_fallback);
+  RUN(test_disclosure_eq_null_handling);
 
   BEGIN_CATEGORY("Renderer — json_print_escaped");
   RUN(test_json_print_escaped_passthrough);

@@ -119,6 +119,96 @@ static void test_result_init_zeroes_everything(void) {
 /* =========================================================================
  * Parser
  * ========================================================================= */
+/* The confidence ladder and the method set are closed vocabularies shared with
+ * every component over the tagged-line protocol. A component writes the word,
+ * the orchestrator maps it back to the enum, and nothing else checks that the
+ * two agree: a word mapped to the wrong rung silently regrades a result, and a
+ * word mapped to CONF_UNKNOWN drops it. Both directions are asserted here —
+ * every word in the vocabulary maps to its own value, and a word outside it
+ * maps to the sentinel rather than to whichever rung the last strcmp tested. */
+static void test_conf_from_wire_maps_every_rung(void) {
+  assert(conf_from_wire("parsed") == CONF_PARSED);
+  assert(conf_from_wire("derived") == CONF_DERIVED);
+  assert(conf_from_wire("inferred") == CONF_INFERRED);
+  assert(conf_from_wire("heuristic") == CONF_HEURISTIC);
+  assert(conf_from_wire("timing") == CONF_TIMING);
+  assert(conf_from_wire("brute") == CONF_BRUTE);
+}
+
+static void test_conf_from_wire_rejects_off_vocabulary(void) {
+  /* Empty, unknown, wrong case, and a prefix/suffix of a real rung: a prefix
+   * match would accept "parse" or "parsedx" as CONF_PARSED. */
+  static const char *const bad[] = {"",      "unknown", "Parsed", "PARSED",
+                                    "parse", "parsedx", "brut",   "bruteforce",
+                                    "conf",  " parsed", "parsed "};
+  for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+    assert(conf_from_wire(bad[i]) == CONF_UNKNOWN);
+}
+
+static void test_conf_from_wire_is_ordered_by_trust(void) {
+  /* The ladder is ordered, and the sound floor is expressed as a comparison
+   * against it, so the mapping must preserve the documented ranking rather
+   * than merely being injective. */
+  assert(conf_from_wire("parsed") > conf_from_wire("derived"));
+  assert(conf_from_wire("derived") > conf_from_wire("inferred"));
+  assert(conf_from_wire("inferred") > conf_from_wire("heuristic"));
+  assert(conf_from_wire("heuristic") > conf_from_wire("timing"));
+  assert(conf_from_wire("timing") > conf_from_wire("brute"));
+  assert(conf_from_wire("brute") > CONF_UNKNOWN);
+}
+
+static void test_method_bit_maps_every_value(void) {
+  assert(method_bit("parsed") == (uint16_t)(1u << KM_PARSED));
+  assert(method_bit("derived") == (uint16_t)(1u << KM_DERIVED));
+  assert(method_bit("inferred") == (uint16_t)(1u << KM_INFERRED));
+  assert(method_bit("heuristic") == (uint16_t)(1u << KM_HEURISTIC));
+  assert(method_bit("timing") == (uint16_t)(1u << KM_TIMING));
+  assert(method_bit("brute") == (uint16_t)(1u << KM_BRUTE));
+  assert(method_bit("detection") == (uint16_t)(1u << KM_DETECTION));
+}
+
+static void test_method_bit_rejects_off_vocabulary(void) {
+  /* NULL is a caller-reachable input: a component carrying no method: key
+   * reaches here with the value unset. */
+  assert(method_bit(NULL) == 0);
+  static const char *const bad[] = {"",       "Parsed",  "parse",  "parsedx",
+                                    "detect", "unknown", " parsed"};
+  for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+    assert(method_bit(bad[i]) == 0);
+}
+
+static void test_method_bits_are_distinct(void) {
+  /* method_set is a bitmask, so two values sharing a bit would merge two
+   * technique categories into one wherever the mask is read. */
+  static const char *const all[] = {"parsed",    "derived", "inferred",
+                                    "heuristic", "timing",  "brute",
+                                    "detection"};
+  uint16_t seen = 0;
+  for (unsigned i = 0; i < sizeof(all) / sizeof(all[0]); i++) {
+    uint16_t b = method_bit(all[i]);
+    assert(b != 0);
+    assert((seen & b) == 0);
+    seen |= b;
+  }
+  /* KM_COUNT distinct values, each one bit. */
+  assert(seen == (uint16_t)((1u << KM_COUNT) - 1u));
+}
+
+static void test_is_pow2_classifies_alignments(void) {
+  /* Gates the base-align field on the wire. 0 is not an alignment, and the
+   * classic failure is accepting a value with more than one bit set. */
+  assert(!is_pow2(0));
+  assert(is_pow2(1));
+  assert(is_pow2(2));
+  assert(is_pow2(0x200000UL)); /* 2 MiB, the x86_64 KASLR grain */
+  assert(is_pow2(0x10000UL));  /* 64 KiB, the arm64 grain */
+  assert(!is_pow2(3));
+  assert(!is_pow2(6));
+  assert(!is_pow2(0x300000UL));
+  assert(is_pow2(1UL << (sizeof(unsigned long) * 8 - 1)));
+  assert(!is_pow2(~0UL));
+}
+
 static void test_parse_base_record(void) {
   reset_results();
   int ok =
@@ -3259,6 +3349,15 @@ int main(void) {
   RUN(test_anchor_addr_interior_sample);
   RUN(test_anchor_addr_null);
   RUN(test_synthesized_result_sets_fields_correctly);
+
+  BEGIN_CATEGORY("Wire vocabulary");
+  RUN(test_conf_from_wire_maps_every_rung);
+  RUN(test_conf_from_wire_rejects_off_vocabulary);
+  RUN(test_conf_from_wire_is_ordered_by_trust);
+  RUN(test_method_bit_maps_every_value);
+  RUN(test_method_bit_rejects_off_vocabulary);
+  RUN(test_method_bits_are_distinct);
+  RUN(test_is_pow2_classifies_alignments);
 
   BEGIN_CATEGORY("Wire parser");
   RUN(test_parse_base_record);
