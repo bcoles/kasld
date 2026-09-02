@@ -1,0 +1,158 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-arch-headers — every contract arch header defines every mandatory axis,
+# on any host.
+#
+# api.h already refuses to compile an arch header that omits one. But it refuses
+# at BUILD time, and a header is only built when its toolchain is present:
+# `make cross` skips absent targets deliberately, so the axes are enforced
+# against however many architectures the host can build, not against the
+# seventeen headers in the tree. Deleting TEXT_TRACKS_DIRECTMAP from s390.h
+# leaves `make`, `make test` and `make lint` all green on an x86_64 host; only a
+# cross build for s390x objects. A porter's header can therefore be incomplete
+# in a way every check reports as fine.
+#
+# So each header is put through the preprocessor here, on this host, with no
+# cross toolchain: the arch headers are essentially #define blocks and compile
+# standalone. A throwaway translation unit includes one and then asserts each
+# mandatory axis with #ifndef/#error, which is the same question api.h asks —
+# asked seventeen times instead of once per built target.
+#
+# The preprocessor answers it rather than a text scan because an axis may be
+# defined inside an #if/#else, or through another macro. grep approximates that;
+# cpp decides it.
+#
+# The mandatory set is derived from api.h exactly as check-arch-axes derives it
+# — an `#ifndef X` whose block holds an `#error` — so the two guards cannot
+# disagree about what "mandatory" means, and a tenth axis is picked up by both
+# without editing either.
+#
+# Contract headers are told from refusal stubs by the NESTING DEPTH of their
+# #error. A stub's fires unconditionally, directly inside the include guard; the
+# conditional relation assertions in arm64.h sit one level deeper and hold on a
+# healthy tree. Classifying instead by "does the bare include fail" would be
+# unsound in the direction that passes: were arm64's band relation ever broken,
+# its include would fail, the header would be refiled as a stub, and a real
+# defect would be read as the stub behaving correctly.
+#
+# Usage: tests/check-arch-headers   (also run by `make lint` / `make test`)
+# Env:   CC (default cc)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+CC=${CC:-cc}
+API=$ROOT/src/include/kasld/api.h
+ARCH=$ROOT/src/include/kasld/arch
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+# Soft dependency, as check-shellcheck treats shellcheck: a host without a
+# working compiler still runs the rest of the suite.
+if ! command -v "$CC" >/dev/null 2>&1; then
+  printf '%scheck-arch-headers: SKIP%s (no compiler: %s)\n' "$YELLOW" "$RESET" "$CC"
+  exit 0
+fi
+
+[ -f "$API" ] || {
+  printf '%scheck-arch-headers: FAIL%s (missing %s)\n' "$RED" "$RESET" "$API" >&2
+  exit 1
+}
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/kasld-archhdr.XXXXXX") || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+fail=0
+note() { printf '  %s\n' "$1" >&2; fail=1; }
+
+# The mandatory axes: `#ifndef X` whose block holds an `#error`. KASLD_API_H is
+# the file's own include guard and has the same shape. Clearing at #endif is
+# what separates mandatory from optional: an axis api.h supplies a default for
+# is `#ifndef X / #define X <default> / #endif`, and without the reset its name
+# would still be current when a later, unrelated #error is read.
+axes=$(awk '
+  /^#ifndef [A-Za-z_][A-Za-z0-9_]*/ { m = $2; next }
+  /^#error/ { if (m != "" && m != "KASLD_API_H") print m; m = "" }
+  /^#endif/ { m = "" }
+' "$API" | sort -u)
+[ -n "$axes" ] || {
+  printf '%scheck-arch-headers: FAIL%s (no mandatory axes found in api.h — has the #ifndef/#error shape changed?)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+}
+
+ncontract=0
+nstub=0
+for hdr in "$ARCH"/*.h; do
+  [ -f "$hdr" ] || continue
+  arch=$(basename "$hdr" .h)
+
+  # Unconditional #error (depth <= 1, i.e. inside nothing but the include
+  # guard) marks a header that documents a deliberate non-support decision.
+  kind=$(awk '
+    BEGIN { k = "contract" }
+    /^[ \t]*#[ \t]*(if|ifdef|ifndef)/ { d++; next }
+    /^[ \t]*#[ \t]*endif/             { d--; next }
+    /^[ \t]*#[ \t]*error/ { if (d <= 1) { k = "stub"; exit } }
+    END { print k }
+  ' "$hdr")
+
+  src=$TMP/probe.c
+  if [ "$kind" = stub ]; then
+    nstub=$((nstub + 1))
+    printf '#include "include/kasld/arch/%s.h"\n' "$arch" >"$src"
+    if "$CC" -I "$ROOT/src" -fsyntax-only "$src" >/dev/null 2>&1; then
+      note "$arch: shaped as a refusal stub, but including it compiles — the #error no longer fires"
+    fi
+    continue
+  fi
+
+  ncontract=$((ncontract + 1))
+  {
+    printf '#include "include/kasld/arch/%s.h"\n' "$arch"
+    for a in $axes; do
+      printf '#ifndef %s\n#error "%s does not define %s"\n#endif\n' "$a" "$arch" "$a"
+    done
+  } >"$src"
+  out=$("$CC" -I "$ROOT/src" -fsyntax-only "$src" 2>&1)
+  [ -z "$out" ] && continue
+  # One line per missing axis: the compiler repeats the text in its context
+  # line, and a header missing several should say so once each.
+  missing=$(printf '%s\n' "$out" |
+            sed -n 's/.*"\('"$arch"' does not define [A-Z_][A-Z0-9_]*\)".*/\1/p' |
+            sort -u)
+  if [ -n "$missing" ]; then
+    printf '%s\n' "$missing" | while IFS= read -r m; do printf '  %s\n' "$m" >&2; done
+    fail=1
+  else
+    # Not a missing axis: the header itself refused to preprocess. Its own
+    # assertions land here — arm64's module-band relation checks are #errors a
+    # level below the include guard, so a broken relation reaches this branch
+    # rather than being mistaken for a refusal stub. Report the compiler's
+    # error line, not the "In file included from" context above it.
+    detail=$(printf '%s\n' "$out" | grep -m1 -E 'error:' | sed 's/^[^:]*:[0-9]*:[0-9]*: //')
+    note "$arch: header does not preprocess: ${detail:-$(printf '%s' "$out" | head -1)}"
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-arch-headers: FAIL%s (a header the host cannot build is still part of the contract)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+
+guard_scope "check-arch-headers" "$((ncontract + nstub))" 15
+
+naxes=$(printf '%s\n' "$axes" | grep -c .)
+printf '%scheck-arch-headers: OK%s (%d contract headers x %d mandatory axes, %d refusal stubs)\n' \
+  "$GREEN" "$RESET" "$ncontract" "$naxes" "$nstub"
