@@ -18,6 +18,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 DOC=$ROOT/docs/testing.md
 MK=$ROOT/Makefile
+# shellcheck source=tests/lib/md-table.sh
+. "$ROOT/tests/lib/md-table.sh"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
@@ -41,13 +43,22 @@ awk '/^lint[[:space:]]*:/ { inblock = 1; next }
      inblock && /^\t/    { print; next }
      inblock             { exit }' "$MK" |
   grep -oE '\$\(TEST_DIR\)/[a-z0-9-]+' | sed 's|.*/||' | sort -u >"$run_f"
-# The backticks are literal markdown table syntax, not command substitution.
-# shellcheck disable=SC2016
-: >"$doc_f"
-while IFS= read -r g; do
-  grep -qE "^\| \`$g\` \|" "$DOC" && printf '%s\n' "$g" >>"$doc_f"
-done <"$run_f"
-sort -u -o "$doc_f" "$doc_f"
+# The documented set, read from the guard table itself rather than by asking
+# which of the run guards appear in it. Deriving it from the run list made the
+# two sets equal by construction: `doc_f` was a subset of `run_f`, so the
+# "documented but not run" comparison below could never find anything, and a row
+# for a guard `lint` had stopped invoking sat in the table indefinitely. Half a
+# parity check reads exactly like a whole one from its output.
+#
+# md_table_select finds the table by the names in its header and returns 3 when
+# no table matches, so renaming a column fails here rather than silently
+# reporting an empty documented set.
+md_table_select "$DOC" 'Guard,Asserts' 'Guard' | sort -u >"$doc_f" || :
+if [ ! -s "$doc_f" ]; then
+  printf '%scheck-guard-docs: FAIL%s (no guard table found in %s — has its header changed?)\n' \
+    "$RED" "$RESET" "$DOC" >&2
+  exit 1
+fi
 
 nrun=$(grep -c . "$run_f")
 missing=$(comm -13 "$doc_f" "$run_f")
