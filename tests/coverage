@@ -5,13 +5,15 @@
 #
 # Builds the engine core (estimate/quantities/evidence/engine/engine_rules),
 # every rules/*.c, and the orchestrator internals + render + region_info (via
-# test_kasld) instrumented with --coverage, runs every test driver (accumulating
-# .gcda), and prints a per-file + total line-coverage summary via gcov. All
-# artifacts stay under build/coverage/.
+# test_kasld and test_render) instrumented with --coverage, runs every test
+# driver (accumulating .gcda), and prints a per-file + total line-coverage
+# summary via gcov. All artifacts stay under build/coverage/.
 #
-# Scope note: render.c shows ~0% here (unit tests don't render) and the
-# orchestrator's engine bridge + main() are compiled out under -DKASLD_TESTING.
-# Those are exercised end-to-end by tests/coverage-e2e (the real binary).
+# Scope note: the orchestrator's engine bridge and main() are compiled out under
+# -DKASLD_TESTING, so they read as uncovered here whatever the unit tests do.
+# Those are exercised end-to-end by tests/coverage-e2e (the real binary), and
+# the two reports are complementary rather than comparable: a file low here may
+# be well covered there, and the reverse.
 #
 # OPTIONAL by design — the normal build/test never use --coverage, so this adds
 # no dependency to them. Even here the only requirement is the compiler's own
@@ -83,35 +85,59 @@ PTH_C=""; PTH_L=""
 if echo 'int main(void){return 0;}' | $CC -xc - -lpthread -o "$COV/.pthr" 2>/dev/null; then
   PTH_C="-DHAVE_PTHREAD"; PTH_L="-lpthread"; rm -f "$COV/.pthr"
 fi
-$CC $CFLAGS -DKASLD_TESTING $PTH_C -c "$ROOT/tests/test_kasld.c" -o "$COV/test_kasld.drv.o" \
-  || { echo "coverage: compile failed: test_kasld.c" >&2; exit 1; }
-$CC $CFLAGS "$COV/test_kasld.drv.o" $PTH_L -o "$COV/test_kasld" \
-  || { echo "coverage: link failed: test_kasld" >&2; exit 1; }
-"$COV/test_kasld" >/dev/null 2>&1 || { echo "coverage: test_kasld FAILED (tests must pass first)" >&2; exit 1; }
+# test_render.c is a second such TU over the SAME sources: it holds the renderer
+# tests that were split out of test_kasld, and without it every renderer reads
+# 0% here while a passing driver exercises it. Two translation units compiling
+# one source is why the report below unions executed line numbers rather than
+# averaging each unit's percentage — the same line covered by both is one line
+# covered, and a file compiled twice is not twice as much code.
+for drv in test_kasld test_render; do
+  $CC $CFLAGS -DKASLD_TESTING $PTH_C -c "$ROOT/tests/$drv.c" -o "$COV/$drv.drv.o" \
+    || { echo "coverage: compile failed: $drv.c" >&2; exit 1; }
+  $CC $CFLAGS "$COV/$drv.drv.o" $PTH_L -o "$COV/$drv" \
+    || { echo "coverage: link failed: $drv" >&2; exit 1; }
+  "$COV/$drv" >/dev/null 2>&1 \
+    || { echo "coverage: $drv FAILED (tests must pass first)" >&2; exit 1; }
+done
 
-# Per-file + weighted-total line coverage (gcov -n: summary only, no .gcov
-# files), over every .gcno. Report only our src/*.c sources — gcov also emits
-# an entry per included header (observation.h, api.h, ...) and per test driver,
-# which we drop; header-inline coverage is folded into each TU's .c. Each src
-# .c is covered by exactly one .gcno (its object, or test_kasld's TU for
-# orchestrator/environment/render/region_info), so no double-counting.
+# Per-file + weighted-total line coverage, over every .gcno. Report only our
+# src/*.c sources — gcov also emits an entry per included header
+# (observation.h, api.h, ...) and per test driver, which we drop; header-inline
+# coverage is folded into each TU's .c.
+#
+# Read per-line (gcov -t, to stdout) and UNIONED by source line number, not
+# averaged from each unit's percentage. Two drivers compile the same sources
+# into separate translation units, so a source appears in more than one .gcno:
+# a line either driver executed is covered, and the file's line count is its
+# own, not the sum of the units that included it. Averaging percentages would
+# report a file compiled twice as twice the code and halve a line only one
+# driver reaches.
+#
+# A line arrives as "<count>:<lineno>:<text>", where <count> is ##### for never
+# executed, - for a line carrying no code, and a number otherwise.
 echo "----------------------------------------------------------------------"
-( cd "$COV" && $GCOV -n ./*.gcno 2>/dev/null ) | awk '
-  # Keep our src/*.c only (abs path from gcc, relative from llvm-cov); this
-  # excludes included headers and the test drivers (tests/*.c).
-  /^File / { f=$0; sub(/^File \047/,"",f); sub(/\047.*/,"",f);
-             keep = (f ~ /(^|\/)src\/.*\.c$/) }
-  /^Lines executed:/ {
-    if (!keep) next;
-    keep = 0;   # one Lines-executed per File; ignore gcovs trailing grand total
-    line=$0; sub(/^Lines executed:/,"",line);
-    pct=line+0; n=line; sub(/.*of /,"",n); tot=n+0;
-    bn=f; sub(/.*\//,"",bn);
-    if (tot>0) { printf "  %-34s %6.2f%%  of %4d lines\n", bn, pct, tot;
-                 ex+=pct*tot/100; all+=tot }
+( cd "$COV" && for g in ./*.gcno; do $GCOV -t "$g" 2>/dev/null; done ) | awk '
+  /^ *-: *0:Source:/ { f=$0; sub(/.*Source:/,"",f)
+                       keep = (f ~ /(^|\/)src\/.*\.c$/); next }
+  !keep { next }
+  {
+    split($0, p, ":")
+    cnt=p[1]; ln=p[2]+0
+    gsub(/[ \t]/,"",cnt)
+    if (ln == 0 || cnt == "-") next
+    key = f SUBSEP ln
+    if (!(key in seen)) { seen[key]=1; total[f]++ }
+    if (cnt != "#####" && !(key in hit)) { hit[key]=1; done[f]++ }
   }
-  END { if (all>0) printf "  %-34s %6.2f%%  of %4d lines\n",
-                          "TOTAL (host unit tests)", 100*ex/all, all }'
+  END {
+    for (f in total) {
+      bn=f; sub(/.*\//,"",bn)
+      printf "  %-34s %6.2f%%  of %4d lines\n", bn, 100*done[f]/total[f], total[f]
+      ex += done[f]; all += total[f]
+    }
+    if (all>0) printf "~TOTAL~  %-34s %6.2f%%  of %4d lines\n",
+                      "TOTAL (host unit tests)", 100*ex/all, all
+  }' | sort -k1,1 | sed 's/^~TOTAL~//'
 echo "----------------------------------------------------------------------"
 echo "coverage: built with $CC, reported via $GCOV; artifacts in $COV"
 
