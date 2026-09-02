@@ -732,6 +732,14 @@ $(TEST_BPE820_BIN): $(TEST_DIR)/test_boot_params_e820.c $(SRC_DIR)/components/bo
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_boot_params_e820.c -o $@
 
+# boot_params_facts setup-header test: the component #included (main renamed) and
+# driven over a staged KASLD_SYSROOT boot_params; asserts that a header the EFI
+# stub synthesized yields no build-time fact, and that a copied one still does.
+TEST_BPFACTS_BIN := $(TEST_OBJ_DIR)/test_boot_params_facts
+$(TEST_BPFACTS_BIN): $(TEST_DIR)/test_boot_params_facts.c $(SRC_DIR)/components/boot_params_facts.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_boot_params_facts.c -o $@
+
 # proc_kcore ELF program-header scan: the component #included (main renamed) and
 # driven over a staged KASLD_SYSROOT /proc/kcore; the only coverage of the parse
 # (the live component is CAP_SYS_RAWIO-gated, so it is dark in the fixtures).
@@ -815,6 +823,7 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_BTF_BIN) \
   $(TEST_DMESG_RESV_BIN) \
   $(TEST_BPE820_BIN) \
+  $(TEST_BPFACTS_BIN) \
   $(TEST_PARSERS_BIN) \
   $(TEST_KCORE_BIN) \
   $(TEST_REPORT_BIN) \
@@ -944,6 +953,10 @@ test-dmesg-reservations : $(TEST_DMESG_RESV_BIN)
 .PHONY: test-boot-params-e820
 test-boot-params-e820 : $(TEST_BPE820_BIN)
 	$(TEST_BPE820_BIN)
+
+.PHONY: test-boot-params-facts
+test-boot-params-facts : $(TEST_BPFACTS_BIN)
+	$(TEST_BPFACTS_BIN)
 
 .PHONY: test-sysfs-parsers
 test-sysfs-parsers : $(TEST_PARSERS_BIN)
