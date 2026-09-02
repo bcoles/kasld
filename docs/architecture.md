@@ -102,7 +102,7 @@ rather than pin, and bounds compose.
 range of values the image base could still take — began at its *honest top*, the
 widest window the architecture allows (here the full x86_64 KASLR text range).
 Meeting the new upper bound lowers its ceiling; on the same passes other rules
-raise the floor (DRAM bounds) and the 2 MiB `IMAGE_ALIGN` slot grid is applied.
+raise the floor (DRAM bounds) and the 2 MiB slot grid is applied.
 With only this one leak the result is still a window — several slots wide:
 
 ```

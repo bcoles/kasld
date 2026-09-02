@@ -439,9 +439,12 @@ The following KASLD components use brute-force probing:
 
 ## Weak entropy
 
-The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE`
-(4 KiB) and 2 MiB on modern systems (see `IMAGE_ALIGN` definitions in
-[kasld/api.h](../src/include/kasld/api.h)).
+The kernel is loaded at an aligned memory address — from a page (4 KiB on
+PowerPC32) up to 4 MiB on RISC-V32, depending on the architecture. Where KASLR
+is active the positions it can take are spaced at least that far apart and often
+further, and on x86 a build option widens that spacing to as much as 16 MiB (see
+the `Min alignment` and `Grain` columns in the
+[KASLR slots table](kaslr.md#default-text-base-and-kaslr-alignment)).
 
 This limits the number of possible kernel locations to the values in the
 [KASLR slots table](kaslr.md#default-text-base-and-kaslr-alignment) above.
@@ -449,11 +452,11 @@ This limits the number of possible kernel locations to the values in the
 The slot counts in that table are upper bounds. The kernel's KASLR placement code
 enforces `slot + kernel_size ≤ range_end`, so positions near the top of the
 randomization region where the image would overflow are never selected. Every
-additional `IMAGE_ALIGN` bytes of kernel image size removes one trailing slot.
-On architectures with tight entropy budgets — x86_64 and x86_32 (~500 slots,
-~9 bits) and RISC-V64 (~512 slots) — a typical production kernel reduces the
-effective slot count by 3–8%. On arm64 (~33M slots) and s390 (~131K slots) the
-reduction is negligible.
+additional grain of kernel image size removes one trailing slot.
+On architectures with tight entropy budgets — x86_64 (~504 slots, ~9 bits),
+x86_32 (~248 slots, ~8 bits) and RISC-V64 (~512 slots, ~9 bits) — a typical
+production kernel reduces the effective slot count by 3–8%. On arm64 (~1073M
+slots) and s390 (≥131K slots) the reduction is negligible.
 
 Weaknesses in randomization can decrease entropy, further limiting the possible kernel
 locations in memory and making the kernel easier to locate.

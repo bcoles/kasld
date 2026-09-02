@@ -1,0 +1,194 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-doc-alignment — the documented per-capture alignment figures are checked
+# against what the tool actually reports for those captures.
+#
+# docs/kaslr.md states that the KASLR slot granularity is a build option on x86
+# and illustrates it with named captures: one distro kernel built at the 16 MiB
+# Kconfig ceiling and one at the 2 MiB default, with the slot count each yields.
+# Those are the only numbers in that document tied to a specific kernel rather
+# than to an architecture, which makes them the only ones that can go stale
+# without anybody editing the document -- a fixture refresh is enough.
+#
+# The check runs kasld against each named capture and compares the readout to
+# the row:
+#
+#     doc `kernel_alignment` column  ==  the row's Grain
+#     doc `Image-base slots` column  ==  the denominator of its Candidates
+#
+# Deliberately end-to-end rather than a read of the capture's setup header. The
+# header value is what the document names, but what the document CLAIMS is that
+# the value reaches the readout and thins the slot count in proportion. Reading
+# the header would confirm the input and leave the claim untested; running the
+# tool tests the sentence that was actually written. It therefore also catches
+# an engine or renderer change that stops the value being honoured, which a
+# byte-comparison never would.
+#
+# Rows are read from the table marked in the document, so the guard and the
+# prose cannot disagree about which figures are under test:
+#
+#     <!-- checked: capture alignment x86_64 (tests/check-doc-alignment) -->
+#
+# The marker names the architecture because a capture name does not identify a
+# capture: the same distro image is captured on several architectures under one
+# name, and tests/fixtures/arm64 and tests/fixtures/x86_64 both hold an
+# `alpine-3.21-6.12.81-0-virt`. Resolving the name by search picks whichever
+# sorts first, which is how this guard first reported OK while quietly checking
+# the wrong architecture. The path is built from the marker instead, so a table
+# whose captures are not the architecture the prose claims fails outright.
+#
+# Scope. Only the rows of that table are checked. The prose around it also
+# attributes values to distributions ("Alpine builds its x86_64 kernels at
+# 16 MiB, where Debian, Ubuntu and Android all use the 2 MiB default"), which is
+# a statement about the corpus as a whole and is not machine-checked here;
+# encoding it would put a second copy of the document's claim in this file, and
+# a guard that disagrees with the document it guards is worse than no guard.
+# Naming a capture in the table is what brings a figure under test.
+#
+# Usage: tests/check-doc-alignment   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+DOC="$ROOT/docs/kaslr.md"
+MARKER_RE='<!-- checked: capture alignment \([a-z0-9_]*\) (tests/check-doc-alignment) -->'
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+if [ ! -f "$DOC" ]; then
+  printf '%scheck-doc-alignment: FAIL%s (no docs/kaslr.md)\n' "$RED" "$RESET" >&2
+  exit 1
+fi
+
+# A build for the capture's architecture. A cross binary for a foreign
+# architecture is present but cannot answer here, so executability is tested by
+# running it rather than by the file mode.
+binary_for() {
+  case $1 in
+  x86_64) triples='x86_64-linux-musl x86_64-linux-gnu' ;;
+  x86_32) triples='i686-unknown-linux-musl' ;;
+  *) return 1 ;;
+  esac
+  for t in $triples; do
+    if [ -x "$ROOT/build/$t/kasld" ] && "$ROOT/build/$t/kasld" -V >/dev/null 2>&1; then
+      printf '%s' "$ROOT/build/$t/kasld"
+      return 0
+    fi
+  done
+  return 1
+}
+
+# A literal backquote, so no quoted string in this file needs to contain one.
+BQ=$(printf '\140')
+
+fails=0
+checked=0
+skipped=0
+
+# The table begins on the line after the marker; its rows are the lines starting
+# `| ` that follow, up to the first blank line. The header and separator rows are
+# dropped by requiring a backquoted capture name in the first cell.
+arch=$(sed -n "s#.*$MARKER_RE.*#\1#p" "$DOC" | head -n 1)
+if [ -z "$arch" ]; then
+  printf '%scheck-doc-alignment: FAIL%s (no capture-alignment marker in %s)\n' \
+    "$RED" "$RESET" "docs/kaslr.md" >&2
+  exit 1
+fi
+
+marker_line=$(grep -n -- "(tests/check-doc-alignment)" "$DOC" | head -n 1 | cut -d: -f1)
+rows=$(awk -v start="$marker_line" '
+  NR <= start { next }
+  /^$/ { if (seen) exit; next }
+  /^\| *`/ { seen = 1; print; next }
+  seen { exit }
+' "$DOC")
+
+if [ -z "$rows" ]; then
+  printf '%scheck-doc-alignment: FAIL%s (marker present but no rows follow it)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+
+echo "$rows" | while IFS= read -r row; do
+  capture=$(printf '%s' "$row" | tr -d "$BQ" |
+    awk -F'|' '{ gsub(/^ +| +$/, "", $2); print $2 }')
+  want_grain=$(printf '%s' "$row" | awk -F'|' '{gsub(/^ +| +$/,"",$3); print $3}')
+  want_slots=$(printf '%s' "$row" | awk -F'|' '{gsub(/^ +| +$/,"",$4); print $4}')
+  [ -n "$capture" ] || continue
+
+  dir="$ROOT/tests/fixtures/$arch/$capture"
+  if [ ! -d "$dir/sysroot" ]; then
+    printf '  %s: named in the table, but tests/fixtures/%s holds no such capture\n' \
+      "$capture" "$arch"
+    echo BAD >>"$ROOT/.doc-align.$$"
+    continue
+  fi
+
+  bin=$(binary_for "$arch") || {
+    printf '  (skipped %s: no runnable %s build)\n' "$capture" "$arch"
+    echo SKIP >>"$ROOT/.doc-align.$$"
+    continue
+  }
+
+  # The guaranteed virtual image-base row carries both figures. `Candidates` is
+  # `N of M` where M is the set the row narrows -- the slot count the document
+  # states -- and `Grain` is its spacing.
+  line=$(KASLD_SYSROOT="$dir/sysroot" "$bin" -q 2>/dev/null |
+    sed -n 's/^  Virtual Image Base   guaranteed  //p' | head -n 1)
+  if [ -z "$line" ]; then
+    printf '  %s: no guaranteed virtual image-base row in the readout\n' "$capture"
+    echo BAD >>"$ROOT/.doc-align.$$"
+    continue
+  fi
+  got_grain=$(printf '%s' "$line" | sed -n 's/.*  \([0-9]* [KMG]iB\) *$/\1/p')
+  got_slots=$(printf '%s' "$line" | sed -n 's/.*[0-9] of \([0-9]*\)  .*/\1/p')
+
+  ok=1
+  if [ "$got_grain" != "$want_grain" ]; then
+    printf '  %s: document says grain %s, readout says %s\n' \
+      "$capture" "$want_grain" "${got_grain:-<none>}"
+    ok=0
+  fi
+  if [ "$got_slots" != "$want_slots" ]; then
+    printf '  %s: document says %s slots, readout says %s\n' \
+      "$capture" "$want_slots" "${got_slots:-<none>}"
+    ok=0
+  fi
+  [ "$ok" -eq 1 ] && echo OK >>"$ROOT/.doc-align.$$" || echo BAD >>"$ROOT/.doc-align.$$"
+done
+
+# The loop above runs in a subshell (piped from `echo`), so its tallies come back
+# through the file rather than through variables.
+tally="$ROOT/.doc-align.$$"
+if [ -f "$tally" ]; then
+  fails=$(grep -c '^BAD$' "$tally")
+  checked=$(grep -c '^OK$' "$tally")
+  skipped=$(grep -c '^SKIP$' "$tally")
+  rm -f "$tally"
+fi
+
+if [ "$fails" -ne 0 ]; then
+  printf '%scheck-doc-alignment: FAIL%s (%d documented figure(s) disagree with the readout)\n' \
+    "$RED" "$RESET" "$fails" >&2
+  exit 1
+fi
+if [ "$checked" -eq 0 ]; then
+  printf '%scheck-doc-alignment: SKIP%s (no capture in the table can be rendered here)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+fi
+printf '%scheck-doc-alignment: OK%s (%d documented capture(s) match the readout%s)\n' \
+  "$GREEN" "$RESET" "$checked" \
+  "$([ "$skipped" -gt 0 ] && printf '; %d not renderable here' "$skipped")"

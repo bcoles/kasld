@@ -39,7 +39,7 @@
   <!-- Stage: Orchestrator merge -->
   <rect x="60" y="176" width="270" height="46" rx="7" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
   <text x="76" y="197" class="stage">Merged results + scalar facts</text>
-  <text x="76" y="214" class="mono">orchestrator.c :: merge_results()</text>
+  <text x="76" y="214" class="mono">capture.c :: merge_results()</text>
 
   <!-- Seam 2 -->
   <line x1="40" y1="240" x2="392" y2="240" class="seam"/>

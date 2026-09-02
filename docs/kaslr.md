@@ -7,6 +7,7 @@ the kernel virtual address space is laid out across architectures.
 
 - [Linux KASLR history and implementation](#linux-kaslr-history-and-implementation)
   - [Default text base and KASLR alignment](#default-text-base-and-kaslr-alignment)
+  - [x86 slot granularity (CONFIG_PHYSICAL_ALIGN)](#x86-slot-granularity-config_physical_align)
   - [KASLR runtime states](#kaslr-runtime-states)
 - [Physical and virtual KASLR](#physical-and-virtual-kaslr)
 - [Kernel sections](#kernel-sections)
@@ -75,9 +76,11 @@ See also:
 When KASLR is disabled, the kernel loads at a fixed virtual address — the
 "default text base." This address is determined by the architecture's linker
 script, Kconfig options, or hardware memory map. When KASLR is enabled, the
-kernel is placed at `default + N × IMAGE_ALIGN`, where N is chosen randomly
-within the architecture's valid range. `IMAGE_ALIGN` is therefore the
-randomization granularity: each possible position is one "KASLR slot."
+kernel is placed at `default + N × grain`, where N is chosen randomly within the
+architecture's valid range and `grain` is the spacing its placement code steps
+by: each possible position is one "KASLR slot." That spacing is at least the
+alignment the architecture guarantees for `_text` and can be coarser, so the
+table below states the two separately.
 
 The table is the kernel's compile-time default — the address the image
 lands at when no relocation occurs. On relocating architectures (every
@@ -95,20 +98,20 @@ image base and shows `_stext` as a derived line only when the two differ; a
 leaked `_stext` (e.g. from `/proc/kallsyms`) is normalized back to the image
 base when it is consumed, so the slide is always measured against `_text`.
 
-| Architecture | Default text base | Derivation | `IMAGE_ALIGN` | KASLR slots | Entropy |
-|---|---|---|---|---|---|
-| x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 504² | ~9 bits |
-| x86_32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G vmsplit default) | 2 MiB | 248² | ~8 bits |
-| arm64 | `0xffff800080000000`³ | `KIMAGE_VADDR` = `_PAGE_END(VA_BITS_MIN)` + module-region size (`memory.h`) | 64 KiB⁴ | ~1073M | ~30 bits |
-| arm32 | `0xc0008000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x8000`, from `arch/arm/Makefile`) | — | — | No KASLR |
-| MIPS32 | `0x80100000` | KSEG0 (`0x80000000`) + 1 MiB load offset; `_text` is the linker load address, so the head gap in `head.S` (`0x400`) separates `_stext`, not `_text` | 64 KiB | varies | varies |
-| MIPS64 | `0xffffffff80100000` | CKSEG0 (`0xffffffff80000000`) + 1 MiB load offset; `_stext` sits `0x400` above it, as on MIPS32 | 64 KiB | varies | varies |
-| s390 | `0x3FFE0100000` | `CONFIG_KERNEL_IMAGE_BASE` + `TEXT_OFFSET` (1 MiB) | 16 KiB | varies⁵ | ≥17 bits⁵ |
-| PowerPC32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G default); BookE only | 16 KiB¹ | varies | varies |
-| PowerPC64 | `0xc000000000000000` | `PAGE_OFFSET` (Kconfig) | — | — | No KASLR |
-| LoongArch | `0x9000000000200000` | DMW1 (`0x9000000000000000`) + `TEXT_OFFSET` (2 MiB, from `Makefile`) | 64 KiB | varies | varies |
-| RISC-V64 | `0xffffffff80002000` | `KERNEL_LINK_ADDR` (top 2 GiB of VA) + `TEXT_OFFSET` (`0x2000`, `.head.text`) | 2 MiB | 512² | ~9 bits |
-| RISC-V32 | `0xc0002000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x2000`) | — | — | No KASLR |
+| Architecture | Default text base | Derivation | Min alignment | Grain | KASLR slots | Entropy |
+|---|---|---|---|---|---|---|
+| x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 2 MiB⁶ | 504² | ~9 bits |
+| x86_32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G vmsplit default) | 8 KiB | 2 MiB⁶ | 248² | ~8 bits |
+| arm64 | `0xffff800080000000`³ | `KIMAGE_VADDR` = `_PAGE_END(VA_BITS_MIN)` + module-region size (`memory.h`) | 64 KiB | 64 KiB⁴ | ~1073M | ~30 bits |
+| arm32 | `0xc0008000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x8000`, from `arch/arm/Makefile`) | 32 KiB | — | — | No KASLR |
+| MIPS32 | `0x80100000` | KSEG0 (`0x80000000`) + 1 MiB load offset; `_text` is the linker load address, so the head gap in `head.S` (`0x400`) separates `_stext`, not `_text` | 64 KiB | 64 KiB | varies | varies |
+| MIPS64 | `0xffffffff80100000` | CKSEG0 (`0xffffffff80000000`) + 1 MiB load offset; `_stext` sits `0x400` above it, as on MIPS32 | 64 KiB | 64 KiB | varies | varies |
+| s390 | `0x3FFE0100000` | `CONFIG_KERNEL_IMAGE_BASE` + `TEXT_OFFSET` (1 MiB) | 16 KiB | 16 KiB⁵ | varies⁵ | ≥17 bits⁵ |
+| PowerPC32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G default); BookE only | 4 KiB | 16 KiB¹ | varies | varies |
+| PowerPC64 | `0xc000000000000000` | `PAGE_OFFSET` (Kconfig) | 16 KiB | — | — | No KASLR |
+| LoongArch | `0x9000000000200000` | DMW1 (`0x9000000000000000`) + `TEXT_OFFSET` (2 MiB, from `Makefile`) | 64 KiB | 64 KiB | varies | varies |
+| RISC-V64 | `0xffffffff80002000` | `KERNEL_LINK_ADDR` (top 2 GiB of VA) + `TEXT_OFFSET` (`0x2000`, `.head.text`) | 2 MiB | 2 MiB | 512² | ~9 bits |
+| RISC-V32 | `0xc0002000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x2000`) | 4 MiB | — | — | No KASLR |
 
 The "Derivation" column shows where each default address comes from. On
 most architectures the formula is `PAGE_OFFSET + TEXT_OFFSET`, where
@@ -120,17 +123,29 @@ or boot protocol). x86_64 is an exception: the kernel image virtual base
 (the direct-map base), and `PHYSICAL_START` (16 MiB) is added for
 alignment with the physical load address.
 
-¹ PowerPC32 defines a `KASLR_VIRT_ALIGN` (16 KiB) larger than its
-`IMAGE_ALIGN` (4 KiB): BookE KASLR places the text base on the 16 KiB grid,
-so 16 KiB is the KASLR slot granularity while 4 KiB is only the page
-alignment.
+`Min alignment` is the alignment `_text` is guaranteed to have — the finest
+grid the architecture's placement code can be asked to use, and the value
+KASLD carries as its compile-time baseline. `Grain` is the spacing KASLR
+actually steps by, and is what the `KASLR slots` and `Entropy` columns are
+computed from. The two diverge wherever a build option or the randomization
+code itself chooses a grid coarser than the architecture requires. On the
+three architectures with no KASLR the minimum is still a real load alignment,
+while `Grain` reads `—` because there are no slots to space.
+
+¹ BookE KASLR steps the text base on a 16 KiB grid
+(`arch/powerpc/mm/nohash/kaslr_booke.c`), but the `CONFIG_RELOCATABLE` it
+depends on states of PowerPC32 that "there is no any alignment restrictions"
+(`arch/powerpc/Kconfig`): a relocatable kernel runs from wherever the boot
+loader placed it, at any alignment. Only the page is guaranteed, so a base away
+from the compile-time default is evidence of relocation rather than of
+randomization.
 
 ² The slot count is an upper bound. Every architecture's KASLR placement
 code refuses positions where the image would extend past the end of the
 randomization region, so the actual available slots are:
 
 ```
-valid_slots = (range_size - kernel_size) / IMAGE_ALIGN
+valid_slots = (range_size - kernel_size) / slot_grain
 ```
 
 `kernel_size` is measured differently per architecture. On x86
@@ -175,6 +190,12 @@ under `CONFIG_KASAN` or `CONFIG_KMSAN`, which raise `THREAD_SIZE_ORDER`.
 Virtual and physical KASLR were uncoupled on s390 in v6.10; before that the
 virtual base tracked the physical one, over a much narrower range.
 
+⁶ x86 is the one architecture whose grain is a build option rather than a
+constant: `CONFIG_PHYSICAL_ALIGN` ranges from the architectural minimum up to
+16 MiB on both targets, and the slot and entropy columns assume its 2 MiB
+default. Distro kernels do raise it. See
+[x86 slot granularity (CONFIG_PHYSICAL_ALIGN)](#x86-slot-granularity-config_physical_align).
+
 | Architecture | Max slots | Approx. `kernel_size` | Typical runtime slots | Reduction |
 |---|---|---|---|---|
 | x86_64 | 504 | `init_size` ≈ 70 MiB | ~469 | ~7% |
@@ -183,9 +204,58 @@ virtual base tracked the physical one, over a much narrower range.
 | s390 | ≥131K⁵ | ≈ 70 MiB | ≥127K | ≤3% |
 | arm64 | ~1073M | ≈ 50 MiB | ~1073M | <0.01% |
 
-On x86 and RISC-V, where total entropy is ~9 bits (~500 slots), a 3–8%
-reduction is material. On s390 (≥17 bits) and arm64 (~30 bits) the
+On x86 and RISC-V, where the whole budget is 248 to 512 slots (~8 to ~9 bits),
+a 3–8% reduction is material. On s390 (≥17 bits) and arm64 (~30 bits) the
 effect is negligible.
+
+### x86 slot granularity (CONFIG_PHYSICAL_ALIGN)
+
+The `Min alignment` column above is exactly that — the finest grid the
+placement code can be asked to use. On x86 the build chooses the value it
+actually uses, from a Kconfig range that starts at that minimum:
+
+```
+config PHYSICAL_ALIGN
+	default "0x200000"
+	range 0x2000 0x1000000 if X86_32
+	range 0x200000 0x1000000 if X86_64
+```
+
+A coarser choice does not move the randomization window, it thins it: the
+window's endpoints are unchanged and the candidates inside it step further
+apart, so the slot count falls in proportion and the entropy with it. At the
+16 MiB ceiling an x86_64 kernel has 64 image-base slots rather than 505 — 6 bits
+instead of ~9.
+
+That ceiling is not hypothetical. Alpine builds its x86_64 kernels at 16 MiB,
+where Debian, Ubuntu and Android all use the 2 MiB default; on x86_32 both
+distro kernels in the fixture corpus use 16 MiB. Two captures, both x86_64, both
+with KASLR on:
+
+<!-- checked: capture alignment x86_64 (tests/check-doc-alignment) -->
+
+| Capture | `kernel_alignment` | Image-base slots | Entropy |
+|---|---|---|---|
+| `alpine-3.21-6.12.81-0-virt` | 16 MiB | 64 | 6 bits |
+| `debian-13-6.12.94_deb13-amd64` | 2 MiB | 505 | ~9 bits |
+
+Either is reproducible from the corpus:
+
+```
+KASLD_SYSROOT=tests/fixtures/x86_64/alpine-3.21-6.12.81-0-virt/sysroot kasld -q
+```
+
+So the per-architecture entropy in the table above describes a default build
+rather than every kernel in the field, and on x86 the difference between the two
+reaches 3 bits.
+
+The value is readable at run time, which is why it need not be assumed: x86
+records it in the setup header as `kernel_alignment`, exposed by the kernel at
+`/sys/kernel/boot_params/data` and present in the `/boot` image the header was
+copied from. A run that reads it reports an exact `Grain`; a run that cannot
+falls back to the architectural minimum and prefixes the column `>=`, since an
+unread value can only be coarser and the candidate count beside it is therefore
+a ceiling. See the `Grain` column in [Usage](usage.md).
 
 ### KASLR runtime states
 
@@ -465,9 +535,11 @@ For KASLD's own engine and tool vocabulary (quantity, estimate, covering, rule,
   aligns and KASLD solves. `_stext` (code-section start) sits a fixed *head gap*
   above it, zero on most architectures. See
   [Default text base](#default-text-base-and-kaslr-alignment).
-- **`IMAGE_ALIGN` / KASLR slot** — the randomization granularity. The kernel lands
-  at `default + N × IMAGE_ALIGN`; each candidate position is one slot. The
-  readout's `Grain` column carries it. See
+- **grain / KASLR slot** — the randomization granularity. The kernel lands
+  at `default + N × grain`; each candidate position is one slot. The readout's
+  `Grain` column carries it. It is at least `IMAGE_ALIGN`, the alignment the
+  architecture guarantees for `_text`, and is coarser wherever a build option or
+  the randomization code picks a wider grid. See
   [Default text base](#default-text-base-and-kaslr-alignment).
 - **search space** — how many slots a quantity could still be in, given the
   evidence. The readout states it against the set the row narrows (`24 of 505`),

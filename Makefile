@@ -885,6 +885,7 @@ lint :
 	    $(TEST_DIR)/check-render-default \
 	    $(TEST_DIR)/check-image-size \
 	    $(TEST_DIR)/check-image-align \
+	    $(TEST_DIR)/check-doc-alignment \
 	    $(TEST_DIR)/check-dram-base \
 	    $(TEST_DIR)/check-fdt-unflatten \
 	    $(TEST_DIR)/check-ksymoff \

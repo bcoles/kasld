@@ -205,6 +205,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-text-region` | the `KERNEL_TEXT` vs `KERNEL_IMAGE` base contract holds — only reviewed emitters may publish a `_stext` base |
 | `check-image-size` | the kernel image size is read only through the evidence accessors, never re-derived in a component |
 | `check-image-align` | every captured x86 kernel's own statement of its architectural minimum alignment (`boot_params.hdr.min_alignment`) agrees with the `IMAGE_ALIGN` the matching build carries † |
+| `check-doc-alignment` | the per-capture alignment figures documented in `kaslr.md` — grain and slot count — are what the tool actually reports for those captures † |
 | `check-dram-base` | where physical RAM begins is read only through `evidence_lowest_dram_base()`, never re-scanned in a rule † |
 | `check-hash-parity` | every hashed offset-table row's key recomputes to the stored value under the shipped `kasld_fnv1a64()`, so the runtime hash and the offline generator's cannot drift apart |
 | `check-manpages` | the set of long options in each program's `--help` exactly matches the set its man page documents, so a new or removed flag cannot skip its manual entry |
@@ -599,6 +600,38 @@ Not a component or an engine rule, deliberately: the value equals the
 architectural floor `kaslr_align_arch_default` already asserts as an axiom, so
 reading it at runtime would emit a constraint the engine holds already. Its
 worth is entirely as a check on the constant.
+
+**`check-doc-alignment`** — `kaslr.md` states the KASLR slot granularity per
+architecture, and one subsection qualifies that for x86, where the granularity
+is a build option rather than an architectural constant. It illustrates the
+point with named captures: a distro kernel built at the 16 MiB Kconfig ceiling
+against one at the 2 MiB default, and the slot count each yields. Those are the
+only figures in that document tied to a specific kernel rather than to an
+architecture, which makes them the only ones that can go stale without anybody
+editing the document — refreshing a fixture is enough.
+
+The guard runs kasld against each capture the table names and compares the
+readout to the row: the documented `kernel_alignment` against the row's `Grain`,
+the documented slot count against the denominator of its `Candidates`.
+
+End-to-end rather than a read of the capture's setup header, deliberately. The
+header holds the value the document names, but what the document *claims* is
+that the value reaches the readout and thins the slot count in proportion —
+so reading the header would confirm the input and leave the claim untested. It
+therefore also catches an engine or renderer change that stops the value being
+honoured.
+
+The marker that identifies the table names an architecture, because a capture
+name does not identify a capture: `tests/fixtures/arm64` and
+`tests/fixtures/x86_64` both hold an `alpine-3.21-6.12.81-0-virt`. Resolving the
+name by search takes whichever sorts first, which is how this guard first
+reported OK while checking the wrong architecture.
+
+Only the rows of that table are checked. The prose around it also attributes
+values to distributions, which is a claim about the corpus as a whole; encoding
+it here would put a second copy of the document's claim in the guard, and a
+guard that disagrees with the document it guards is worse than none. Naming a
+capture in the table is what brings a figure under test.
 
 **`check-doc-structure`** — Three failures markdown accepts silently and a
 reader meets as a broken page: an unclosed fence swallows the rest of the

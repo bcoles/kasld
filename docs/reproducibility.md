@@ -262,6 +262,16 @@ axis; the vocabulary (`exact` / `<n> bits` / `—` / `coupled`) is defined in
 residual` carries an independent count only on the *decoupled* arches; elsewhere
 it reads `coupled`, and the virtual result already determines it.
 
+`CONFIG_PHYSICAL_ALIGN` is a build choice, not a property of the architecture.
+Alpine sets it to 16 MiB on x86 where the mainline builds take the 2 MiB
+default — eight times coarser, so an Alpine image base starts with 3 bits less
+entropy for anything to strip. The `alpine` x86 rows therefore report fewer bits
+than the `mainline` rows beside them because of how they were built, not because
+of the release. Those 3 bits are the whole of the shortfall on i686 and on the
+x86_64 physical axis; where a gap is wider, the rest is a difference in what that
+release leaked. See
+[x86 slot granularity (CONFIG_PHYSICAL_ALIGN)](kaslr.md#x86-slot-granularity-config_physical_align).
+
 The bits are a **floor, not a ceiling**: they are the most KASLR entropy that
 survives sound, reproducible inference, and a microarchitectural oracle can
 strip more on capable hardware — see
