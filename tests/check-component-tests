@@ -89,11 +89,8 @@ perf_ksymbol_leak
 perf_lbr_sampling
 perf_text_poke_leak
 pppd_kallsyms
-proc_iomem_kernel
-proc_modules
 proc_pid_syscall
 proc_stat_wchan
-proc_zoneinfo
 qemu_tcg_iret
 riscv64_no_seed
 sidt
@@ -101,13 +98,10 @@ sysfs_devicetree_initrd
 sysfs_devicetree_kernel_end
 sysfs_devicetree_memory_limit
 sysfs_devicetree_uefi_mmap
-sysfs_firmware_memmap
 sysfs_kernel_notes_xen
-sysfs_memory_blocks
 sysfs_module_sections
 sysfs_nf_conntrack
 sysfs_vmcoreinfo
-zfs_dbgmsg
 "
 
 hdr_shown=0

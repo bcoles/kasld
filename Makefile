@@ -672,6 +672,36 @@ $(TEST_KMEMLEAK_BIN): $(TEST_DIR)/test_kmemleak.c $(SRC_DIR)/components/kmemleak
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kmemleak.c -o $@
 
+TEST_IOMEM_BIN := $(TEST_OBJ_DIR)/test_proc_iomem_kernel
+$(TEST_IOMEM_BIN): $(TEST_DIR)/test_proc_iomem_kernel.c $(SRC_DIR)/components/proc_iomem_kernel.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_iomem_kernel.c -o $@
+
+TEST_ZFSDBG_BIN := $(TEST_OBJ_DIR)/test_zfs_dbgmsg
+$(TEST_ZFSDBG_BIN): $(TEST_DIR)/test_zfs_dbgmsg.c $(SRC_DIR)/components/zfs_dbgmsg.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_zfs_dbgmsg.c -o $@
+
+TEST_FWMEMMAP_BIN := $(TEST_OBJ_DIR)/test_sysfs_firmware_memmap
+$(TEST_FWMEMMAP_BIN): $(TEST_DIR)/test_sysfs_firmware_memmap.c $(SRC_DIR)/components/sysfs_firmware_memmap.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_firmware_memmap.c -o $@
+
+TEST_ZONEINFO_BIN := $(TEST_OBJ_DIR)/test_proc_zoneinfo
+$(TEST_ZONEINFO_BIN): $(TEST_DIR)/test_proc_zoneinfo.c $(SRC_DIR)/components/proc_zoneinfo.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_zoneinfo.c -o $@
+
+TEST_PROCMOD_BIN := $(TEST_OBJ_DIR)/test_proc_modules
+$(TEST_PROCMOD_BIN): $(TEST_DIR)/test_proc_modules.c $(SRC_DIR)/components/proc_modules.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_modules.c -o $@
+
+TEST_MEMBLK_BIN := $(TEST_OBJ_DIR)/test_sysfs_memory_blocks
+$(TEST_MEMBLK_BIN): $(TEST_DIR)/test_sysfs_memory_blocks.c $(SRC_DIR)/components/sysfs_memory_blocks.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_memory_blocks.c -o $@
+
 # proc_timer_list hashed-pointer rejection: same slab/pointer-alignment gate as
 # proc_net_sock_ptr, unit-tested (classify_timer_base) + staged /proc/timer_list.
 TEST_TIMERLIST_BIN := $(TEST_OBJ_DIR)/test_proc_timer_list
@@ -829,6 +859,12 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_REPORT_BIN) \
   $(TEST_PTDUMP_BIN) \
   $(TEST_KMEMLEAK_BIN) \
+  $(TEST_IOMEM_BIN) \
+  $(TEST_ZFSDBG_BIN) \
+  $(TEST_FWMEMMAP_BIN) \
+  $(TEST_ZONEINFO_BIN) \
+  $(TEST_PROCMOD_BIN) \
+  $(TEST_MEMBLK_BIN) \
   $(TEST_KERNFS_BIN)
 
 $(TEST_ALL_BINS): $(TEST_HDRS)
