@@ -4197,6 +4197,184 @@ static void hr_seed_meta(struct component_log *cl, const char *k,
   cl->meta.entries[i].value = v;
 }
 
+/* Start from a report input carrying nothing: no components, no scalar facts,
+ * an unconfined vantage and a known perf_event_paranoid. Each test below adds
+ * exactly the state its branch needs, so a field it asserts cannot be the
+ * residue of an earlier case. */
+static void hr_reset_state(void) {
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  kasld_env.hardening.kptr_restrict = 0;
+  kasld_env.hardening.dmesg_restrict = 0;
+  kasld_env.hardening.perf_event_paranoid = 0;
+  kasld_env.hardening.lockdown = LOCKDOWN_NONE;
+  memset(&kasld_env.vantage, 0, sizeof(kasld_env.vantage));
+  kasld_env.vantage.seccomp = 0;
+  kasld_env.vantage.selinux = SELINUX_PERMISSIVE;
+}
+
+static void hr_seed_fact(enum kasld_scalar_fact f, unsigned long v,
+                         const char *origin) {
+  scalar_facts[num_scalar_facts].fact = f;
+  scalar_facts[num_scalar_facts].value = v;
+  scalar_facts[num_scalar_facts].conf = CONF_PARSED;
+  scalar_facts[num_scalar_facts].origin = test_origin(origin);
+  num_scalar_facts++;
+}
+
+/* A deliberate KASLR opt-out collapses the posture: the kernel sits at its
+ * compile-time base and no slot entropy survives. The report says so on all
+ * three fields, and the renderers key their headline off them. */
+static void test_hardening_posture_kaslr_disabled(void) {
+  if (!KASLR_SUPPORTED)
+    return; /* the unsupported branch outranks this one; see below */
+  hr_reset_state();
+  hr_seed_fact(SF_VIRT_KASLR_DISABLED, 1, "proc_cmdline");
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+  assert(rep.posture == HR_POSTURE_DISABLED);
+  assert(rep.slot_entropy_zero == 1);
+  assert(rep.kernel_at_default == 1);
+}
+
+/* A zero-valued fact is absent, not false: the loop skips it before it can be
+ * read as an opt-out, so an emitter that reports "KASLR disabled = 0" must not
+ * collapse the posture. */
+static void test_hardening_zero_valued_fact_is_not_an_opt_out(void) {
+  if (!KASLR_SUPPORTED)
+    return;
+  hr_reset_state();
+  hr_seed_fact(SF_VIRT_KASLR_DISABLED, 0, "proc_cmdline");
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+  assert(rep.posture != HR_POSTURE_DISABLED);
+  assert(rep.kernel_at_default == 0);
+}
+
+/* The posture states are ordered, and a run can witness more than one. A
+ * deliberate opt-out outranks a randomization failure: the kernel did not try,
+ * so "it tried and failed" is the wrong thing to report. */
+static void test_hardening_disabled_outranks_randomization_failed(void) {
+  if (!KASLR_SUPPORTED)
+    return;
+  hr_reset_state();
+  hr_seed_fact(SF_VIRT_KASLR_RANDOMIZATION_FAILED, 1, "dmesg_kaslr");
+  hr_seed_fact(SF_VIRT_KASLR_DISABLED, 1, "proc_cmdline");
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+  assert(rep.posture == HR_POSTURE_DISABLED);
+  /* The failure witness is still recorded — the report drops the state, not
+   * the evidence. */
+  assert(rep.n_rand_detectors == 1);
+}
+
+/* A perf denial under a seccomp filter, on a host whose perf_event_paranoid is
+ * permissive enough that the sysctl cannot explain it. The gate is synthesised
+ * rather than declared: no component carries "sysctl: seccomp". Attributing it
+ * to the paranoid knob instead would tell an operator to raise a setting that
+ * was already low enough. */
+static void test_hardening_synthesises_a_seccomp_gate(void) {
+  hr_reset_state();
+  kasld_env.vantage.seccomp = 2; /* filter */
+  kasld_env.hardening.perf_event_paranoid = 0;
+  struct component_log *c = hr_seed_comp("c_perf", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "perf_event_paranoid>=2");
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  int found = 0;
+  for (int i = 0; i < rep.n_gates; i++) {
+    if (strcmp(rep.gates[i].surface, "seccomp") != 0)
+      continue;
+    found = 1;
+    assert(rep.gates[i].active == 1);
+    assert(rep.gates[i].value == 2);
+    assert(rep.gates[i].gated == 1);
+    assert(rep.gates[i].blocked == 1);
+    assert(rep.gates[i].n_blocked_names == 1);
+    assert(strcmp(rep.gates[i].blocked_names[0], "c_perf") == 0);
+  }
+  assert(found);
+}
+
+/* Without a filter there is no seccomp gate to synthesise, however the denial
+ * is otherwise shaped — the gate claims a mechanism, so it may not appear when
+ * the mechanism is absent.
+ *
+ * Gated twice: the block is entered only when a filter is present, and
+ * seccomp_blocked_perf independently returns 0 for a non-positive mode, so the
+ * gate is dropped for having no members either way. This asserts the contract
+ * rather than which of the two enforces it. */
+static void test_hardening_no_seccomp_gate_without_a_filter(void) {
+  hr_reset_state();
+  kasld_env.vantage.seccomp = 0;
+  kasld_env.hardening.perf_event_paranoid = 0;
+  struct component_log *c = hr_seed_comp("c_perf", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "perf_event_paranoid>=2");
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+  for (int i = 0; i < rep.n_gates; i++)
+    assert(strcmp(rep.gates[i].surface, "seccomp") != 0);
+}
+
+/* A denial no declared sysctl accounts for, under an enforcing policy, is
+ * attributed to that policy — and the gate names the LSM that is actually
+ * enforcing rather than a generic label. */
+static void test_hardening_attributes_a_denial_to_selinux(void) {
+  hr_reset_state();
+  kasld_env.vantage.selinux = SELINUX_ENFORCING;
+  kasld_env.hardening.kptr_restrict = 0; /* permits, so cannot explain it */
+  struct component_log *c = hr_seed_comp("c_mac", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "kptr_restrict>=1");
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  int found = 0;
+  for (int i = 0; i < rep.n_gates; i++) {
+    if (strcmp(rep.gates[i].surface, HR_SURFACE_MAC) != 0)
+      continue;
+    found = 1;
+    assert(strcmp(rep.gates[i].display, "SELinux policy") == 0);
+    assert(rep.gates[i].gated == 1 && rep.gates[i].blocked == 1);
+    assert(strcmp(rep.gates[i].blocked_names[0], "c_mac") == 0);
+  }
+  assert(found);
+}
+
+/* The same denial under an enforcing AppArmor profile carries the other label.
+ * The two are distinguished by which LSM reported enforcing, not by which
+ * happened to be listed first. */
+static void test_hardening_names_apparmor_when_it_is_the_enforcer(void) {
+  hr_reset_state();
+  kasld_env.vantage.selinux = SELINUX_PERMISSIVE;
+  snprintf(kasld_env.vantage.sec_context, sizeof(kasld_env.vantage.sec_context),
+           "/usr/bin/kasld (enforce)");
+  kasld_env.hardening.kptr_restrict = 0;
+  struct component_log *c = hr_seed_comp("c_mac", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "kptr_restrict>=1");
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  int found = 0;
+  for (int i = 0; i < rep.n_gates; i++) {
+    if (strcmp(rep.gates[i].surface, HR_SURFACE_MAC) != 0)
+      continue;
+    found = 1;
+    assert(strcmp(rep.gates[i].display, "AppArmor profile") == 0);
+  }
+  assert(found);
+}
+
 static void test_build_hardening_report(void) {
   reset_results();
   reset_comp_logs();
@@ -5378,6 +5556,13 @@ int main(void) {
   RUN(test_render_hardening_json);
   RUN(test_render_hardening_markdown);
   RUN(test_build_hardening_report);
+  RUN(test_hardening_posture_kaslr_disabled);
+  RUN(test_hardening_zero_valued_fact_is_not_an_opt_out);
+  RUN(test_hardening_disabled_outranks_randomization_failed);
+  RUN(test_hardening_synthesises_a_seccomp_gate);
+  RUN(test_hardening_no_seccomp_gate_without_a_filter);
+  RUN(test_hardening_attributes_a_denial_to_selinux);
+  RUN(test_hardening_names_apparmor_when_it_is_the_enforcer);
   RUN(test_render_json_disposition);
   RUN(test_hardening_disclosure_is_observed);
   RUN(test_hardening_disclosure_declared_fallback);
