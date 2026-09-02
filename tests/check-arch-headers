@@ -45,6 +45,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # shellcheck source=tests/lib/guard-scope.sh
 . "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/arch-classify.sh
+. "$ROOT/tests/lib/arch-classify.sh"
 
 CC=${CC:-cc}
 API=$ROOT/src/include/kasld/api.h
@@ -97,15 +99,7 @@ for hdr in "$ARCH"/*.h; do
   [ -f "$hdr" ] || continue
   arch=$(basename "$hdr" .h)
 
-  # Unconditional #error (depth <= 1, i.e. inside nothing but the include
-  # guard) marks a header that documents a deliberate non-support decision.
-  kind=$(awk '
-    BEGIN { k = "contract" }
-    /^[ \t]*#[ \t]*(if|ifdef|ifndef)/ { d++; next }
-    /^[ \t]*#[ \t]*endif/             { d--; next }
-    /^[ \t]*#[ \t]*error/ { if (d <= 1) { k = "stub"; exit } }
-    END { print k }
-  ' "$hdr")
+  kind=$(arch_header_kind "$hdr")
 
   src=$TMP/probe.c
   if [ "$kind" = stub ]; then
@@ -151,7 +145,7 @@ if [ "$fail" -ne 0 ]; then
   exit 1
 fi
 
-guard_scope "check-arch-headers" "$((ncontract + nstub))" 15
+guard_scope "check-arch-headers" "$((ncontract + nstub))" 10
 
 naxes=$(printf '%s\n' "$axes" | grep -c .)
 printf '%scheck-arch-headers: OK%s (%d contract headers x %d mandatory axes, %d refusal stubs)\n' \

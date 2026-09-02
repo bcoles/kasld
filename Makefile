@@ -933,6 +933,7 @@ lint :
 	    $(TEST_DIR)/check-diagram-data \
 	    $(TEST_DIR)/check-arch-axes \
 	    $(TEST_DIR)/check-arch-headers \
+	    $(TEST_DIR)/check-arch-dispatch \
 	    $(TEST_DIR)/check-guard-docs \
 	    $(TEST_DIR)/check-matrix-summary \
 	    $(TEST_DIR)/check-version \

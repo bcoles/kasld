@@ -1,0 +1,112 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-arch-dispatch — every arch header is reachable, and every arm has a file.
+#
+# api.h selects one architecture header through a chain of #elif arms, one
+# `#include "arch/<name>.h"` each, ending in a generic "Unrecognized
+# architecture!" error. It is the only file in the tree that includes an arch
+# header, so that chain is the whole reachability story, and nothing compared it
+# against the directory.
+#
+# Two drifts follow, and only one of them fails on its own:
+#
+# A header added to arch/ without an arm is dead. The architecture it describes
+# falls through to the generic #error instead of using the header written for
+# it, and the header sits there looking supported.
+#
+# An arm naming a header that does not exist fails when that architecture is
+# built — which for the twelve the cross matrix covers means `make cross`
+# catches it. Nothing builds the five refusal stubs, so a misspelt include there
+# would quietly turn a named refusal into "No such file or directory" and stay
+# that way.
+#
+# A wrong PREDICATE on an arm — the right file selected for the wrong
+# architecture — is a different question this cannot answer, and would need
+# something that knows what each predicate means.
+#
+# Text, necessarily: the preprocessor cannot enumerate a directory, so there is
+# no compile-time form of this check.
+#
+# Usage: tests/check-arch-dispatch   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/arch-classify.sh
+. "$ROOT/tests/lib/arch-classify.sh"
+
+API=$ROOT/src/include/kasld/api.h
+ARCH=$ROOT/src/include/kasld/arch
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+[ -f "$API" ] || {
+  printf '%scheck-arch-dispatch: FAIL%s (missing %s)\n' "$RED" "$RESET" "$API" >&2
+  exit 1
+}
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/kasld-archdisp.XXXXXX") || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# The dispatched set: every arch header api.h includes. api.h is the only
+# includer, so this is every arm of the chain.
+grep -oE '#[ \t]*include[ \t]*"arch/[a-z0-9_]+\.h"' "$API" |
+  sed 's|.*arch/||; s|\.h"$||' | sort -u >"$TMP/arms"
+
+# The set on disk.
+for f in "$ARCH"/*.h; do
+  [ -f "$f" ] || continue
+  basename "$f" .h
+done | sort -u >"$TMP/files"
+
+# An empty arm set means the include form changed and this guard is reading
+# nothing — report that rather than every header as unreachable.
+if [ ! -s "$TMP/arms" ]; then
+  printf '%scheck-arch-dispatch: FAIL%s (no arch includes found in api.h — has the dispatch chain changed shape?)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+
+fail=0
+unreached=$(comm -13 "$TMP/arms" "$TMP/files")
+dangling=$(comm -23 "$TMP/arms" "$TMP/files")
+
+if [ -n "$unreached" ]; then
+  printf '%scheck-arch-dispatch: FAIL%s (header in arch/, no arm in api.h — the architecture falls through to the generic #error)\n' \
+    "$RED" "$RESET" >&2
+  printf '%s\n' "$unreached" | sed 's|^|  arch/|; s|$|.h|' >&2
+  fail=1
+fi
+if [ -n "$dangling" ]; then
+  printf '%scheck-arch-dispatch: FAIL%s (arm in api.h, no header in arch/)\n' \
+    "$RED" "$RESET" >&2
+  printf '%s\n' "$dangling" | sed 's|^|  arch/|; s|$|.h|' >&2
+  fail=1
+fi
+[ "$fail" -eq 0 ] || exit 1
+
+# Report the split rather than a bare count: three different seventeens meet in
+# this tree — headers, dispatch arms, and the cross targets — and a single
+# number invites reading one for another.
+ncontract=0
+nstub=0
+while IFS= read -r a; do
+  if [ "$(arch_header_kind "$ARCH/$a.h")" = stub ]; then
+    nstub=$((nstub + 1))
+  else
+    ncontract=$((ncontract + 1))
+  fi
+done <"$TMP/files"
+
+guard_scope "check-arch-dispatch" "$((ncontract + nstub))" 10
+
+printf '%scheck-arch-dispatch: OK%s (%d dispatch arms: %d contract headers, %d refusal stubs)\n' \
+  "$GREEN" "$RESET" "$((ncontract + nstub))" "$ncontract" "$nstub"
