@@ -839,7 +839,25 @@ For a clang toolchain, point at its gcov shim:
 make coverage CC=clang GCOV="llvm-cov gcov"
 ```
 
-Env: `CC` (default `cc`), `GCOV` (default `gcov`), `CFLAGS_EXTRA`.
+The report describes the architecture that built it, and its total says which.
+A large share of the rule set is arch-gated: off its own architecture a rule
+compiles to a stub of a couple of lines, which the report scores as fully
+covered — so a row reading `100.00% of 2 lines` marks a rule whose architecture
+this run did not build, and the host report neither measures those bodies nor
+admits the omission. Building with a cross toolchain measures them instead,
+running the drivers under qemu-user, resolved from the compiler's triple:
+
+```sh
+make coverage CC=aarch64-linux-musl-gcc GCOV=aarch64-linux-musl-gcov \
+     CFLAGS_EXTRA=-static
+```
+
+`arm64_text_base` reads as a stub on the host and as its real body there. No
+single architecture shows everything — each stubs out the others' rules — so
+these are per-architecture reports and nothing merges them: gcda from two
+architectures describes two different sets of lines.
+
+Env: `CC` (default `cc`), `GCOV` (default `gcov`), `CFLAGS_EXTRA`, `QEMU_DIR`.
 
 ---
 

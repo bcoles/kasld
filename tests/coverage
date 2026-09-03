@@ -21,12 +21,31 @@
 # An HTML report is produced only if lcov+genhtml are installed; otherwise the
 # gcov text summary IS the report.
 #
+# ARCHITECTURE. The figure describes the toolchain that built it, and the total
+# says which. A large share of the rule set is arch-gated: off its own
+# architecture a rule compiles to a stub of a couple of lines, which the report
+# then scores as fully covered — so the host measures neither the real body nor
+# admits the omission, and a rule reading "100.00% of 2 lines" is one whose
+# architecture this run did not build. Building with a cross toolchain measures
+# that architecture's bodies instead, with the drivers run under qemu-user,
+# resolved from the compiler's triple.
+#
+# No single architecture shows everything: each stubs out the others' rules, so
+# these are per-architecture reports rather than one number, and nothing merges
+# them — gcda from two architectures describes two different sets of lines.
+#
+# Exact counts are deliberately not quoted here. They move with every rule added
+# or gated, and nothing checks a number written in a comment.
+#
 # Usage:  tests/coverage            (or: make coverage)
-# Env:    CC (default cc), GCOV (default gcov), CFLAGS_EXTRA
+# Env:    CC (default cc), GCOV (default gcov), CFLAGS_EXTRA, QEMU_DIR
 #   clang:                make coverage CC=clang GCOV="llvm-cov gcov"
 #   a musl cross gcc on a glibc host (binary needs its own loader):
 #                         make coverage CC=<triple>-gcc GCOV=<triple>-gcov \
 #                              CFLAGS_EXTRA=-static
+#   another architecture (adds qemu-user; same form, foreign triple):
+#                         make coverage CC=aarch64-linux-musl-gcc \
+#                              GCOV=aarch64-linux-musl-gcov CFLAGS_EXTRA=-static
 # ---
 # <bcoles@gmail.com>
 
@@ -35,6 +54,8 @@
 # shellcheck disable=SC2086
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/qemu-target.sh
+. "$ROOT/tests/lib/qemu-target.sh"
 CC=${CC:-cc}
 GCOV=${GCOV:-gcov}
 COV=$ROOT/build/coverage
@@ -48,6 +69,36 @@ if ! $GCOV --version >/dev/null 2>&1; then
 fi
 
 rm -rf "$COV"; mkdir -p "$COV"
+
+# A foreign-arch toolchain builds drivers this host cannot exec, so they run
+# through qemu-user. Whether that is needed is settled by BUILDING the smallest
+# possible program and trying it, not by matching the triple against uname: a
+# 32-bit x86 driver runs natively on an x86_64 host while its triple says
+# otherwise, and a same-arch musl toolchain is native too once -static drops the
+# loader. Same shape as the pthread probe below.
+RUNNER=""
+if echo 'int main(void){return 0;}' |
+     $CC ${CFLAGS_EXTRA:-} -xc - -o "$COV/.exe" 2>/dev/null; then
+  if ! "$COV/.exe" >/dev/null 2>&1; then
+    RUNNER=$(resolve_qemu "$(qemu_for "${CC##*/}")") || RUNNER=""
+    if [ -z "$RUNNER" ]; then
+      echo "coverage: $CC builds binaries this host cannot run, and no qemu-user" >&2
+      echo "          binary was found for it. Set QEMU_DIR, or use a native CC." >&2
+      rm -f "$COV/.exe"; exit 1
+    fi
+  fi
+  rm -f "$COV/.exe"
+fi
+
+# Which architecture's bodies this report describes. An arch-gated rule compiles
+# to a two-line stub off its own architecture, so the same command under a cross
+# toolchain measures a different set of lines; labelling every run "host" would
+# hide that.
+if [ -n "$RUNNER" ]; then
+  COV_LABEL=${CC##*/}; COV_LABEL=${COV_LABEL%%-*}
+else
+  COV_LABEL=host
+fi
 
 # Instrumented objects under report (engine core + every rule). Absolute source
 # paths so gcov resolves them; .gcno/.gcda stay beside each .o in $COV.
@@ -69,7 +120,7 @@ drive() { # <out> <driver.c> <objs...>
     || { echo "coverage: compile failed: $drv" >&2; exit 1; }
   $CC $CFLAGS "$COV/$out.drv.o" "$@" -o "$COV/$out" \
     || { echo "coverage: link failed: $out" >&2; exit 1; }
-  "$COV/$out" >/dev/null 2>&1 || { echo "coverage: $out FAILED (tests must pass first)" >&2; exit 1; }
+  $RUNNER "$COV/$out" >/dev/null 2>&1 || { echo "coverage: $out FAILED (tests must pass first)" >&2; exit 1; }
 }
 drive engine      test_engine.c             $OBJS
 drive integration test_engine_integration.c $OBJS
@@ -96,7 +147,7 @@ for drv in test_kasld test_render; do
     || { echo "coverage: compile failed: $drv.c" >&2; exit 1; }
   $CC $CFLAGS "$COV/$drv.drv.o" $PTH_L -o "$COV/$drv" \
     || { echo "coverage: link failed: $drv" >&2; exit 1; }
-  "$COV/$drv" >/dev/null 2>&1 \
+  $RUNNER "$COV/$drv" >/dev/null 2>&1 \
     || { echo "coverage: $drv FAILED (tests must pass first)" >&2; exit 1; }
 done
 
@@ -116,7 +167,8 @@ done
 # A line arrives as "<count>:<lineno>:<text>", where <count> is ##### for never
 # executed, - for a line carrying no code, and a number otherwise.
 echo "----------------------------------------------------------------------"
-( cd "$COV" && for g in ./*.gcno; do $GCOV -t "$g" 2>/dev/null; done ) | awk '
+( cd "$COV" && for g in ./*.gcno; do $GCOV -t "$g" 2>/dev/null; done ) |
+  awk -v label="$COV_LABEL" '
   /^ *-: *0:Source:/ { f=$0; sub(/.*Source:/,"",f)
                        keep = (f ~ /(^|\/)src\/.*\.c$/); next }
   !keep { next }
@@ -136,7 +188,7 @@ echo "----------------------------------------------------------------------"
       ex += done[f]; all += total[f]
     }
     if (all>0) printf "~TOTAL~  %-34s %6.2f%%  of %4d lines\n",
-                      "TOTAL (host unit tests)", 100*ex/all, all
+                      "TOTAL (" label " unit tests)", 100*ex/all, all
   }' | sort -k1,1 | sed 's/^~TOTAL~//'
 echo "----------------------------------------------------------------------"
 echo "coverage: built with $CC, reported via $GCOV; artifacts in $COV"
