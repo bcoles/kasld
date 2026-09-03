@@ -9,13 +9,13 @@
 // pinned from the mmap probe by x86_64_va_bits_from_scalar, or from a directmap
 // leak), the tighter canonical floor for that level is known:
 //
-//   L4 (VA_BITS=48): virt_page_offset >= 0xffff800000000000
-//   L5 (VA_BITS=57): virt_page_offset >= 0xff11000000000000
+//   L4 (VA_BITS=48): virt_page_offset >= PAGE_OFFSET_BASE_MIN_L4
+//   L5 (VA_BITS=57): virt_page_offset >= PAGE_OFFSET_BASE_MIN_L5
 //
-// The L4 value is the canonical half boundary — the same floor proc_cpuinfo
-// uses for a 48-bit read — chosen (not __PAGE_OFFSET_BASE_L4) so low
-// static-layout addresses (LDT remap) are not excluded. Sound: page_offset only
-// randomizes upward from the compile-time base, which is at or above the floor.
+// Those are the lowest base each level has ever had, not this layout's base, so
+// a kernel predating the PTI LDT remap's own slot is still covered. Sound:
+// memory randomization only adds a non-negative offset to the compile-time
+// base, which is at or above the floor.
 //
 // C_LOWER_BOUND on Q_PAGE_OFFSET, capped at CONF_INFERRED. x86_64 only; inert
 // until Q_VA_BITS narrows to a single value.
@@ -42,9 +42,9 @@ int rule_x86_64_page_offset_floor_from_va_bits(const struct evidence_set *ev,
 
   unsigned long floor;
   if (va_bits == 48)
-    floor = 0xffff800000000000ul;
+    floor = PAGE_OFFSET_BASE_MIN_L4;
   else if (va_bits == 57)
-    floor = 0xff11000000000000ul;
+    floor = PAGE_OFFSET_BASE_MIN_L5;
   else
     return 0;
 

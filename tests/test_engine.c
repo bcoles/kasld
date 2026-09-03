@@ -4630,7 +4630,7 @@ static void test_va_bits_la57_l5(void) {
 
 #if defined(__x86_64__)
   assert(finset_is(&e.est[Q_VA_BITS], 57));
-  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xff11000000000000ul);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_MIN_L5);
   assert(po_hi(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul - 1);
 #else
   struct estimate po;
@@ -4649,7 +4649,7 @@ static void test_va_bits_la57_l4(void) {
 
 #if defined(__x86_64__)
   assert(finset_is(&e.est[Q_VA_BITS], 48));
-  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_MIN_L4);
 #else
   (void)e;
 #endif
@@ -4804,7 +4804,8 @@ static void test_x86_64_randomize_memory_budget(void) {
   /* page_offset: a budget ceiling no prior rule provided. The floor is left to
    * la57's canonical half boundary (this rule does not raise the directmap
    * floor). */
-  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul); /* from la57 */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
+         PAGE_OFFSET_BASE_MIN_L4); /* from la57 */
   /* Ceilings are floored to the PUD grain (page_offset / vmalloc are
    * PUD-granular), dropping the ragged remain/3 remainder. */
   assert(po_hi(&e.est[Q_PAGE_OFFSET]) == ((vs + remain_lo / 3) & ~(pud - 1)));
@@ -5023,13 +5024,18 @@ static void test_x86_64_page_offset_floor_from_va_bits(void) {
   /* Unresolved Q_VA_BITS -> inert. */
   assert(rule_x86_64_page_offset_floor_from_va_bits(&e.ev, e.est, out, 2) == 0);
 
-  /* L4 resolved -> canonical L4 floor (not the loose L5 0xff11...). */
+  /* L4 resolved -> the L4 floor, tighter than the L5 one it replaces. */
   resolve_finset(&e.est[Q_VA_BITS], 48);
   int n = rule_x86_64_page_offset_floor_from_va_bits(&e.ev, e.est, out, 2);
 #if defined(__x86_64__)
   assert(n == 1);
   assert(out[0].q == Q_PAGE_OFFSET && out[0].op == C_LOWER_BOUND &&
-         out[0].value == 0xffff800000000000ul);
+         out[0].value == PAGE_OFFSET_BASE_MIN_L4);
+  /* The floor is the lowest base the level admits, one PGD entry below this
+   * layout's base: raising it to __PAGE_OFFSET_BASE_L4 would drop a kernel
+   * that based the direct map where the PTI LDT remap now sits. */
+  assert(PAGE_OFFSET_BASE_MIN_L4 < PAGE_OFFSET_BASE_L4);
+  assert(PAGE_OFFSET_BASE_MIN_L5 < PAGE_OFFSET_BASE_L5);
 #else
   assert(n == 0); /* inert off x86_64 */
 #endif
@@ -5906,6 +5912,27 @@ static void test_directmap_kaslr_disabled_pin(void) {
          e.est[Q_VMALLOC_BASE].hi == VMALLOC_BASE_L4);
   assert(e.est[Q_VMEMMAP_BASE].lo == VMEMMAP_BASE_L4 &&
          e.est[Q_VMEMMAP_BASE].hi == VMEMMAP_BASE_L4);
+
+  /* The same 4-level case resolved at the SOUND FLOOR is a span, not a point.
+   * The direct map has been based at two addresses across the kernels this
+   * models — the current one and, before the PTI LDT remap took its own PGD
+   * slot, one entry lower — and the disable signal does not say which. The
+   * guaranteed answer therefore covers both; naming the current one exactly is
+   * left to the likely window asserted above, where the heuristic pin lands. */
+  static struct engine ef;
+  engine_init(&ef);
+  struct observation kf = mk_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
+  struct observation vbf = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
+  evidence_add(&ef.ev, &kf);
+  evidence_add(&ef.ev, &vbf);
+  engine_run_full_floored(&ef, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(po_lo(&ef.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_MIN_L4);
+  assert(po_hi(&ef.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_L4);
+  /* The span is what keeps a pre-remap kernel's true base inside it. */
+  assert(PAGE_OFFSET_BASE_MIN_L4 < PAGE_OFFSET_BASE_L4);
+  /* vmalloc and vmemmap never moved, so they stay pinned even at the floor. */
+  assert(ef.est[Q_VMALLOC_BASE].lo == VMALLOC_BASE_L4 &&
+         ef.est[Q_VMALLOC_BASE].hi == VMALLOC_BASE_L4);
 
   /* nokaslr + 5-level (VA 57): page_offset pinned to the L5 default. */
   static struct engine e2;

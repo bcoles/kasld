@@ -260,18 +260,11 @@ static int detect_loongarch_address_sizes(void) {
  * so the directmap base is always >= the compile-time base constant.
  * Emitting the base constant as the PAGEOFFSET floor is therefore sound.
  *
- * 4-level: VAS floor = 0xffff800000000000 (47-bit sign extension).
- *          Use the canonical half floor rather than __PAGE_OFFSET_BASE_L4
- *          (0xffff888000000000) because the static (non-RANDOMIZE_MEMORY)
- *          layout places the vmemmap at 0xffff800000000000 and LDT remap at
- *          0xffff880000000000; raising the VAS floor higher would silently
- *          reject those legitimate virtual addresses.
- *
- * 5-level: Directmap floor = 0xff11000000000000 (__PAGE_OFFSET_BASE_L5).
- *          The range [0xff00000000000000, 0xff10000000000000) is a guard hole
- *          (never mapped), [0xff10000000000000, 0xff11000000000000) is the LDT
- *          remap for PTI (kernel-internal, not emitted by any KASLD component),
- *          so 0xff11000000000000 is a safe and tight directmap floor. */
+ * The floor is PAGE_OFFSET_BASE_MIN_L4/L5: the lowest address the direct map
+ * has been based at on that level, which is one PGD entry below this layout's
+ * base and is where the PTI LDT remap now sits. Below it is a guard hole that
+ * holds nothing, so nothing is excluded by starting there rather than at the
+ * canonical half boundary. */
 static int detect_x86_address_sizes(void) {
   char buf[256];
   char *val = cpuinfo_get("address sizes", buf, sizeof(buf));
@@ -303,9 +296,9 @@ static int detect_x86_address_sizes(void) {
   unsigned long virt_page_offset = 0;
 
   if (virt_bits <= 48)
-    virt_page_offset = 0xffff800000000000ul; /* L4 canonical half floor */
+    virt_page_offset = PAGE_OFFSET_BASE_MIN_L4;
   else if (virt_bits <= 57)
-    virt_page_offset = 0xff11000000000000ul; /* __PAGE_OFFSET_BASE_L5 */
+    virt_page_offset = PAGE_OFFSET_BASE_MIN_L5;
   else {
     kasld_err("Unexpected virtual address width: %u", virt_bits);
     return 0;

@@ -96,10 +96,10 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
   int n = 0;
 
   /* No page_offset LOWER bound is emitted here. vaddr_start
-   * (__PAGE_OFFSET_BASE) — b.lo — would be a sound lower edge on the direct-map
-   * base, but the x86_64 directmap floor is deliberately kept at the canonical
-   * half boundary (0xffff800000000000) so that low static-layout addresses (LDT
-   * remap, etc.) are not rejected; this rule does not override that choice. It
+   * (__PAGE_OFFSET_BASE) — b.lo — is this layout's base, so as a floor it would
+   * drop a kernel that based the direct map one PGD entry lower. The floor is
+   * owned by PAGE_OFFSET_BASE_MIN_L4/L5, which covers both layouts; this rule
+   * does not override that choice. It
    * contributes the UPPER bounds the budget newly provides, plus the region
    * floors on the separate vmalloc/vmemmap quantities. */
 

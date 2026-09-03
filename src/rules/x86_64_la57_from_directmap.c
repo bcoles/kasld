@@ -7,10 +7,10 @@
 // address pin the mode:
 //
 //   addr < 0xffff800000000000 (the L4 VAS floor)  -> L5 paging (VA_BITS=57):
-//       virt_page_offset in [0xff11000000000000, 0xffff7fffffffffff]
+//       virt_page_offset in [PAGE_OFFSET_BASE_MIN_L5, 0xffff7fffffffffff]
 //       (floor = __PAGE_OFFSET_BASE_L5; ceiling = one below the L4 VAS floor)
 //   addr >= 0xffff800000000000 (none below)       -> L4 paging (VA_BITS=48):
-//       virt_page_offset floor raised to the L4 VAS start 0xffff800000000000
+//       virt_page_offset floor raised to PAGE_OFFSET_BASE_MIN_L4
 //   addresses from both ranges                    -> contradictory, skip
 //   no DIRECTMAP leaks                            -> nothing
 //
@@ -28,7 +28,6 @@
 #include <string.h>
 
 #define X86_64_L4_VAS_START 0xffff800000000000ul
-#define X86_64_L5_PO_BASE 0xff11000000000000ul
 
 int rule_x86_64_la57_from_directmap(const struct evidence_set *ev,
                                     const struct estimate *est,
@@ -85,7 +84,7 @@ int rule_x86_64_la57_from_directmap(const struct evidence_set *ev,
       memset(c, 0, sizeof(*c));
       c->q = Q_PAGE_OFFSET;
       c->op = C_LOWER_BOUND;
-      c->value = X86_64_L5_PO_BASE;
+      c->value = PAGE_OFFSET_BASE_MIN_L5;
       c->conf = conf;
       c->derived_from[0] = src;
       c->lineage_count = src ? 1 : 0;
@@ -103,18 +102,18 @@ int rule_x86_64_la57_from_directmap(const struct evidence_set *ev,
       snprintf(c->origin, ORIGIN_LEN, "x86_64_la57_from_directmap");
     }
   } else {
-    /* L4: raise the virt_page_offset floor to the L4 VAS start. Deliberately
-     * the canonical half floor (0xffff800000000000), NOT __PAGE_OFFSET_BASE_L4
-     * (0xffff888000000000): the PTI LDT remap sits at 0xffff880000000000, and
-     * pre-v4.17 kernels based the directmap at 0xffff880000000000 — a higher
-     * floor would reject legitimate / older-kernel bases. Do not "tighten" this
-     * to __PAGE_OFFSET_BASE_L4; see proc_cpuinfo.c for the full rationale. */
+    /* L4: raise the virt_page_offset floor to the lowest base the level admits.
+     * PAGE_OFFSET_BASE_MIN_L4, not this layout's __PAGE_OFFSET_BASE_L4: a
+     * kernel from before the PTI LDT remap took its own slot based the direct
+     * map one PGD entry lower, and that entry is where the remap sits now, so
+     * the floor covers both layouts and excludes no remap pointer. Do not raise
+     * it to __PAGE_OFFSET_BASE_L4 — that drops the older base. */
     if (n < out_max) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_PAGE_OFFSET;
       c->op = C_LOWER_BOUND;
-      c->value = X86_64_L4_VAS_START;
+      c->value = PAGE_OFFSET_BASE_MIN_L4;
       c->conf = conf;
       c->derived_from[0] = src;
       c->lineage_count = src ? 1 : 0;

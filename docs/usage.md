@@ -382,7 +382,7 @@ KASLR analysis:
   -------------------  ----------  ---------------------------------------  --------------  -----
   Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000            1 of 505  2 MiB
   Physical Image Base  guaranteed          0x19600000 slide +0x18600000          1 of 8185  2 MiB
-  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000           37547  1 GiB
+  Direct Map Base      guaranteed  0xffff880000000000 - 0xffffa4aa80000000           29355  1 GiB
   Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79191 of 79191  1 GiB
   Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000           85504  1 GiB
   Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000            1025  4 KiB
@@ -391,7 +391,7 @@ KASLR analysis:
   Compile-time default: 0xffffffff81000000
   Virtual entropy:      ~0 of 9 bits
   Physical entropy:     ~0 of 13 bits
-  Direct map entropy:   ~16 bits
+  Direct map entropy:   ~15 of 15 bits
 
 ----------------------------------------
 Virtual address space (decoupled, not to scale):
@@ -407,10 +407,10 @@ Virtual address space (decoupled, not to scale):
   0xffffffff8ea00000
       kernel text (pinned) -- leak 0xffffffff8ea00000
   0xffffffff8ea00000
-      . . .  128 TiB gap  . . .
+      . . .  120 TiB gap  . . .
       ^ extent unknown
       direct map (base is a lower bound)
-  0xffff800000000000
+  0xffff880000000000
       . . .  63.9 PiB gap  . . .
   0xff00000000000000  (user space + non-canonical hole below)
 

@@ -89,11 +89,13 @@ int rule_directmap_kaslr_disabled_pin(const struct evidence_set *ev,
   else
     return 0; /* unexpected width — don't pin. */
 
+  /* vmalloc and vmemmap have been based at the same address for as long as
+   * their constants have existed, so the disable signal pins them outright.
+   * page_offset has not: see below. */
   struct {
     enum kasld_quantity q;
     unsigned long value;
-  } pins[3] = {
-      {Q_PAGE_OFFSET, l5 ? PAGE_OFFSET_BASE_L5 : PAGE_OFFSET_BASE_L4},
+  } pins[2] = {
       {Q_VMALLOC_BASE, l5 ? VMALLOC_BASE_L5 : VMALLOC_BASE_L4},
       {Q_VMEMMAP_BASE, l5 ? VMEMMAP_BASE_L5 : VMEMMAP_BASE_L4},
   };
@@ -104,18 +106,94 @@ int rule_directmap_kaslr_disabled_pin(const struct evidence_set *ev,
   enum kasld_confidence conf =
       va_id ? ((sig_conf < va_conf) ? sig_conf : va_conf) : sig_conf;
   int n = 0;
-  for (int k = 0; k < 3 && n < out_max; k++) {
-    struct constraint *c = &out[n++];
-    memset(c, 0, sizeof(*c));
+
+  /* Fill the fields every emission below shares. The op and value stay at each
+   * call site: the confidence-floor guard finds collapsing constraints by
+   * reading the source, so hiding `op = C_EQUALS` inside a helper would take
+   * this rule out of its view. */
+  struct constraint *c;
+#define DKP_NEXT()                                                             \
+  (n >= out_max                                                                \
+       ? NULL                                                                  \
+       : (c = &out[n++], memset(c, 0, sizeof(*c)),                             \
+          c->derived_from[0] = sig_id, c->derived_from[1] = va_id,             \
+          c->lineage_count = va_id ? 2 : 1,                                    \
+          snprintf(c->origin, ORIGIN_LEN, "directmap_kaslr_disabled_pin"), c))
+
+  for (int k = 0; k < 2; k++) {
+    if (!DKP_NEXT())
+      return n;
     c->q = pins[k].q;
     c->op = C_EQUALS;
     c->value = pins[k].value;
     c->conf = conf;
-    c->derived_from[0] = sig_id;
-    c->derived_from[1] = va_id;
-    c->lineage_count = va_id ? 2 : 1;
-    snprintf(c->origin, ORIGIN_LEN, "directmap_kaslr_disabled_pin");
   }
+
+  /* page_offset is the one base that has moved. A kernel from before the PTI
+   * LDT remap was given its own PGD slot based the direct map one entry lower,
+   * so with randomization off the base is one of TWO addresses, not one.
+   *
+   * At 4 levels the two sit 512 GiB apart, and a kernel built without KASLR is
+   * ordinary — so the guaranteed claim is the span covering both, and the
+   * current layout's value is offered as the likely answer below the sound
+   * floor. That trades a 512-candidate window for not being confidently wrong
+   * on every pre-remap build.
+   *
+   * At 5 levels they sit 256 TiB apart, and the older layout was replaced
+   * before any CPU shipped that could run 5 levels, so the span would cost
+   * 262144 candidates to cover a machine that exists only under emulation. The
+   * pin stays exact there; PAGE_OFFSET_L5_ASSUMES_CURRENT_LAYOUT is where that
+   * limit is recorded, and clearing it takes the same span as 4 levels. */
+  if (l5) {
+#if PAGE_OFFSET_L5_ASSUMES_CURRENT_LAYOUT
+    if (!DKP_NEXT())
+      return n;
+    c->q = Q_PAGE_OFFSET;
+    c->op = C_EQUALS;
+    c->value = PAGE_OFFSET_BASE_L5;
+    c->conf = conf;
+#else
+    if (!DKP_NEXT())
+      return n;
+    c->q = Q_PAGE_OFFSET;
+    c->op = C_LOWER_BOUND;
+    c->value = PAGE_OFFSET_BASE_MIN_L5;
+    c->conf = conf;
+    if (!DKP_NEXT())
+      return n;
+    c->q = Q_PAGE_OFFSET;
+    c->op = C_UPPER_BOUND;
+    c->value = PAGE_OFFSET_BASE_L5;
+    c->conf = conf;
+    if (!DKP_NEXT())
+      return n;
+    c->q = Q_PAGE_OFFSET;
+    c->op = C_EQUALS;
+    c->value = PAGE_OFFSET_BASE_L5;
+    c->conf = kasld_conf_min(conf, CONF_HEURISTIC);
+#endif
+  } else {
+    if (!DKP_NEXT())
+      return n;
+    c->q = Q_PAGE_OFFSET;
+    c->op = C_LOWER_BOUND;
+    c->value = PAGE_OFFSET_BASE_MIN_L4;
+    c->conf = conf;
+    if (!DKP_NEXT())
+      return n;
+    c->q = Q_PAGE_OFFSET;
+    c->op = C_UPPER_BOUND;
+    c->value = PAGE_OFFSET_BASE_L4;
+    c->conf = conf;
+    if (!DKP_NEXT())
+      return n;
+    c->q = Q_PAGE_OFFSET;
+    c->op = C_EQUALS;
+    c->value = PAGE_OFFSET_BASE_L4;
+    c->conf = kasld_conf_min(conf, CONF_HEURISTIC);
+  }
+#undef DKP_NEXT
+
   return n;
 #else
   (void)ev;

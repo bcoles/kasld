@@ -101,6 +101,44 @@
 #define VMEMMAP_BASE_L4 0xffffea0000000000ul
 #define VMEMMAP_BASE_L5 0xffd4000000000000ul
 
+/* The LOWEST address the direct map has ever been based at, per paging level —
+ * a sound floor on page_offset_base rather than this layout's value.
+ *
+ * The bases above describe the CURRENT layout and are exact only for a kernel
+ * built with it, which is what the KASLR-off pin needs. As a floor they would
+ * be wrong: a kernel from before the PTI LDT remap was given its own slot based
+ * the direct map one PGD entry lower — 0xffff880000000000 at 4 levels,
+ * 0xff10000000000000 at 5 — and those are the addresses the remap occupies
+ * today. So the floor is the older base on both levels: it is at or below every
+ * base either layout produces, and it is exactly the remap's address, so an LDT
+ * remap pointer is not excluded either. Memory randomization only adds a
+ * non-negative offset, so no configuration goes below it.
+ *
+ * Not to be confused with the canonical half boundary 0xffff800000000000, which
+ * is where the kernel's address space begins and what tells the two paging
+ * levels apart. Below these floors on both levels is an 8 TB guard hole that
+ * holds nothing. */
+#define PAGE_OFFSET_BASE_MIN_L4 0xffff880000000000ul
+#define PAGE_OFFSET_BASE_MIN_L5 0xff10000000000000ul
+
+/* Modelled layout, 5 levels: the current one only.
+ *
+ * Bounds on the direct-map base carry both layouts on both levels, but the
+ * KASLR-off pin cannot: naming one address means choosing an era. At 4 levels
+ * it does not choose, because the two candidates are 512 GiB apart and a kernel
+ * predating the remap is ordinary, so directmap_kaslr_disabled_pin claims the
+ * span and offers the current value below the sound floor.
+ *
+ * At 5 levels the candidates are 256 TiB apart, and the older layout was
+ * replaced before any CPU shipped that could run 5 levels — so the span would
+ * cost 262144 candidates to cover a combination that exists only under
+ * emulation. The pin stays exact, and this is the limit that buys it: a
+ * 5-level kernel older than the remap reports a direct-map base 256 TiB above
+ * the truth. Widening PAGE_OFFSET_BASE_MIN_L5 is not the fix — the floor is
+ * already correct; it is the pin in directmap_kaslr_disabled_pin that would
+ * have to claim the span, as the 4-level path does. */
+#define PAGE_OFFSET_L5_ASSUMES_CURRENT_LAYOUT 1
+
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
