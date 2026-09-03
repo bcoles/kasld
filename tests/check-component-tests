@@ -48,14 +48,18 @@ COMP=$ROOT/src/components
 
 # Parsing components without a test, at the time this guard was written. Keep
 # alphabetical. Removing an entry is the point; adding one needs a reason.
+#
+# cmdline_memmap, hibernation_nokaslr and proc_config joined when the scope
+# stopped keying on method:. They were always parsers; only the selector had
+# failed to notice, so they are pre-existing debt now stated rather than new.
 UNTESTED="
 alsa_seq_ext_ptr
 arm64_no_seed
 bootconfig_facts
 bpf_verifier_ksym
 bpf_verifier_log
+cmdline_memmap
 cmdline_region
-cpuinfo_facts
 devicetree_facts
 dmesg_acpi_dynamic_ssdt
 dmesg_android_ion_snapshot
@@ -76,12 +80,11 @@ dmesg_reserved_mem_opensbi
 dmesg_riscv_relocation
 efi_present
 fdt_facts
-firmware_memmap
+hibernation_nokaslr
 ioctl_mmio_phys
 kernel_image_facts
 kernel_notes_buildid
 mali_timeline
-meminfo_facts
 page_size
 perf_amd_branch_user
 perf_event_open
@@ -89,6 +92,7 @@ perf_ksymbol_leak
 perf_lbr_sampling
 perf_text_poke_leak
 pppd_kallsyms
+proc_config
 proc_pid_syscall
 proc_stat_wchan
 qemu_tcg_iret
@@ -118,13 +122,26 @@ contains() { # $1=needle $2=list (whitespace/newline separated)
 included=$(grep -ho 'components/[a-z0-9_]*\.c' "$ROOT"/tests/*.c 2>/dev/null |
            sed 's|components/||; s|\.c$||' | sort -u)
 
-# The parsing components, from the method: each one declares.
+# The components in scope. `method:` says what a component is FOR, not whether
+# it parses, so selecting on method:parsed alone left parsers out: proc_cpuinfo
+# declares method:detection and reads /proc/cpuinfo to decide the paging level,
+# which sets the floor under the direct map. proc_config, hibernation_nokaslr
+# and cmdline_memmap are the same shape. None of them was in scope, so none
+# appeared on the debt list either — the list read as complete while four
+# parsers sat outside it.
+#
+# Scope is therefore what a component DOES: it reads a file, and it states
+# something at or above the sound floor. Below the floor a wrong parse shapes
+# only the likely window, which is not what this guard is for.
 parsed=""
 for f in "$COMP"/*.c; do
   [ -f "$f" ] || continue
   b=$(basename "$f" .c)
   m=$(grep -o '"method:[a-z]*' "$f" | sed 's/"method://' | head -1)
-  [ "$m" = parsed ] || continue
+  if [ "$m" != parsed ]; then
+    grep -qE 'kasld_fopen|kasld_open|kasld_opendir|kasld_read' "$f" || continue
+    grep -qE 'CONF_PARSED|CONF_DERIVED|CONF_INFERRED' "$f" || continue
+  fi
   parsed="$parsed $b"
 done
 

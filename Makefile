@@ -687,6 +687,26 @@ $(TEST_FWMEMMAP_BIN): $(TEST_DIR)/test_sysfs_firmware_memmap.c $(SRC_DIR)/compon
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_firmware_memmap.c -o $@
 
+TEST_MEMINFO_FACTS_BIN := $(TEST_OBJ_DIR)/test_meminfo_facts
+$(TEST_MEMINFO_FACTS_BIN): $(TEST_DIR)/test_meminfo_facts.c $(SRC_DIR)/components/meminfo_facts.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_meminfo_facts.c -o $@
+
+TEST_CPUINFO_FACTS_BIN := $(TEST_OBJ_DIR)/test_cpuinfo_facts
+$(TEST_CPUINFO_FACTS_BIN): $(TEST_DIR)/test_cpuinfo_facts.c $(SRC_DIR)/components/cpuinfo_facts.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_cpuinfo_facts.c -o $@
+
+TEST_FIRMWARE_MEMMAP_BIN := $(TEST_OBJ_DIR)/test_firmware_memmap
+$(TEST_FIRMWARE_MEMMAP_BIN): $(TEST_DIR)/test_firmware_memmap.c $(SRC_DIR)/components/firmware_memmap.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_firmware_memmap.c -o $@
+
+TEST_PROC_CPUINFO_BIN := $(TEST_OBJ_DIR)/test_proc_cpuinfo
+$(TEST_PROC_CPUINFO_BIN): $(TEST_DIR)/test_proc_cpuinfo.c $(SRC_DIR)/components/proc_cpuinfo.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_cpuinfo.c -o $@
+
 TEST_ZONEINFO_BIN := $(TEST_OBJ_DIR)/test_proc_zoneinfo
 $(TEST_ZONEINFO_BIN): $(TEST_DIR)/test_proc_zoneinfo.c $(SRC_DIR)/components/proc_zoneinfo.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
@@ -863,6 +883,10 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_ZFSDBG_BIN) \
   $(TEST_FWMEMMAP_BIN) \
   $(TEST_ZONEINFO_BIN) \
+  $(TEST_MEMINFO_FACTS_BIN) \
+  $(TEST_CPUINFO_FACTS_BIN) \
+  $(TEST_FIRMWARE_MEMMAP_BIN) \
+  $(TEST_PROC_CPUINFO_BIN) \
   $(TEST_PROCMOD_BIN) \
   $(TEST_MEMBLK_BIN) \
   $(TEST_KERNFS_BIN)
