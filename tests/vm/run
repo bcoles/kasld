@@ -894,6 +894,10 @@ EOF
   tc=$(resolve_target "$prefix")
   [ -n "$tc" ] || { echo "  SKIP  no build/$prefix-*/kasld with toolchain on PATH (run make cross)"; return 3; }
   bdir=${tc% *}; cc=${tc#* }
+  # Build before booting. An out-of-date binary runs, passes every check, and
+  # yields a matrix describing a tree nobody can identify.
+  make -C "$ROOT" cross TRIPLE="$(basename "$bdir")" >/dev/null 2>&1 ||
+    { echo "  SKIP  make cross TRIPLE=$(basename "$bdir") failed"; return 3; }
   if arm_be32_binary "$bdir/kasld"; then
     echo "  SKIP  $(basename "$bdir") emits BE32; a big-endian arm kernel runs userspace BE8, so kasld cannot execute"
     return 3
