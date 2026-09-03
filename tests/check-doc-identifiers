@@ -20,7 +20,9 @@
 #
 # Scope is deliberately the whole tree, not src/ alone: several documented
 # KASLD_* names are read by the shell harnesses rather than by C, and checking
-# only src/ reports those as missing.
+# only src/ reports those as missing. Markdown is the one thing left out, since
+# the documents being checked are themselves markdown and would otherwise vouch
+# for their own citations.
 #
 # CONFIG_* is out of scope by construction -- those are the kernel's symbols,
 # not this tree's, so their absence here proves nothing. Bare lowercase function
@@ -57,10 +59,21 @@ tree=$(mktemp)
 # This script is excluded from its own corpus: the header above names retired
 # spellings as examples, and including it would let any identifier it mentions
 # satisfy the check it exists to make.
+# The harness directories go in whole rather than script by script: every
+# tests/*/README.md is checked above, so a harness whose script is not here
+# has its own documentation graded against a corpus that cannot contain the
+# answer. tests/container/run, tests/fuzz/seed-from-fixtures.sh and
+# tests/vm/stage-modules were each missing for that reason.
+#
+# Markdown is excluded for the reason this script excludes itself: extra/*
+# matches extra/README.md, which is one of the documents being checked, so
+# leaving it in let that file satisfy every identifier it named.
 for s in src/include/kasld/*.h src/include/kasld/arch/*.h src/*.c src/*/*.c \
          src/components/*.c src/rules/*.c tests/*.c tests/check-* tests/replay \
-         tests/test-cross tests/vm/run tests/vm/build-kernel extra/* Makefile; do
+         tests/test-cross tests/container/* tests/fuzz/* tests/vm/* extra/* \
+         Makefile; do
   [ "$s" = "tests/check-doc-identifiers" ] && continue
+  case "$s" in *.md) continue ;; esac
   cat "$s" >>"$tree" 2>/dev/null
 done
 

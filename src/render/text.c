@@ -2361,38 +2361,6 @@ static void print_hardening_value(const char *label, int value) {
     printf("%-30s%d\n", label, value);
 }
 
-/* The banner carries VERSION, which only the product build defines, so what
- * follows is compiled out of a test binary. Helpers that a test can drive
- * belong above this line. */
-#ifndef KASLD_TESTING
-void render_banner(void) {
-  /* No identity, no banner. The art shows none of it, but a run that cannot
-   * name the target has nothing to head. */
-  if (!kasld_env.have_uts)
-    return;
-
-  /* ASCII mode (non-UTF-8 locale or --ascii): the box-art is Unicode block
-   * characters, so emit a plain-text title instead. */
-  if (!unicode_output) {
-    printf("\n  KASLD %s  --  Kernel Address Space Layout Derandomization\n\n",
-           VERSION);
-    return;
-  }
-
-  // Delta Corps Priest 1 font from https://www.asciiart.eu/text-to-ascii-art
-  printf("\n"
-         "     ▄█   ▄█▄    ▄████████    ▄████████  ▄█       ████████▄\n"
-         "    ███ ▄███▀   ███    ███   ███    ███ ███       ███   ▀███\n"
-         "    ███▐██▀     ███    ███   ███    █▀  ███       ███    ███\n"
-         "   ▄█████▀      ███    ███   ███        ███       ███    ███\n"
-         "  ▀▀█████▄    ▀███████████ ▀███████████ ███       ███    ███\n"
-         "    ███▐██▄     ███    ███          ███ ███       ███    ███\n"
-         "    ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███\n"
-         "    ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀\n"
-         "    ▀                                   ▀ v%s\n\n",
-         VERSION);
-}
-
 /* Print the container / confinement lines: whether the vantage is
  * containerized, and the seccomp / capability / no-new-privs state that decides
  * which oracles are
@@ -2491,13 +2459,20 @@ static void print_confinement(const struct kasld_vantage *v) {
  * the report model does not exist yet and the fact cannot be read from it. */
 void render_system_config(int replay) {
   struct utsname u = kasld_env.uts;
-  if (!kasld_env.have_uts)
-    return;
 
-  printf("%-30s%s\n", "Kernel release:", u.release);
-  if (u.version[0])
-    printf("%-30s%s\n", "Kernel version:", u.version);
-  printf("%-30s%s\n", "Kernel arch:", u.machine);
+  /* Identity gates only the lines it feeds. The hardening values, the replay
+   * marker and the confinement block below read sysctls, LSM state, cgroup
+   * membership and the capability set -- none of which come from uname() -- so
+   * a run that cannot name its target still has all of them to report. A
+   * capture that masks /proc/version is exactly the vantage those sections
+   * describe, and suppressing them there would withhold the report on the
+   * targets it is most wanted for. */
+  if (kasld_env.have_uts) {
+    printf("%-30s%s\n", "Kernel release:", u.release);
+    if (u.version[0])
+      printf("%-30s%s\n", "Kernel version:", u.version);
+    printf("%-30s%s\n", "Kernel arch:", u.machine);
+  }
   /* Stated only when it applies: a live run is the ordinary case, and a row
    * reading "live system" on every host would be noise rather than a finding.
    */
@@ -2567,4 +2542,37 @@ void render_system_config(int replay) {
 
   printf("\n");
 }
+
+/* The banner carries VERSION, which only the product build defines, so what
+ * follows is compiled out of a test binary. Helpers that a test can drive
+ * belong above this line. */
+#ifndef KASLD_TESTING
+void render_banner(void) {
+  /* No identity, no banner. The art shows none of it, but a run that cannot
+   * name the target has nothing to head. */
+  if (!kasld_env.have_uts)
+    return;
+
+  /* ASCII mode (non-UTF-8 locale or --ascii): the box-art is Unicode block
+   * characters, so emit a plain-text title instead. */
+  if (!unicode_output) {
+    printf("\n  KASLD %s  --  Kernel Address Space Layout Derandomization\n\n",
+           VERSION);
+    return;
+  }
+
+  // Delta Corps Priest 1 font from https://www.asciiart.eu/text-to-ascii-art
+  printf("\n"
+         "     ▄█   ▄█▄    ▄████████    ▄████████  ▄█       ████████▄\n"
+         "    ███ ▄███▀   ███    ███   ███    ███ ███       ███   ▀███\n"
+         "    ███▐██▀     ███    ███   ███    █▀  ███       ███    ███\n"
+         "   ▄█████▀      ███    ███   ███        ███       ███    ███\n"
+         "  ▀▀█████▄    ▀███████████ ▀███████████ ███       ███    ███\n"
+         "    ███▐██▄     ███    ███          ███ ███       ███    ███\n"
+         "    ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███\n"
+         "    ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀\n"
+         "    ▀                                   ▀ v%s\n\n",
+         VERSION);
+}
+
 #endif /* !KASLD_TESTING */

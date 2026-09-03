@@ -47,11 +47,35 @@ SKIP='prefetch*,perf*,mmap*,databounce,echoload,entrybleed,zombieload,kernelsnit
 HOSTDIR=$ROOT/build/$(uname -m)-linux-gnu
 HOSTBIN=${KASLD_BIN:-$HOSTDIR/kasld}
 
-if [ -t 1 ]; then RED=$(printf '\033[31m'); GRN=$(printf '\033[32m'); YEL=$(printf '\033[33m'); RST=$(printf '\033[0m'); else RED=; GRN=; YEL=; RST=; fi
-PASS=0; FAIL=0
+# KASLD_COLOR keeps the colours when stdout is not a terminal, which is how
+# this runs under a log capture or a CI job. Same override the source guards
+# take, so one setting covers every script in the suite.
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GRN=$(printf '\033[32m')
+  YEL=$(printf '\033[33m'); RST=$(printf '\033[0m')
+else
+  RED=; GRN=; YEL=; RST=
+fi
+PASS=0; FAIL=0; SKIP_N=0
 pass() { PASS=$((PASS+1)); printf '  %sPASS%s %s\n' "$GRN" "$RST" "$1"; }
 fail() { FAIL=$((FAIL+1)); printf '  %sFAIL%s %s\n' "$RED" "$RST" "$1"; }
-note() { printf '  %snote%s %s\n' "$YEL" "$RST" "$1"; }
+note() { SKIP_N=$((SKIP_N+1)); printf '  %snote%s %s\n' "$YEL" "$RST" "$1"; }
+
+# A check whose facility is absent note-skips, which is right -- but the summary
+# read "N pass, 0 fail" whatever N was, so a run that exercised four checks
+# reported success in the same words as one that exercised twelve. Removing
+# systemd-run, unshare and taskset from PATH takes this harness from twelve
+# checks to ten, and it still reported success: the narrowing is invisible
+# exactly where it matters, which is a runner image quietly losing a facility.
+#
+# So the number of checks that RAN is part of the result. The floor is the same
+# doctrine the source guards apply to their file globs -- an empty scope is a
+# broken harness, not a clean run -- and is set to the measured
+# facilities-stripped figure rather than the full population, so a host that
+# legitimately lacks them still passes while a harness that has stopped
+# examining things does not. Override it for a runner whose surviving set has
+# been observed; guessing at that number is what the override is for.
+SCOPE_FLOOR=${KASLD_CONTAINER_SCOPE_FLOOR:-10}
 
 # Canonical GUARANTEED bounds (arch-general: the layout min/max the renderer
 # treats as the sound window). Tolerant of missing keys.
@@ -387,5 +411,16 @@ else
 fi
 
 echo
-printf '== summary: %d pass, %d fail ==\n' "$PASS" "$FAIL"
+RAN=$((PASS + FAIL))
+printf '== summary: %d pass, %d fail, %d skipped (%d of %d checks ran) ==\n' \
+  "$PASS" "$FAIL" "$SKIP_N" "$RAN" "$((RAN + SKIP_N))"
+
+if [ "$RAN" -lt "$SCOPE_FLOOR" ]; then
+  printf '%s== scope: FAIL%s -- %d checks ran, expected at least %d.\n' \
+    "$RED" "$RST" "$RAN" "$SCOPE_FLOOR" >&2
+  printf 'Too much of the harness skipped for this run to mean anything. A\n' >&2
+  printf 'facility is missing from PATH, or a substrate stopped building.\n' >&2
+  exit 1
+fi
+
 [ "$FAIL" -eq 0 ]

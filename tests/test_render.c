@@ -4224,6 +4224,59 @@ static void hr_seed_fact(enum kasld_scalar_fact f, unsigned long v,
   num_scalar_facts++;
 }
 
+static void wrap_render_system_config(void *arg) {
+  render_system_config(*(int *)arg);
+}
+
+/* The verbose block reports three independent things: what the target is, how
+ * it is hardened, and what confines the process reading it. Only the first
+ * comes from uname(), so a run that cannot name its target must still report
+ * the other two -- a capture masking /proc/version is exactly the vantage the
+ * confinement lines describe, and it is the one where withholding them costs
+ * most. Guarded here rather than only in the container harness: that harness is
+ * opt-in, and this behaviour regressed under it unnoticed. */
+static void test_render_system_config_confinement_without_identity(void) {
+  hr_reset_state();
+  int saved_uts = kasld_env.have_uts;
+  kasld_env.have_uts = 0;
+  kasld_env.vantage.container = "docker";
+  kasld_env.vantage.seccomp = 2;
+
+  int replay = 1;
+  capture_stdout(wrap_render_system_config, &replay);
+  kasld_env.have_uts = saved_uts;
+
+  assert(strstr(render_cap, "Container:") != NULL);
+  assert(strstr(render_cap, "docker") != NULL);
+  /* The identity lines are the ones that genuinely depend on the fact, so
+   * their absence is half the claim: without it this passes on a renderer
+   * that ignores have_uts altogether. */
+  assert(strstr(render_cap, "Kernel release:") == NULL);
+  assert(strstr(render_cap, "Kernel arch:") == NULL);
+}
+
+/* The other direction: with an identity to print, the block still leads with
+ * it. A gate that had been removed rather than narrowed would pass the test
+ * above and fail this one. */
+static void test_render_system_config_identity_when_known(void) {
+  hr_reset_state();
+  int saved_uts = kasld_env.have_uts;
+  struct utsname saved_uts_val = kasld_env.uts;
+  kasld_env.have_uts = 1;
+  snprintf(kasld_env.uts.release, sizeof(kasld_env.uts.release), "9.9.9-test");
+  snprintf(kasld_env.uts.machine, sizeof(kasld_env.uts.machine), "testarch");
+  kasld_env.vantage.container = NULL;
+
+  int replay = 0;
+  capture_stdout(wrap_render_system_config, &replay);
+  kasld_env.have_uts = saved_uts;
+  kasld_env.uts = saved_uts_val;
+
+  assert(strstr(render_cap, "9.9.9-test") != NULL);
+  assert(strstr(render_cap, "testarch") != NULL);
+  assert(strstr(render_cap, "Container:") != NULL);
+}
+
 /* A deliberate KASLR opt-out collapses the posture: the kernel sits at its
  * compile-time base and no slot entropy survives. The report says so on all
  * three fields, and the renderers key their headline off them. */
@@ -5556,6 +5609,8 @@ int main(void) {
   RUN(test_render_hardening_json);
   RUN(test_render_hardening_markdown);
   RUN(test_build_hardening_report);
+  RUN(test_render_system_config_confinement_without_identity);
+  RUN(test_render_system_config_identity_when_known);
   RUN(test_hardening_posture_kaslr_disabled);
   RUN(test_hardening_zero_valued_fact_is_not_an_opt_out);
   RUN(test_hardening_disabled_outranks_randomization_failed);

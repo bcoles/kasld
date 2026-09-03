@@ -666,10 +666,14 @@ like one naming a constant that does: `CONTRIBUTING.md` carried
 `REGION_MODULE_REGION`, which nothing has ever defined, in the same table as the
 real constants. The check catches the commoner direction too -- a constant
 renamed in `src` while the docs keep the old spelling. `CONFIG_*` is out of scope
-by construction, being the kernel's namespace rather than this tree's. The script
-excludes itself from its own corpus: its header names retired spellings as
-examples, and including it would let any identifier it mentions satisfy the check
-it exists to make.
+by construction, being the kernel's namespace rather than this tree's. Nothing
+being checked may vouch for itself: the script excludes its own text, whose
+header names retired spellings as examples, and excludes markdown generally,
+since the documents under check are markdown and `extra/*` would otherwise pull
+`extra/README.md` into the corpus grading it. The corpus takes the harness
+directories whole rather than script by script, because every
+`tests/*/README.md` is checked and a harness whose script were missing would be
+graded against a corpus that could not hold the answer.
 
 **`check-readout-docs`** — Documented sample output uses the renderer's current
 vocabulary, and the readout blocks among them fit 100 columns (live output is
@@ -1010,10 +1014,22 @@ invariant families:
 Opt-in (`make test-container`, not part of hermetic `make test`): it snapshots
 the live host and runs live restrictions. Each LIVE check note-skips cleanly when
 its facility (seccomp, unprivileged userns, `systemd --user`, ≥2 CPUs) is
-unavailable. The one behaviour worth guarding hermetically — the reaped-status →
-outcome classification, incl. the SIGSYS→`access_denied` mapping and the
-any-other-fatal-signal→`crashed` one that must not swallow it — is unit-tested
-in `test_outcome` (layer 1). See `tests/container/README.md`.
+unavailable. Because a skip is silent, the summary reports the scope —
+`12 pass, 0 fail, 2 skipped (12 of 14 checks ran)` — and the run fails below a
+floor of checks actually executed, on the same reasoning as `guard_scope`: too
+small a scope is a broken harness, not a clean run. The default floor is the
+measured facilities-stripped figure, so a host without `systemd-run`, `unshare`
+and `taskset` still passes at ten while the narrowing stays visible;
+`KASLD_CONTAINER_SCOPE_FLOOR` sets it for a runner whose surviving set has been
+observed.
+
+Behaviour worth guarding hermetically is lifted out of this harness into layer
+1, since the harness itself is opt-in and a regression under it goes unseen: the
+reaped-status → outcome classification, incl. the SIGSYS→`access_denied` mapping
+and the any-other-fatal-signal→`crashed` one that must not swallow it, is
+unit-tested in `test_outcome`; the verbose block reporting confinement for a
+capture that cannot be named is unit-tested in `test_render`. See
+`tests/container/README.md`.
 
 ---
 
