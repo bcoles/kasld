@@ -1,0 +1,171 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-fail-closed — every component survives an empty /proc.
+#
+# A component reads files that a container, a hardened host or a masked mount
+# can all remove. Reading nothing is an ordinary outcome and must exit cleanly:
+# no result, unavailable, access denied. Dying on a signal is not — a segfault
+# on a missing or truncated file is a component trusting a read it never
+# checked, and it is the failure a restricted vantage produces first.
+#
+# The sweep points KASLD_SYSROOT at an empty directory, so every file read
+# returns ENOENT, and runs each component binary directly. rc >= 128 is death by
+# signal and fails; 124 is the timeout a slow live probe hits and is accepted.
+# The live hardware probes read no files, so an empty sysroot does not exercise
+# them and the slow ones are skipped to bound the run.
+#
+# CROSS TARGETS ARE THE POINT. Ten components compile to a zero-byte file on
+# x86_64 — arm64_no_seed, riscv64_no_seed, s390_kdump_nokaslr and
+# loongarch_kexec_file_nokaslr among them — so a native-only sweep steps over
+# them with `[ -x ]` and they have never been run with /proc missing on any
+# host. Four of those are the KASLR-off signal emitters, whose safety property
+# is exactly that a failed read yields no signal; that property is otherwise
+# argued from reading the source. Where `make cross` has been run and qemu-user
+# is present, each target's components are swept under it.
+#
+# This lives in the guard set rather than in tests/container/run, where the
+# native half of it used to sit. Nothing here needs a container — an empty
+# sysroot is not one — and that harness is opt-in, so a regression under it goes
+# unseen. Same reasoning that moved the confinement-rendering check to layer 1.
+#
+# Usage: tests/check-fail-closed   (also run by `make lint` / `make test`)
+# Env:   QEMU_DIR (default: resolve qemu-<arch> from PATH), BUILD_DIR (./build),
+#        FAIL_CLOSED_NATIVE_ONLY=1 to skip the cross sweep
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/qemu-target.sh
+. "$ROOT/tests/lib/qemu-target.sh"
+
+BUILD_DIR=${BUILD_DIR:-$ROOT/build}
+QEMU_DIR=${QEMU_DIR:-}
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/kasld-failclosed.XXXXXX") || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+EMPTY=$TMP/empty; mkdir -p "$EMPTY/proc"
+
+# The live probes read hardware, not files, so an empty sysroot says nothing
+# about them; the slow ones would dominate the run for no signal.
+skip_live() {
+  case "$1" in
+    prefetch*|perf*|mmap*|databounce|echoload|entrybleed|zombieload|\
+    kernelsnitch|sidt) return 0 ;;
+  esac
+  return 1
+}
+
+# sweep_dir <components-dir> <triple> [runner]
+# Writes its component count to $TMP/<triple>.n and one line per signal death to
+# $TMP/<triple>.crash. Targets are independent, so each runs in its own process
+# and shares no shell state — a count kept in a variable would be discarded with
+# the subshell.
+#
+# Keyed on the FULL triple, not its leading arch: x86_64-linux-gnu and
+# x86_64-linux-musl are both built and both swept, and a shared key silently
+# overwrote one target's results with the other's.
+sweep_dir() {
+  _dir=$1 _label=$2 _runner=${3:-}
+  _n=0
+  : >"$TMP/$_label.crash"
+  for _c in "$_dir"/*; do
+    [ -x "$_c" ] || continue
+    _cn=$(basename "$_c")
+    skip_live "$_cn" && continue
+    _n=$((_n + 1))
+    # shellcheck disable=SC2086  # $_runner is a command prefix, empty when native
+    KASLD_SYSROOT="$EMPTY" timeout 5 $_runner "$_c" >/dev/null 2>&1
+    _rc=$?
+    [ "$_rc" -ge 128 ] &&
+      printf '%s/%s(sig%s)\n' "$_label" "$_cn" "$((_rc - 128))" >>"$TMP/$_label.crash"
+  done
+  printf '%s' "$_n" >"$TMP/$_label.n"
+}
+
+# Run sweeps concurrently, bounded. Waiting on the OLDEST outstanding job rather
+# than on all of them keeps a slow target from stalling the rest, and never
+# leaves a finished job unreaped: a token scheme that returns nothing when a
+# child is killed would hang the guard instead of failing it.
+JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
+running=; inflight=0
+spawn() {
+  "$@" &
+  running="${running:+$running }$!"
+  inflight=$((inflight + 1))
+  if [ "$inflight" -ge "$JOBS" ]; then
+    oldest=${running%% *}
+    if [ "$oldest" = "$running" ]; then running=; else running=${running#* }; fi
+    wait "$oldest" 2>/dev/null
+    inflight=$((inflight - 1))
+  fi
+}
+
+skipped=""
+labels=""
+
+HOSTDIR=$BUILD_DIR/$(uname -m)-linux-gnu
+if [ ! -d "$HOSTDIR/components" ]; then
+  printf '%scheck-fail-closed: SKIP%s (no native components: %s — run make)\n' \
+    "$YELLOW" "$RESET" "$HOSTDIR/components"
+  exit 0
+fi
+spawn sweep_dir "$HOSTDIR/components" "$(uname -m)-linux-gnu"
+labels="$(uname -m)-linux-gnu"
+
+# Cross targets: whatever `make cross` built and qemu can run. Absent toolchains
+# and absent qemu binaries are ordinary, so they are counted and named rather
+# than failing the guard.
+if [ -z "${FAIL_CLOSED_NATIVE_ONLY:-}" ]; then
+  for bd in "$BUILD_DIR"/*/; do
+    triple=$(basename "$bd")
+    [ -d "$bd/components" ] || continue
+    case $triple in "$(uname -m)"-linux-gnu) continue ;; esac
+    qbin=$(qemu_for "$triple")
+    runner=$(resolve_qemu "$qbin") || runner=""
+    if [ -z "$runner" ]; then
+      skipped="$skipped ${triple%%-*}"
+      continue
+    fi
+    spawn sweep_dir "$bd/components" "$triple" "$runner"
+    labels="$labels $triple"
+  done
+fi
+
+wait
+
+nswept=0
+ntargets=0
+: >"$TMP/crashes"
+for l in $labels; do
+  ntargets=$((ntargets + 1))
+  nswept=$((nswept + $(cat "$TMP/$l.n" 2>/dev/null || echo 0)))
+  cat "$TMP/$l.crash" >>"$TMP/crashes" 2>/dev/null
+done
+
+if [ -s "$TMP/crashes" ]; then
+  printf '%scheck-fail-closed: FAIL%s (component died on a signal with /proc empty)\n' \
+    "$RED" "$RESET" >&2
+  sed 's/^/  /' "$TMP/crashes" >&2
+  printf '  A signal death here is a read the component did not check. Under a\n' >&2
+  printf '  cross target it may instead be an unimplemented syscall in qemu-user;\n' >&2
+  printf '  re-run that one component under the same runner to tell them apart.\n' >&2
+  exit 1
+fi
+
+guard_scope "check-fail-closed" "$nswept" 60
+
+note=
+[ -n "$skipped" ] && note=$(printf '; no qemu for:%s' "$skipped")
+printf '%scheck-fail-closed: OK%s (%d components across %d target(s) exit cleanly with /proc empty%s)\n' \
+  "$GREEN" "$RESET" "$nswept" "$ntargets" "$note"
