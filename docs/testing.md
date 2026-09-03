@@ -231,6 +231,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-arch-headers` | every contract `arch/<arch>.h` defines every mandatory axis, on any host. `api.h` enforces this at build time, so it only reaches architectures whose toolchain is installed — an incomplete header for an absent target leaves `make`, `make test` and `make lint` green. Each header is instead put through the preprocessor here, standalone and with no cross toolchain, and asked the same question `api.h` asks. Refusal stubs are told apart by the nesting depth of their `#error`: a stub's is unconditional, while `arm64.h`'s module-band relation assertions sit a level deeper and must still be checked |
 | `check-arch-dispatch` | every arch header is reachable and every dispatch arm has a file. `api.h` selects one header through a chain of `#elif` arms and is the tree's only includer, so that chain is the whole reachability story. A header added without an arm is dead — its architecture falls through to the generic `#error` — and an arm naming a missing header fails only when that architecture is built, which for the five refusal stubs is never, so a misspelt include would turn a named refusal into "No such file" indefinitely |
 | `check-macro-claims` | a comment stating a macro's value states the truth. Comments pin down an arch axis in passing — "the phys pin is inert (`KASLR_DISABLED_PINS_PHYS=0`)" — and nothing read them, so two components claimed `KASLR_DISABLED_PINS_VIRT_TEXT=1` for architectures whose header says `0`, each then naming the wrong rule as the consequence. Both compiled and passed every suite, because a comment is not compiled. The checkable macros, their values and the architecture a file is bound to are all derived — from `arch/*.h` and from `api.h`'s own dispatch chain — so a new axis or architecture is picked up without editing the guard. Only boolean axes are checked, since a size or address is written in prose with units and in hex; files with no arch gate, and gates whose candidate architectures disagree, are counted and reported rather than guessed at |
+| `check-fail-closed` | every component exits cleanly with `/proc` empty. A component reads files a container, a hardened host or a masked mount can all remove; reading nothing is ordinary and must exit cleanly, while dying on a signal is a read the component never checked — the failure a restricted vantage produces first. `KASLD_SYSROOT` points at an empty directory and each component binary runs directly. Cross targets are the point: ten components compile to a zero-byte file on x86_64, so a native-only sweep steps over them with `[ -x ]` and they had never been run with `/proc` missing on any host — four of those are the KASLR-off signal emitters, whose safety property is precisely that a failed read yields no signal. Where `make cross` has been run and qemu-user is present each target is swept under it, in parallel; absent toolchains and absent qemu binaries are named rather than failing the guard |
 | `hardening-fixtures` | the `-H` hardening advisor holds its structural invariants when driven over the captured x86_64 sysroots † |
 | `cli-flags` | the argument parser, chiefly short-flag bundling (`-fq` == `-f -q`), which `main()`'s option loop cannot be unit-tested for (`main` is compiled out under `-DKASLD_TESTING`). Same note on the name as above |
 
@@ -1008,18 +1009,19 @@ invariant families:
   (SIGSYS) — must report `access_denied`, not "found nothing"), a real masked
   `/proc` via `unshare -Urmpf --mount-proc`, fork starvation via an LD_PRELOAD
   `EAGAIN` shim (a pids cgroup analogue), a `systemd-run` memory cgroup, the
-  cpuset `pin_cpu` fallback, and a per-component "fail closed under an empty
-  `/proc`" sweep.
+  cpuset `pin_cpu` fallback. The per-component "fail closed under an empty
+  `/proc`" sweep is `check-fail-closed`, in the guard set: it needs no
+  container, and the guard set is where a regression in it is seen.
 
 Opt-in (`make test-container`, not part of hermetic `make test`): it snapshots
 the live host and runs live restrictions. Each LIVE check note-skips cleanly when
 its facility (seccomp, unprivileged userns, `systemd --user`, ≥2 CPUs) is
 unavailable. Because a skip is silent, the summary reports the scope —
-`12 pass, 0 fail, 2 skipped (12 of 14 checks ran)` — and the run fails below a
+`11 pass, 0 fail, 2 skipped (11 of 13 checks ran)` — and the run fails below a
 floor of checks actually executed, on the same reasoning as `guard_scope`: too
 small a scope is a broken harness, not a clean run. The default floor is the
 measured facilities-stripped figure, so a host without `systemd-run`, `unshare`
-and `taskset` still passes at ten while the narrowing stays visible;
+and `taskset` still passes at nine while the narrowing stays visible;
 `KASLD_CONTAINER_SCOPE_FLOOR` sets it for a runner whose surviving set has been
 observed.
 

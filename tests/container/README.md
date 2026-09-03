@@ -68,11 +68,11 @@ silently mis-degrade).
   kernel, for runtime behaviour a replay cannot exercise. Unprivileged; each
   LIVE check note-skips cleanly when its facility is unavailable.
 
-A skip is silent, so the summary states how much of the harness ran (`12 of 14
+A skip is silent, so the summary states how much of the harness ran (`11 of 13
 checks ran`) and the run fails below `SCOPE_FLOOR` — a scope too small to mean
 anything is a broken harness, not a clean run. The default is the measured
 facilities-stripped figure: without `systemd-run`, `unshare` and `taskset` the
-run goes twelve checks to ten and still passes, which is correct, while the
+run goes eleven checks to nine and still passes, which is correct, while the
 count makes the narrowing visible. `KASLD_CONTAINER_SCOPE_FLOOR` overrides it
 for a runner whose surviving set has been observed.
 

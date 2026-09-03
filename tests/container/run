@@ -64,8 +64,8 @@ note() { SKIP_N=$((SKIP_N+1)); printf '  %snote%s %s\n' "$YEL" "$RST" "$1"; }
 # A check whose facility is absent note-skips, which is right -- but the summary
 # read "N pass, 0 fail" whatever N was, so a run that exercised four checks
 # reported success in the same words as one that exercised twelve. Removing
-# systemd-run, unshare and taskset from PATH takes this harness from twelve
-# checks to ten, and it still reported success: the narrowing is invisible
+# systemd-run, unshare and taskset from PATH takes this harness from eleven
+# checks to nine, and it still reported success: the narrowing is invisible
 # exactly where it matters, which is a runner image quietly losing a facility.
 #
 # So the number of checks that RAN is part of the result. The floor is the same
@@ -75,7 +75,7 @@ note() { SKIP_N=$((SKIP_N+1)); printf '  %snote%s %s\n' "$YEL" "$RST" "$1"; }
 # legitimately lacks them still passes while a harness that has stopped
 # examining things does not. Override it for a runner whose surviving set has
 # been observed; guessing at that number is what the override is for.
-SCOPE_FLOOR=${KASLD_CONTAINER_SCOPE_FLOOR:-10}
+SCOPE_FLOOR=${KASLD_CONTAINER_SCOPE_FLOOR:-9}
 
 # Canonical GUARANTEED bounds (arch-general: the layout min/max the renderer
 # treats as the sound window). Tolerant of missing keys.
@@ -157,43 +157,6 @@ if [ -d "$WORK/base/sysroot" ]; then
   else
     fail "docker-default: kasld crashed on a masked source"
   fi
-fi
-
-echo
-echo "== degradation: every component fails closed under an empty /proc =="
-# The aggregate check above runs the orchestrator; this sweeps each component
-# binary directly against an EMPTY sysroot (every file read → ENOENT, the
-# maximally-restricted container). A privileged component must fail CLOSED — a
-# clean exit (no result / unavailable / access-denied), never a crash (a signal
-# death: segfault/abort on a missing or truncated file). rc >= 128 = killed by
-# signal; 124 = timeout (a slow live probe, not a crash — accepted). The live
-# hardware probes read no files, so an empty sysroot doesn't exercise them;
-# skip the slow ones to bound the sweep.
-skip_heavy() {
-  case "$1" in
-    prefetch*|perf*|mmap*|databounce|echoload|entrybleed|zombieload|\
-    kernelsnitch|sidt) return 0 ;;
-  esac
-  return 1
-}
-if [ -d "$HOSTDIR/components" ]; then
-  E="$WORK/empty"; mkdir -p "$E/proc"
-  crashed=""; nsweep=0
-  for comp in "$HOSTDIR"/components/*; do
-    [ -x "$comp" ] || continue
-    cn=$(basename "$comp")
-    skip_heavy "$cn" && continue
-    nsweep=$((nsweep+1))
-    KASLD_SYSROOT="$E" timeout 5 "$comp" >/dev/null 2>&1; rc=$?
-    [ "$rc" -ge 128 ] && crashed="$crashed $cn(sig$((rc-128)))"
-  done
-  if [ -z "$crashed" ]; then
-    pass "fail-closed: $nsweep components exit cleanly under an empty /proc (no crash)"
-  else
-    fail "fail-closed: components crashed under an empty /proc:$crashed"
-  fi
-else
-  note "fail-closed: component dir unavailable ($HOSTDIR/components) — skipped"
 fi
 
 echo

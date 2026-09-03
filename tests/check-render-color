@@ -36,6 +36,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/qemu-target.sh
+. "$ROOT/tests/lib/qemu-target.sh"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
@@ -93,37 +95,6 @@ TEXT_MODES="-q
 PLAIN_FORMATS="-q --markdown
 -q --json
 -q --oneline"
-
-qemu_for() {
-  case "${1%%-*}" in
-  x86_64)      echo qemu-x86_64 ;;
-  i686 | i586) echo qemu-i386 ;;
-  aarch64)     echo qemu-aarch64 ;;
-  arm | armv7) echo qemu-arm ;;
-  armeb)       echo qemu-armeb ;;
-  mips)        echo qemu-mips ;;
-  mipsel)      echo qemu-mipsel ;;
-  mips64)      echo qemu-mips64 ;;
-  mips64el)    echo qemu-mips64el ;;
-  powerpc)     echo qemu-ppc ;;
-  powerpc64)   echo qemu-ppc64 ;;
-  powerpc64le) echo qemu-ppc64le ;;
-  riscv32)     echo qemu-riscv32 ;;
-  riscv64)     echo qemu-riscv64 ;;
-  s390x)       echo qemu-s390x ;;
-  loongarch64) echo qemu-loongarch64 ;;
-  *)           echo "" ;;
-  esac
-}
-
-resolve_qemu() {
-  [ -n "$1" ] || return 1
-  if [ -n "$QEMU_DIR" ]; then
-    [ -x "$QEMU_DIR/$1" ] && { echo "$QEMU_DIR/$1"; return 0; }
-    return 1
-  fi
-  command -v "$1" 2>/dev/null
-}
 
 note() {
   printf '  %s\n' "$1" >>"$WORK/report"

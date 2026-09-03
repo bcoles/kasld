@@ -30,6 +30,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/qemu-target.sh
+. "$ROOT/tests/lib/qemu-target.sh"
 QEMU_DIR=${QEMU_DIR:-}
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
@@ -214,41 +216,6 @@ if command -v jq >/dev/null 2>&1; then
     fi
   fi
 fi
-
-# ---------------------------------------------------------------------------
-# Cross binaries: the same baseline on every architecture built.
-# ---------------------------------------------------------------------------
-# Rendering only. A baseline needs no fixture, so this is the one check that
-# reaches every arch header for the cost of a process spawn.
-qemu_for() {
-  case "${1%%-*}" in
-  x86_64)      echo qemu-x86_64 ;;
-  i686 | i586) echo qemu-i386 ;;
-  aarch64)     echo qemu-aarch64 ;;
-  arm | armv7) echo qemu-arm ;;
-  armeb)       echo qemu-armeb ;;
-  mips)        echo qemu-mips ;;
-  mipsel)      echo qemu-mipsel ;;
-  mips64)      echo qemu-mips64 ;;
-  mips64el)    echo qemu-mips64el ;;
-  powerpc64le) echo qemu-ppc64le ;;
-  powerpc64)   echo qemu-ppc64 ;;
-  powerpc)     echo qemu-ppc ;;
-  riscv32)     echo qemu-riscv32 ;;
-  riscv64)     echo qemu-riscv64 ;;
-  s390x)       echo qemu-s390x ;;
-  loongarch64) echo qemu-loongarch64 ;;
-  *)           echo "" ;;
-  esac
-}
-resolve_qemu() {
-  [ -n "$1" ] || return 1
-  if [ -n "$QEMU_DIR" ]; then
-    [ -x "$QEMU_DIR/$1" ] && echo "$QEMU_DIR/$1"
-  else
-    command -v "$1" 2>/dev/null
-  fi
-}
 
 # An empty sysroot for the emulated runs. Under qemu-user a cross binary sees
 # the HOST's /proc, which describes a kernel of another architecture entirely —

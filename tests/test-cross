@@ -35,17 +35,11 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/qemu-target.sh
+. "$ROOT/tests/lib/qemu-target.sh"
 QEMU_DIR=${QEMU_DIR:-}   # empty: resolve qemu-<arch> from PATH
 TESTS_BASE=$ROOT/build/tests
 
-# qemu-user binary for $1: from QEMU_DIR if set, else PATH. Empty if not found.
-resolve_qemu() {
-  if [ -n "$QEMU_DIR" ]; then
-    [ -x "$QEMU_DIR/$1" ] && echo "$QEMU_DIR/$1"
-  else
-    command -v "$1" 2>/dev/null
-  fi
-}
 # -Werror on the overflow/shift classes: these only manifest on a given word
 # size, so the cross (esp. 32-bit) compile is where a `1ul << 40` shift or a
 # constant overflow gets caught. Kept targeted (not full -Werror) so the test
@@ -238,32 +232,6 @@ run_target() {
     echo fail >"$st"
   fi
   [ "${KEEP:-0}" = 1 ] || rm -rf "$d"
-}
-
-# qemu-user binary for a toolchain triple, keyed on the leading arch component
-# so both `make cross` names (aarch64-linux-musl) and the cross-tools/musl-cross
-# CI names (aarch64-unknown-linux-musl) resolve. Empty for arches with no
-# qemu-user binary (32-bit little-endian ppc, powerpcle) — those skip.
-qemu_for() {
-  case "${1%%-*}" in
-  x86_64)      echo qemu-x86_64 ;;
-  i686 | i586) echo qemu-i386 ;;
-  aarch64)     echo qemu-aarch64 ;;
-  arm | armv7) echo qemu-arm ;;
-  armeb)       echo qemu-armeb ;;
-  mips)        echo qemu-mips ;;
-  mipsel)      echo qemu-mipsel ;;
-  mips64)      echo qemu-mips64 ;;
-  mips64el)    echo qemu-mips64el ;;
-  powerpc)     echo qemu-ppc ;;
-  powerpc64)   echo qemu-ppc64 ;;
-  powerpc64le) echo qemu-ppc64le ;;
-  riscv32)     echo qemu-riscv32 ;;
-  riscv64)     echo qemu-riscv64 ;;
-  s390x)       echo qemu-s390x ;;
-  loongarch64) echo qemu-loongarch64 ;;
-  *)           echo "" ;;
-  esac
 }
 
 # Targets: toolchain triples from argv if given (CI passes one arch per matrix

@@ -53,19 +53,11 @@
 set -u
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/qemu-target.sh
+. "$ROOT/tests/lib/qemu-target.sh"
 QEMU_DIR=${QEMU_DIR:-}   # empty: resolve qemu-<arch> from PATH
 BUILD_DIR=${BUILD_DIR:-$ROOT/build}
 FIXROOT=$ROOT/tests/fixtures
-
-# qemu-user binary for $1 (e.g. qemu-aarch64): from QEMU_DIR if set, else PATH.
-# Empty if not found.
-resolve_qemu() {
-  if [ -n "$QEMU_DIR" ]; then
-    [ -x "$QEMU_DIR/$1" ] && echo "$QEMU_DIR/$1"
-  else
-    command -v "$1" 2>/dev/null
-  fi
-}
 
 # `uname -m` encodes byte order on most architectures — arm reports armv7b,
 # arm64 aarch64_be, powerpc ppc64le — which is why this keys on uname_m_raw
