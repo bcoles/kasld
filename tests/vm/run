@@ -1073,17 +1073,27 @@ EOF
 # entropy_bits appears in both the virt and phys kaslr sub-objects; take the
 # virt one (before the physical/memory markers).
 bits_of() {
-  awk '/"kaslr": *\{/{ink=1}
+  _vbits=$(awk '/"kaslr": *\{/{ink=1}
        ink && /"(physical|inferred_physical|memory_kaslr)":/{ink=0}
-       ink && /"entropy_bits":/{gsub(/[^0-9]/,""); print; exit}' "$1"
+       ink && /"entropy_bits":/{gsub(/[^0-9]/,""); print; exit}' "$1")
+  # The kaslr object omits slots/entropy_bits when it cannot count -- a window
+  # with an unstated edge. The figure is still reported alongside the posture,
+  # so read it from there rather than treating the absence as an answer.
+  [ -n "$_vbits" ] || _vbits=$(grep -am1 -oE '"virt_base_entropy_bits": *[0-9]+' "$1" |
+    grep -oE '[0-9]+$')
+  printf '%s' "$_vbits"
 }
 
 # Physical-side KASLR residual entropy: the entropy_bits inside the phys sub-tree
 # ("physical" / "inferred_physical"), or empty when absent.
 phys_bits_of() {
-  awk '/"(physical|inferred_physical)": *\{/{inp=1}
+  _phbits=$(awk '/"(physical|inferred_physical)": *\{/{inp=1}
        inp && /"(likely_physical|memory_kaslr)":/{inp=0}
-       inp && /"entropy_bits":/{gsub(/[^0-9]/,""); print; exit}' "$1"
+       inp && /"entropy_bits":/{gsub(/[^0-9]/,""); print; exit}' "$1")
+  # Same fallback as bits_of, on the physical axis.
+  [ -n "$_phbits" ] || _phbits=$(grep -am1 -oE '"phys_base_entropy_bits": *[0-9]+' "$1" |
+    grep -oE '[0-9]+$')
+  printf '%s' "$_phbits"
 }
 
 # Format an entropy-bit count as a residual cell: 0 -> exact, 1 -> "1 bit",
@@ -1325,10 +1335,18 @@ cmd_table() {
       #              sub-slot window (below KASLR granularity) are the same
       #              outcome here: the randomized slot is known.
       #   <n> bits : KASLR-randomized, n bits of the slot still unknown.
+      #   unbounded: the window has an unstated edge, so what remains cannot be
+      #              counted — strictly weaker than any bit figure.
       #   —        : KASLR off — no randomization to defeat.
       if [ "$kas" = off ]; then
         residual='—'
-      elif [ "$lo" = "$hi" ] || [ "$bits" = 0 ] || [ "$bits" = '—' ]; then
+      elif [ "$bits" = '—' ]; then
+        # No figure at all: the window has an unstated edge, so what remains is
+        # not countable. That is the LEAST resolved outcome, not the most, and it
+        # is reported as such -- classing it `exact` would claim a recovered base
+        # on the strength of a missing number.
+        residual=unbounded
+      elif [ "$lo" = "$hi" ] || [ "$bits" = 0 ]; then
         residual=exact
       elif [ "$bits" = 1 ]; then
         residual='1 bit'
@@ -1358,7 +1376,9 @@ cmd_table() {
         phys_residual=coupled
       elif [ "$pv" = NA ]; then
         phys_residual='—'
-      elif { [ -n "$plo" ] && [ "$plo" = "$phi" ]; } || [ "$pbits" = 0 ] || [ "$pbits" = '—' ]; then
+      elif [ "$pbits" = '—' ]; then
+        phys_residual=unbounded
+      elif { [ -n "$plo" ] && [ "$plo" = "$phi" ]; } || [ "$pbits" = 0 ]; then
         phys_residual=exact
       elif [ "$pbits" = 1 ]; then
         phys_residual='1 bit'
@@ -1414,7 +1434,7 @@ cmd_table() {
   printf '|------|---------|--------|----------|-------|---------------|---------------|\n'
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
-  printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off (nothing randomized to strip). In the `phys residual` column, `coupled` marks an architecture whose physical image base is a fixed projection of the virtual text base (no independent physical axis — recovering the virtual base already determines it); only the decoupled arches (x86-64, arm64, riscv64, s390) carry an independent `exact` / `<n> bits` physical result.\n'
+  printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `unbounded` = the window has an unstated edge, so what remains cannot be counted (weaker than any bit figure); `—` = KASLR off (nothing randomized to strip). In the `phys residual` column, `coupled` marks an architecture whose physical image base is a fixed projection of the virtual text base (no independent physical axis — recovering the virtual base already determines it); only the decoupled arches (x86-64, arm64, riscv64, s390) carry an independent `exact` / `<n> bits` physical result.\n'
 
   # An arch that cannot run the payload is disclosed rather than dropped
   # silently, so the matrix cannot be read as having covered it.

@@ -39,27 +39,27 @@
   <line x1="393.8" y1="140" x2="690.4" y2="140" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
   <text class="val" x="700.4" y="144" fill="#455a64">15-32 bits</text>
   <circle cx="132.0" cy="140" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="arch" x="120" y="172" text-anchor="end">riscv64</text>
-  <line x1="132.0" y1="168" x2="411.2" y2="168" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="421.2" y="172" fill="#455a64">0-16 bits</text>
+  <text class="arch" x="120" y="172" text-anchor="end">loongarch64</text>
+  <line x1="306.5" y1="168" x2="411.2" y2="168" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <text class="val" x="421.2" y="172" fill="#455a64">10-16 bits</text>
   <circle cx="132.0" cy="168" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="arch" x="120" y="200" text-anchor="end">loongarch64</text>
-  <line x1="306.5" y1="196" x2="376.3" y2="196" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="386.3" y="200" fill="#455a64">10-14 bits</text>
+  <text class="arch" x="120" y="200" text-anchor="end">riscv64</text>
+  <line x1="132.0" y1="196" x2="411.2" y2="196" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <text class="val" x="421.2" y="200" fill="#455a64">0-16 bits</text>
   <circle cx="132.0" cy="196" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
   <text class="arch" x="120" y="228" text-anchor="end">mips64el</text>
   <line x1="271.6" y1="224" x2="376.3" y2="224" stroke="#e65100" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
   <text class="val" x="386.3" y="228" fill="#e65100">8-14 bits  (perf-open gains nothing)</text>
   <text class="arch" x="120" y="256" text-anchor="end">ppc32</text>
-  <line x1="323.9" y1="252" x2="376.3" y2="252" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="386.3" y="256" fill="#455a64">11-14 bits</text>
+  <line x1="341.4" y1="252" x2="376.3" y2="252" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <text class="val" x="386.3" y="256" fill="#455a64">12-14 bits</text>
   <circle cx="132.0" cy="252" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
   <text class="arch" x="120" y="284" text-anchor="end">mips</text>
-  <line x1="271.6" y1="280" x2="323.9" y2="280" stroke="#e65100" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="333.9" y="284" fill="#e65100">8-11 bits  (perf-open gains nothing)</text>
+  <line x1="271.6" y1="280" x2="358.9" y2="280" stroke="#e65100" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <text class="val" x="368.9" y="284" fill="#e65100">8-13 bits  (perf-open gains nothing)</text>
   <text class="arch" x="120" y="312" text-anchor="end">mipsel</text>
-  <line x1="271.6" y1="308" x2="323.9" y2="308" stroke="#e65100" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="333.9" y="312" fill="#e65100">8-11 bits  (perf-open gains nothing)</text>
+  <line x1="271.6" y1="308" x2="358.9" y2="308" stroke="#e65100" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <text class="val" x="368.9" y="312" fill="#e65100">8-13 bits  (perf-open gains nothing)</text>
   <text class="arch" x="120" y="340" text-anchor="end">x86_64</text>
   <line x1="132.0" y1="336" x2="289.1" y2="336" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
   <text class="val" x="299.1" y="340" fill="#455a64">0-9 bits</text>
