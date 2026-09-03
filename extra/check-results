@@ -210,7 +210,7 @@ raw_input=$(printf '%s\n' "$tagged_lines" | tr -d '\000-\010\013-\037\177')
 
 # Filter to tagged lines only (drops `[infer]`, `[parser]`, banner, etc.)
 # raw_input is the full input, incl. the rendered summary lines.
-tagged_lines=$(printf '%s\n' "$raw_input" | grep '^[VPS] ' || true)
+tagged_lines=$(printf '%s\n' "$raw_input" | grep '^[VPSC] ' || true)
 
 if [ -z "$tagged_lines" ]; then
   echo "error: no tagged lines found" >&2
@@ -421,6 +421,49 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
   # Scalar facts (S <fact> ... value=<hex>): validate where ground truth exists.
   # A kernel image cannot exceed the RAM it lives in, so /proc/iomem's RAM
   # ceiling is a reliable plausibility bound for image_size.
+  # Direct constraints (C <quantity> <op> ... value=<hex>): an inequality a
+  # component COMPUTED rather than an address it located, so there is no anchor
+  # to place -- the claim is only that the answer lies on one side of it. Ground
+  # truth must satisfy that: a lower bound above the truth, or an upper bound
+  # below it, has excluded the real value from the window the bound feeds. The
+  # channel went unchecked while four components emitted on it, because the
+  # filter above admitted only located addresses.
+  if [ "$type" = "C" ]; then
+    op=$(printf '%s' "$line" | awk '{ print $3 }')
+    value=$(numeric "$(get_field "$line" value)")
+    case "$region_name" in
+      virt_page_offset) c_truth=$truth_page_offset ;;
+      virt_image_base)  c_truth=$truth_stext ;;
+      phys_image_base)  c_truth=$truth_ptext_lo ;;
+      *)                c_truth= ;;
+    esac
+    if [ -z "$value" ]; then
+      skip "C $region_name — no/invalid value field"
+    elif [ -z "$c_truth" ]; then
+      skip "C $region_name $op $value — no ground truth for this quantity"
+    else
+      c_val=$(hex16 "$value")
+      case "$op" in
+        ">=")
+          if hex_le "$c_val" "$c_truth"; then
+            pass "C $region_name >= $value — bound holds (truth 0x$c_truth)"
+          else
+            fail "C $region_name >= $value — lower bound ABOVE truth 0x$c_truth"
+          fi
+          ;;
+        "<=")
+          if hex_le "$c_truth" "$c_val"; then
+            pass "C $region_name <= $value — bound holds (truth 0x$c_truth)"
+          else
+            fail "C $region_name <= $value — upper bound BELOW truth 0x$c_truth"
+          fi
+          ;;
+        *) skip "C $region_name — unrecognised op: $op" ;;
+      esac
+    fi
+    continue
+  fi
+
   if [ "$type" = "S" ]; then
     # numeric() both validates (a non-numeric value would make $(( value ))
     # error under set -e — or inject, as this can run as root) and gates the

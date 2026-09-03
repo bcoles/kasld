@@ -4,9 +4,16 @@
 //
 // A REGION_PAGE_OFFSET observation
 // is a component's assertion of the directmap base / VAS origin itself —
-// CONFIG_PAGE_OFFSET from proc_config, the value derived by proc_cpuinfo, etc.
-// Each such landmark pins the quantity exactly, so the rule emits a C_EQUALS
-// on Q_PAGE_OFFSET per landmark.
+// CONFIG_PAGE_OFFSET from proc_config, the EFI virt-minus-phys agreement from
+// sysfs_efi_runtime_map, etc. Each such landmark pins the quantity exactly, so
+// the rule emits a C_EQUALS on Q_PAGE_OFFSET per landmark.
+//
+// A component that has only a BOUND on the base states it on the constraint
+// channel, which the anchor rules never read, so a floor does not reach this
+// rule as a landmark in the first place. The x86_64 check below stays as a
+// backstop for one that does: a floor pinned here would exclude the randomized
+// base above it from the guaranteed window, and the cost of holding the net in
+// place is nothing while nothing trips it.
 //
 // Conflict handling is structural, not bespoke: the greedy resolver applies
 // the strongest-confidence C_EQUALS first (config `parsed` outranks a
@@ -65,12 +72,12 @@ int rule_page_offset_from_landmark(const struct evidence_set *ev,
 
     enum constraint_op op = C_EQUALS;
 #if defined(__x86_64__)
-    /* On x86_64 the directmap base is randomized (RANDOMIZE_MEMORY) AT OR ABOVE
-     * the canonical VAS floor, so a landmark at the L4 VAS floor or the L5
-     * directmap base (what proc_cpuinfo derives from virt_bits) is a LOWER
-     * bound, not the exact base. Pinning it would exclude the randomized base
-     * above it; emit C_LOWER_BOUND so phys_virt_synth / directmap bounds can
-     * reconstruct the real base within [floor, ...]. */
+    /* Backstop, not the primary defence. The canonical VAS floor is never an
+     * exact directmap base on x86_64 -- RANDOMIZE_MEMORY places the base at or
+     * above the compile-time value, itself above this floor -- so pinning a
+     * landmark carrying it would exclude the truth however it arrived. The L5
+     * base is admitted here too, conservatively: it can be exact when memory
+     * randomization is off, and a bound merely gives up the pin. */
     if (val == 0xffff800000000000ul || val == 0xff11000000000000ul)
       op = C_LOWER_BOUND;
 #endif

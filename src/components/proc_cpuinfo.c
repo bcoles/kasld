@@ -23,6 +23,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/constraint.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -318,8 +319,15 @@ static int detect_x86_address_sizes(void) {
   kasld_info("Paging level %s: PAGE_OFFSET floor -> 0x%016lx",
              virt_bits <= 48 ? "4" : "5", virt_page_offset);
 
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
-                    CONF_PARSED);
+  /* A LOWER BOUND, and stated as one. The direct-map base randomizes upward
+   * from the compile-time base, so the canonical floor for the paging level is
+   * the most that can be said here -- on this machine the true base can sit
+   * terabytes above it. The constraint channel carries that claim; the
+   * positional emitters would state it as the base itself, which is a
+   * different and false assertion, and one the anchor rules would read as an
+   * exact landmark. */
+  kasld_emit_constraint(Q_PAGE_OFFSET, C_LOWER_BOUND, virt_page_offset,
+                        CONF_PARSED);
   return 1;
 }
 #endif /* x86_64 */
