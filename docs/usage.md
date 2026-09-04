@@ -295,7 +295,7 @@ only ones carrying a name:
 
 ```sh
 F=tests/fixtures/x86_64/android-13-5.15.119-android13-8-00034-gd34029c8258b-ab10871489-shell
-KASLD_SYSROOT=$F/sysroot ./build/<arch>/kasld -v
+extra/prepare-bundle $F /tmp/r && KASLD_SYSROOT=/tmp/r ./build/<arch>/kasld -v
 ```
 
 <!-- replay: tests/fixtures/x86_64/android-13-5.15.119-android13-8-00034-gd34029c8258b-ab10871489-shell -v -->
@@ -348,7 +348,8 @@ Each record is listed with the component that produced it, and the `==>` line
 is what the region resolved to:
 
 ```sh
-KASLD_SYSROOT=tests/fixtures/x86_64/mainline-7.0.0/sysroot ./build/<arch>/kasld -v
+extra/prepare-bundle tests/fixtures/x86_64/mainline-7.0.0 /tmp/r
+KASLD_SYSROOT=/tmp/r ./build/<arch>/kasld -v
 ```
 
 <!-- replay: tests/fixtures/x86_64/mainline-7.0.0 -v -->
@@ -854,8 +855,9 @@ healthy reboot — which re-randomizes all of them — is *not* flagged; only a
 genuine posture regression is. Exit `0` = no regression, `1` = regression
 (findings printed), `2` = error. Snapshots can be live `-j` or replayed from an
 [extra/collect](../extra/collect) bundle
-(`KASLD_SYSROOT=<bundle>/sysroot kasld -j`), so a baseline captured on one host
-can be checked from another — provided both snapshots are taken the same way. A
+(`extra/prepare-bundle <bundle> DIR && KASLD_SYSROOT=DIR kasld -j`), so a
+baseline captured on one host can be checked from another — provided both
+snapshots are taken the same way. A
 replay reaches only the components a captured tree can answer, so pairing one
 with a live run measures a change of vantage rather than of posture, and
 typically as an improvement, which a gate would pass. The top-level `replay`

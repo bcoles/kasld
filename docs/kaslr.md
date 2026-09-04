@@ -242,7 +242,8 @@ with KASLR on:
 Either is reproducible from the corpus:
 
 ```
-KASLD_SYSROOT=tests/fixtures/x86_64/alpine-3.21-6.12.81-0-virt/sysroot kasld -q
+extra/prepare-bundle tests/fixtures/x86_64/alpine-3.21-6.12.81-0-virt /tmp/r
+KASLD_SYSROOT=/tmp/r kasld -q
 ```
 
 So the per-architecture entropy in the table above describes a default build

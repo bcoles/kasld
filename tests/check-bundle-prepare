@@ -1,0 +1,78 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-bundle-prepare — one program turns a bundle into a runnable sysroot.
+#
+# A bundle's sysroot mirror is not runnable as captured: the files taken as a
+# header prefix carry their true length in sizes.txt, and the device tree is a
+# single blob rather than the tree the DT components walk. Restoring both is
+# extra/prepare-bundle's job.
+#
+# It became one program's job because it had been three. The end-to-end sweep
+# and the coverage harness each carried their own copy of the restore loop, and
+# the offline soundness gate carried none -- so the gate judged the engine on a
+# fact set one bound short of the one the sweep gave it, and nothing said so:
+# a kernel image read at its 4 KiB prefix simply falls under the plausibility
+# floor and emits no size bound at all.
+#
+# The restore is what this guard keys on, because it is the step that is silent
+# when omitted. `truncate -s` appears in exactly one place, and a second copy is
+# this guard's failure -- whether it is a new harness reconstructing a fixture or
+# an old one growing its loop back.
+#
+# Writing sizes.txt is a different job and stays where it is: extra/collect and
+# tests/vm/run are the two writers, and naming the file is not restoring from it.
+#
+# Usage: tests/check-bundle-prepare   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+OWNER=extra/prepare-bundle
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+[ -x "$ROOT/$OWNER" ] || {
+  printf '%sbundle-prepare guard: FAIL%s — %s is missing or not executable\n' \
+    "$RED" "$RESET" "$OWNER" >&2
+  exit 1
+}
+
+n=0
+bad=""
+for f in "$ROOT"/tests/* "$ROOT"/tests/vm/* "$ROOT"/extra/*; do
+  [ -f "$f" ] || continue
+  # Shell scripts only: the C sources use "truncate" as an English word
+  # throughout, about a different thing.
+  head -1 "$f" | grep -q '^#!/bin/sh' || continue
+  rel=${f#"$ROOT"/}
+  [ "$rel" = "$OWNER" ] && continue
+  n=$((n + 1))
+  # A comment mentioning the step is not the step; require a command.
+  hits=$(grep -n 'truncate[[:space:]]*-s' "$f" | grep -v '^[0-9]*:[[:space:]]*#')
+  [ -n "$hits" ] && bad="$bad
+$(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
+done
+
+if [ -n "$bad" ]; then
+  printf '%sbundle-prepare guard: FAIL%s — a bundle is restored outside %s:\n' \
+    "$RED" "$RESET" "$OWNER" >&2
+  printf '%s\n' "$bad" | grep -v '^$' >&2
+  printf 'Call %s <bundle> <dest> instead. A second copy of the\n' "$OWNER" >&2
+  printf 'restore drifts silently: the tree it builds is short a file length,\n' >&2
+  printf 'and a run over it resolves one bound fewer with nothing to show for it.\n' >&2
+  exit 1
+fi
+
+guard_scope "check-bundle-prepare" "$n" 20
+
+printf '%sbundle-prepare guard: OK%s (%d scripts; only %s restores a bundle)\n' \
+  "$GREEN" "$RESET" "$n" "$OWNER"

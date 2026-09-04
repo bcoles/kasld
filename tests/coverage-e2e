@@ -75,11 +75,8 @@ meta() { grep -E "^$2:" "$1/meta.txt" 2>/dev/null | head -1 | sed -E 's/^[^:]*:[
 for d in "$FIX"/x86_64/*/ "$FIX"/i686/*/; do
   { [ -d "$d" ] && [ -f "$d/meta.txt" ] && [ -f "$d/sizes.txt" ]; } || continue
   case "$(meta "$d" uname_m_raw)" in x86_64|i686|i386) ;; *) continue ;; esac
-  sc=$(mktemp -d); cp -a "$d/sysroot" "$sc/r"
-  while read -r sz path; do
-    [ -z "$sz" ] || [ -z "$path" ] && continue
-    mkdir -p "$sc/r$(dirname "$path")" 2>/dev/null; truncate -s "$sz" "$sc/r$path" 2>/dev/null
-  done < "$d/sizes.txt"
+  sc=$(mktemp -d)
+  "$ROOT/extra/prepare-bundle" "$d" "$sc/r" || { rm -rf "$sc"; continue; }
   # Exercise EVERY renderer so render.c is covered end-to-end, not just the
   # default text path: -v verbose text, -j JSON, -1 oneline, -m markdown,
   # -c forced color (ANSI paths), and the -H hardening add-on over both text

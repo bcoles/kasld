@@ -1,0 +1,107 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# prepare-bundle — turn a captured bundle into a sysroot kasld can be pointed at.
+#
+# extra/collect writes a bundle: a path-preserving sysroot/ mirror, meta.txt,
+# and sizes.txt. The mirror is not directly runnable. Two of the files it
+# describes are present only in outline, because carrying them whole would put
+# a multi-megabyte kernel image in every capture:
+#
+#   sizes.txt   one "<bytes> <path>" row per file captured as a prefix. The
+#               prefix holds the header a parser reads; the row holds the true
+#               length, which is a proven lower bound on the kernel image and
+#               reaches the engine as one. Restoring the length is what makes
+#               the bundle carry the fact the live system carried.
+#   sys/firmware/fdt   the flattened device tree, captured as the one blob
+#               rather than the hundreds of files under /proc/device-tree that
+#               the DT components read.
+#
+# So "point KASLD_SYSROOT at the bundle" is not the whole recipe, and the part
+# it omits is silent: the run simply reads a short file and resolves one bound
+# fewer. This is that recipe, in one place, so a harness and an operator
+# prepare a bundle the same way.
+#
+# Usage:  extra/prepare-bundle <bundle-dir> <dest-dir>
+#         KASLD_SYSROOT=<dest-dir> kasld -v
+#
+# <dest-dir> is created; an existing non-empty one is refused rather than
+# written into. The caller owns it afterwards, including removing it.
+#
+# Exit codes:  0 prepared;  2 bundle malformed or unusable.
+#
+# Device-tree expansion is soft: it needs python3, and without it the DT
+# components report the source as unavailable, which is a valid run. The
+# expander is tests/fdt-unflatten, beside the fixture corpus that motivates it;
+# nothing under extra/ is installed, so both are repo-local either way.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+
+PROG=$(basename "$0")
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+die() { echo "$PROG: $*" >&2; exit 2; }
+
+# The bundle layout this reader understands. extra/collect stamps the version it
+# wrote; a bundle from a LATER writer may describe files in a way this does not
+# know how to restore, and reading it as though it did would prepare a tree that
+# is quietly missing something. Older versions stay readable: every field this
+# reads has been there since the first.
+KNOWN_VERSION=3
+
+[ "$#" -eq 2 ] || {
+  echo "Usage: $PROG <bundle-dir> <dest-dir>" >&2
+  exit 2
+}
+BUNDLE=$1
+DEST=$2
+
+[ -d "$BUNDLE" ] || die "bundle '$BUNDLE' is not a directory"
+[ -d "$BUNDLE/sysroot" ] || die "bundle missing sysroot/"
+
+if [ -f "$BUNDLE/meta.txt" ]; then
+  v=$(awk -F: '/^collect_version:/ { gsub(/[ \t]/, "", $2); print $2 }' \
+        "$BUNDLE/meta.txt" | head -1)
+  case "$v" in
+  '' | *[!0-9]*) ;; # absent or not a number: read it as the original layout
+  *)
+    [ "$v" -le "$KNOWN_VERSION" ] ||
+      die "bundle is collect_version $v; this reader knows $KNOWN_VERSION"
+    ;;
+  esac
+fi
+
+if [ -e "$DEST" ]; then
+  [ -d "$DEST" ] || die "destination '$DEST' exists and is not a directory"
+  [ -z "$(ls -A "$DEST" 2>/dev/null)" ] ||
+    die "destination '$DEST' is not empty"
+else
+  mkdir -p "$DEST" || die "cannot create '$DEST'"
+fi
+
+# cp -a, so the mirror's symlinks survive as symlinks: /sys/class/<class>/<name>
+# is a link into /sys/devices and dereferencing it would flatten the shape the
+# components walk.
+cp -a "$BUNDLE/sysroot/." "$DEST/" || die "copying the sysroot mirror failed"
+
+if [ -f "$DEST/sys/firmware/fdt" ] && command -v python3 >/dev/null 2>&1; then
+  python3 "$ROOT/tests/fdt-unflatten" "$DEST/sys/firmware/fdt" \
+    "$DEST/sys/firmware/devicetree/base" 2>/dev/null || true
+fi
+
+# Restore each captured file to its true length. The bytes past the captured
+# prefix are zero: the length is the fact, and a parser that needs content finds
+# the header where it was.
+if [ -f "$BUNDLE/sizes.txt" ]; then
+  while read -r sz path; do
+    if [ -z "$sz" ] || [ -z "$path" ]; then
+      continue
+    fi
+    mkdir -p "$DEST$(dirname "$path")" 2>/dev/null
+    truncate -s "$sz" "$DEST$path" 2>/dev/null
+  done < "$BUNDLE/sizes.txt"
+fi
+
+exit 0

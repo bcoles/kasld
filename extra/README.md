@@ -22,6 +22,7 @@ page indexes them and shows how they combine into workflows. (`kasld` itself is 
 | Tool | Purpose | Root? | Deeper reference |
 |------|---------|-------|------------------|
 | [`collect`](collect) | Capture a portable, self-identifying bundle of this host's KASLD-relevant state (meta, `kasld -v`, dmesg, a path-preserving `sysroot/` mirror) | no ¹ | [reproducibility.md](../docs/reproducibility.md#1-on-the-local-kernel) |
+| [`prepare-bundle`](prepare-bundle) | Turn a `collect` bundle into a sysroot `kasld` can be pointed at — restores each header-prefixed file to its captured length and expands the flattened device tree | no | below |
 | [`validate-bundle`](validate-bundle) | Offline soundness check over a `collect` bundle — asserts the resolved ranges contain the captured truth | no | [reproducibility.md](../docs/reproducibility.md#1-on-the-local-kernel) |
 | [`check-results`](check-results) | Live per-leak validator — compares a `kasld` run against `/proc/kallsyms` · `/proc/iomem` · `/proc/kcore` ground truth | **yes** | [testing.md](../docs/testing.md#validating-captured-bundles) |
 | [`posture-diff`](posture-diff) | Compare two `kasld -j` snapshots; exit non-zero if the KASLR **posture** regressed | no | [usage.md](../docs/usage.md#regression-gate-extraposture-diff) |
@@ -89,13 +90,21 @@ target, or an architecture the analysis host can only emulate.
 # On the target: capture (add --kallsyms to record ground truth for validation).
 extra/collect --kallsyms                    # -> kasld-bundle-<arch>-<rel>-<ts>/
 
-# Anywhere: replay the exact same facts through kasld, no target needed. The
-# report names the captured kernel, not the one running the replay.
-KASLD_SYSROOT=kasld-bundle-*/sysroot ./build/*/kasld -v
+# Anywhere: prepare the bundle into a runnable sysroot, then replay the exact
+# same facts through kasld, no target needed. The report names the captured
+# kernel, not the one running the replay.
+extra/prepare-bundle kasld-bundle-* /tmp/replay-root
+KASLD_SYSROOT=/tmp/replay-root ./build/*/kasld -v
 
 # And check the engine stayed sound over that capture (truth ∈ every range):
 extra/validate-bundle kasld-bundle-*
 ```
+
+The mirror is not runnable as captured: the kernel image and System.map are
+captured as a header prefix, with their true length in `sizes.txt`, and the
+device tree as one blob rather than the tree the DT components walk.
+`prepare-bundle` restores both, so the replay reads the fact set the live system
+offered. `validate-bundle` prepares the bundle itself.
 
 `validate-bundle` needs no root — the truth comes from the bundle's captured files,
 not the host's `/proc`. It exits `0` (every quantity PASS or N/A), `1` (a soundness

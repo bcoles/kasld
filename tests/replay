@@ -193,24 +193,15 @@ run_fixture() {
     fi
   fi
 
-  # Reconstruct a scratch sysroot: copy captured facts, then materialise the
-  # /boot images as sparse files of their true size (header prefix preserved).
+  # Reconstruct a scratch sysroot. extra/prepare-bundle owns what that takes --
+  # restoring each captured file's true length from sizes.txt and expanding the
+  # flattened device tree -- so this harness and an operator preparing the same
+  # bundle by hand read the same tree.
   sc=$(mktemp -d)
-  cp -a "$d/sysroot" "$sc/r"
-  # If the fixture carries a flattened device tree blob (collect grabs the one
-  # ~tens-of-KB /sys/firmware/fdt rather than the hundreds of files under
-  # /proc/device-tree), expand it into the /sys/firmware/devicetree/base layout
-  # the DT components read. Soft: skips if python3 is absent (DT components then
-  # just report UNAVAILABLE — still a valid no-crash run).
-  if [ -f "$sc/r/sys/firmware/fdt" ] && command -v python3 >/dev/null 2>&1; then
-    python3 "$ROOT/tests/fdt-unflatten" "$sc/r/sys/firmware/fdt" \
-      "$sc/r/sys/firmware/devicetree/base" 2>/dev/null || true
+  if ! "$ROOT/extra/prepare-bundle" "$d" "$sc/r"; then
+    printf 'FAIL  %-44s (bundle could not be prepared)\n' "$name"
+    echo fail >"$st"; rm -rf "$sc"; return
   fi
-  while read -r sz path; do
-    if [ -z "$sz" ] || [ -z "$path" ]; then continue; fi
-    mkdir -p "$sc/r$(dirname "$path")" 2>/dev/null
-    truncate -s "$sz" "$sc/r$path" 2>/dev/null
-  done < "$d/sizes.txt"
 
   # Release handling: nothing is set, deliberately. Each process reads the
   # fixture's release and version from the captured /proc/version through the

@@ -232,7 +232,11 @@ if [ ! -x "$BIN" ]; then
 else
   run_f=$(mktemp) || exit 1
   blk_f=$(mktemp) || exit 1
-  trap 'rm -f "$countfail" "$blockfail" "$skipped" "$run_f" "$blk_f"' EXIT
+  # The prepared bundle: one directory, reused per marker, removed with the
+  # rest. prepare-bundle refuses a non-empty destination, so each block clears
+  # it before preparing into it.
+  prep_d=$(mktemp -d) || exit 1
+  trap 'rm -f "$countfail" "$blockfail" "$skipped" "$run_f" "$blk_f"; rm -rf "$prep_d"' EXIT
   # Word splitting is intended: DOCS is a space-separated file list.
   # shellcheck disable=SC2086
   markers=$(grep -Hn -- '<!-- replay: ' $DOCS 2>/dev/null || true)
@@ -296,9 +300,19 @@ else
       echo BAD >>"$blockfail"
       continue
     fi
+    # Prepared, not read where it lies: a captured bundle carries its
+    # header-prefixed files at their true length in sizes.txt, and the run a
+    # document quotes has to be the run its own recipe produces.
+    rm -rf "$prep_d"
+    if ! "$ROOT/extra/prepare-bundle" "$ROOT/$fixture" "$prep_d"; then
+      printf '  %s:%s names a bundle that will not prepare: %s\n' \
+        "$file" "$lno" "$fixture"
+      echo BAD >>"$blockfail"
+      continue
+    fi
     # Word splitting is intended: the flags are a command line.
     # shellcheck disable=SC2086
-    KASLD_SYSROOT="$ROOT/$fixture/sysroot" "$BIN" $flags 2>/dev/null |
+    KASLD_SYSROOT="$prep_d" "$BIN" $flags 2>/dev/null |
       sed 's/[[:space:]]*$//' >"$run_f"
     # Contiguous-substring test: every block line must match the run, in order,
     # from one starting offset. Trailing whitespace is stripped from both --
@@ -314,7 +328,7 @@ else
         }
         exit 1
       }' "$blk_f" "$run_f"; then
-      printf '  %s:%s is not a contiguous excerpt of: KASLD_SYSROOT=%s/sysroot kasld %s\n' \
+      printf '  %s:%s is not a contiguous excerpt of: extra/prepare-bundle %s DIR && KASLD_SYSROOT=DIR kasld %s\n' \
         "$file" "$lno" "$fixture" "$flags"
       echo BAD >>"$blockfail"
     fi
