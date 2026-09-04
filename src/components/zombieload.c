@@ -79,6 +79,17 @@
 // Giuffrida.
 // "RIDL: Rogue In-Flight Data Load" (S&P 2019)
 //
+// Debugging:
+//   -v / KASLD_VERBOSE        the TSX mode, the Flush+Reload threshold and the
+//                             voted result.
+//   KASLD_ZOMBIELOAD_DEBUG=1  the per-offset histogram peaks of every run, each
+//                             run's own candidate, the total probe hits across
+//                             all runs and the final votes. The primitive is
+//                             expected to sit at the noise floor on most
+//                             hardware, so what distinguishes a real leak from
+//                             noise is whether any offset stood above its
+//                             neighbours -- which the vote alone cannot show.
+//
 // KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
 // or elide the timing / cache-probe / speculation measurements this technique
 // relies on; a per-function no-opt attribute is not a reliable substitute.

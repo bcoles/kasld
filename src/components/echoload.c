@@ -53,6 +53,14 @@
 // The store-to-leak reference code (cc0x1f) is used with the authors'
 // permission.
 //
+// Debugging:
+//   -v / KASLD_VERBOSE      the posture and the recovered base.
+//   KASLD_ECHOLOAD_DEBUG=1  the hit count of every slot that scored at all,
+//                           with the threshold marked -- the threshold is the
+//                           whole decision, so a winner one count clear of its
+//                           neighbours reads very differently from one that
+//                           towered over them.
+//
 // KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
 // or elide the timing / cache-probe / speculation measurements this technique
 // relies on; a per-function no-opt attribute is not a reliable substitute.
@@ -137,6 +145,8 @@ KASLD_META("method:timing\n"
 /* --- Signal-based (SIGSEGV + longjmp) --- */
 static jmp_buf trycatch_buf;
 
+static int debug_mode; /* KASLD_ECHOLOAD_DEBUG: the hit count of every slot */
+
 static void segfault_handler(int signum) {
   (void)signum;
   sigset_t sigs;
@@ -214,6 +224,21 @@ static unsigned long echoload_sweep(int use_tsx) {
     }
   }
 
+  /* Every slot's count, not only those that cleared the bar. The threshold is
+   * the whole decision here, so what matters on unfamiliar hardware is whether
+   * the winner towered over its neighbours or sat one count above them. */
+  if (debug_mode) {
+    fprintf(stderr,
+            "# echoload: hits per slot (threshold %d of %d iterations)\n",
+            ECHOLOAD_HIT_THRESHOLD, ECHOLOAD_ITERATIONS);
+    for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++)
+      if (hits[slot])
+        fprintf(stderr, "#   0x%lx %d%s\n",
+                KERNEL_VIRT_TEXT_MIN + slot * SCAN_STEP, hits[slot],
+                hits[slot] >= ECHOLOAD_HIT_THRESHOLD ? "  <- over threshold"
+                                                     : "");
+  }
+
   /* Return the lowest address above the hit threshold */
   for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++) {
     if (hits[slot] >= ECHOLOAD_HIT_THRESHOLD)
@@ -229,6 +254,8 @@ static unsigned long echoload_sweep(int use_tsx) {
 int main(void) {
   if (kasld_skip_live_probe("echoload"))
     return 0;
+
+  debug_mode = getenv("KASLD_ECHOLOAD_DEBUG") != NULL;
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] echoload: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");

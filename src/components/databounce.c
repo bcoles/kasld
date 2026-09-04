@@ -50,6 +50,12 @@
 // The store-to-leak reference code (cc0x1f) is used with the authors'
 // permission.
 //
+// Debugging:
+//   -v / KASLD_VERBOSE        the TSX posture and the voted result.
+//   KASLD_DATABOUNCE_DEBUG=1  each sweep's own answer before the vote, so a
+//                             clean unanimous result can be told from one value
+//                             scraping a majority over a spread.
+//
 // KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
 // or elide the timing / cache-probe / speculation measurements this technique
 // relies on; a per-function no-opt attribute is not a reliable substitute.
@@ -123,6 +129,8 @@ KASLD_META("method:timing\n"
  * back-to-back probes, returning on the first cache hit. This avoids
  * cross-address cache pollution from interleaved scanning.
  */
+static int debug_mode; /* KASLD_DATABOUNCE_DEBUG: every sweep's own answer */
+
 static unsigned long databounce_sweep(void) {
   /* Pre-flush all 256 probe lines before the scan, matching the
    * reference implementation. */
@@ -166,6 +174,8 @@ static unsigned long databounce_sweep(void) {
 int main(void) {
   if (kasld_skip_live_probe("databounce"))
     return 0;
+
+  debug_mode = getenv("KASLD_DATABOUNCE_DEBUG") != NULL;
   if (!is_intel_cpu()) {
     fprintf(stderr,
             "[-] databounce: not an Intel CPU; attack not applicable\n");
@@ -197,6 +207,19 @@ int main(void) {
   unsigned long samples[DATABOUNCE_SWEEPS];
   for (int s = 0; s < DATABOUNCE_SWEEPS; s++)
     samples[s] = databounce_sweep();
+
+  /* Every sweep's own answer, not just the winner. The vote hides exactly the
+   * thing worth seeing on unfamiliar hardware -- whether the sweeps agreed, or
+   * whether one value scraped a majority over a spread of disagreeing ones. */
+  if (debug_mode) {
+    fprintf(stderr, "# databounce: %d sweeps\n", DATABOUNCE_SWEEPS);
+    for (int s = 0; s < DATABOUNCE_SWEEPS; s++) {
+      if (samples[s])
+        fprintf(stderr, "#   sweep %d: 0x%lx\n", s, samples[s]);
+      else
+        fprintf(stderr, "#   sweep %d: no hit\n", s);
+    }
+  }
 
   unsigned long addr = 0;
   int best_count = 0;

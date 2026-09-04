@@ -42,6 +42,12 @@
 // References:
 //   https://gruss.cc/files/prefetch.pdf
 //
+// Debugging:
+//   -v / KASLD_VERBOSE                the per-pass base and the FIRST pass's
+//                                     slot profile.
+//   KASLD_PREFETCH_DIRECTMAP_DEBUG=1  that profile for every pass, which is
+//                                     what shows whether the passes agree.
+//
 // KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
 // or elide the timing / cache-probe / speculation measurements this technique
 // relies on; a per-function no-opt attribute is not a reliable substitute.
@@ -79,6 +85,7 @@ KASLD_META("method:timing\n"
            "config:RANDOMIZE_MEMORY\n");
 
 static int verbose = 0;
+static int debug_mode; /* KASLD_PREFETCH_DIRECTMAP_DEBUG: every pass */
 
 // The direct map is randomized on the 1 GiB (PUD) grid. The 1 GiB-huge-page
 // mapping produces a WEAKER prefetch differential than 2 MiB kernel text, so it
@@ -222,7 +229,7 @@ static unsigned long directmap_vote(int vendor, size_t n, uint64_t win_base,
     for (k = 0; k < n; k++)
       if (times[k] < agg[k])
         agg[k] = times[k];
-    if (verbose && i == 0)
+    if (debug_mode || (verbose && i == 0))
       prefetch_scan_dump(times, n, win_base, DM_STEP,
                          vendor == CPU_VENDOR_AMD ? "sum_cycles"
                                                   : "min_cycles");
@@ -372,6 +379,7 @@ int main(int argc, char *argv[]) {
   if (kasld_skip_live_probe("prefetch directmap"))
     return 0;
   verbose = kasld_is_verbose();
+  debug_mode = getenv("KASLD_PREFETCH_DIRECTMAP_DEBUG") != NULL;
 
   kasld_info("trying prefetch direct-map side-channel ...");
 

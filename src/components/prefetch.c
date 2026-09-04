@@ -127,6 +127,15 @@
 //   https://www.usenix.org/conference/usenixsecurity16/technical-sessions/presentation/gruss
 //   https://www.amd.com/en/resources/product-security/bulletin/amd-sb-1017.html
 //
+// Debugging:
+//   -v / KASLD_VERBOSE      the per-pass base, and the slot profile of the
+//                           FIRST pass -- enough to see whether an edge was
+//                           found, not enough to see why a later pass differed.
+//   KASLD_PREFETCH_DEBUG=1  that profile for EVERY pass. A disagreement between
+//                           passes is the usual failure here, and it is only
+//                           diagnosable with the passes side by side: NUM_SLOTS
+//                           lines each, so hundreds per run.
+//
 // KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
 // or elide the timing / cache-probe / speculation measurements this technique
 // relies on; a per-function no-opt attribute is not a reliable substitute.
@@ -162,6 +171,7 @@ KASLD_META("method:timing\n"
            "hardware:prefetch side-channel (mitigated by KPTI)\n");
 
 static int verbose = 0;
+static int debug_mode; /* KASLD_PREFETCH_DEBUG: every pass, not a sample */
 
 // ---------------------------------------------------------------------------
 // The kernel text KASLR window: NUM_SLOTS candidate positions of STEP bytes.
@@ -215,7 +225,7 @@ static unsigned long majority_vote(int cpu_vendor, int batched, int *n_found) {
       prefetch_scan_collect(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN, STEP,
                             cpu_vendor, iters);
 
-    if (verbose && i == 0)
+    if (debug_mode || (verbose && i == 0))
       prefetch_scan_dump(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN, STEP,
                          use_batched                    ? "batch_min_cycles"
                          : cpu_vendor == CPU_VENDOR_AMD ? "sum_cycles"
@@ -362,6 +372,7 @@ int main(int argc, char *argv[]) {
   if (kasld_skip_live_probe("prefetch"))
     return 0;
   verbose = kasld_is_verbose();
+  debug_mode = getenv("KASLD_PREFETCH_DEBUG") != NULL;
 
   kasld_info("trying prefetch side-channel ...");
 
