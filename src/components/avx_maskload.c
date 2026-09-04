@@ -363,12 +363,25 @@ static int64_t maskload_delta(unsigned long addr, unsigned long ref) {
 }
 
 static int has_avx(void) {
-  unsigned int eax, ebx, ecx, edx;
+  unsigned int eax, ebx, ecx, edx, xcr0_lo, xcr0_hi;
 
   if (__get_cpuid_max(0, NULL) < 1)
     return 0;
   __cpuid(1, eax, ebx, ecx, edx);
-  return (ecx >> 28) & 1;
+  /* AVX usable by this process is a CPU question and an OS one. The AVX bit
+   * (ECX 28) says the silicon has it; the instructions still fault with #UD
+   * unless the OS turned XSAVE on and asked for the AVX state to be saved, as
+   * a kernel booted with noxsave has not. OSXSAVE (ECX 27) reports that, and
+   * gates the XCR0 read below: XGETBV without it is itself #UD. */
+  if (!((ecx >> 27) & 1) || !((ecx >> 28) & 1))
+    return 0;
+  /* XGETBV(0), spelled in bytes so this file needs no -mxsave. XCR0 bit 1 is
+   * the XMM half and bit 2 the YMM half; a masked load needs both. */
+  __asm__ volatile(".byte 0x0f, 0x01, 0xd0"
+                   : "=a"(xcr0_lo), "=d"(xcr0_hi)
+                   : "c"(0));
+  (void)xcr0_hi;
+  return (xcr0_lo & 0x6) == 0x6;
 }
 
 /* One sweep of the candidate window. The first sweep of a run is discarded by
