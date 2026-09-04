@@ -372,7 +372,7 @@ int main(int argc, char *argv[]) {
   if (kasld_skip_live_probe("prefetch"))
     return 0;
   verbose = kasld_is_verbose();
-  debug_mode = getenv("KASLD_PREFETCH_DEBUG") != NULL;
+  debug_mode = kasld_env_enabled("KASLD_PREFETCH_DEBUG");
 
   kasld_info("trying prefetch side-channel ...");
 

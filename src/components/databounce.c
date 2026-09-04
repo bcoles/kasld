@@ -175,7 +175,7 @@ int main(void) {
   if (kasld_skip_live_probe("databounce"))
     return 0;
 
-  debug_mode = getenv("KASLD_DATABOUNCE_DEBUG") != NULL;
+  debug_mode = kasld_env_enabled("KASLD_DATABOUNCE_DEBUG");
   if (!is_intel_cpu()) {
     fprintf(stderr,
             "[-] databounce: not an Intel CPU; attack not applicable\n");

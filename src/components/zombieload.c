@@ -414,7 +414,7 @@ int main(void) {
                     "CPU may be vulnerable\n");
   }
 
-  debug_mode = getenv("KASLD_ZOMBIELOAD_DEBUG") != NULL;
+  debug_mode = kasld_env_enabled("KASLD_ZOMBIELOAD_DEBUG");
 
   fprintf(stderr, "[.] zombieload: using TSX abort mode\n");
 

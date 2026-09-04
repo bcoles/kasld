@@ -439,7 +439,7 @@ int main(int argc, char **argv) {
   if (kasld_skip_live_probe("avx_maskload"))
     return 0;
 
-  debug_mode = getenv("KASLD_AVX_MASKLOAD_DEBUG") != NULL;
+  debug_mode = kasld_env_enabled("KASLD_AVX_MASKLOAD_DEBUG");
 
   /* Announce before the first measurement, and report each sweep as it lands.
    * A full run sweeps the candidate window PASSES times and takes seconds; with

@@ -317,7 +317,7 @@ int main(void) {
   if (kasld_skip_live_probe("entrybleed"))
     return 0;
 
-  debug_mode = getenv("KASLD_ENTRYBLEED_DEBUG") != NULL;
+  debug_mode = kasld_env_enabled("KASLD_ENTRYBLEED_DEBUG");
   kasld_info("trying EntryBleed (CVE-2022-4543) ...");
 
   unsigned long addr = get_kernel_addr_entrybleed();

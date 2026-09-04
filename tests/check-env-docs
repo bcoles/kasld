@@ -65,8 +65,8 @@ trap 'rm -f "$code" "$documented"' EXIT INT TERM
 # define them.
 find "$ROOT/src" -name '*.c' -o -name '*.h' |
   grep -v '/components/' |
-  xargs grep -hoE 'getenv\("[A-Z_][A-Z_0-9]*"\)' |
-  sed 's/getenv("//; s/")//' | sort -u >"$code"
+  xargs grep -hoE '(getenv|kasld_env_enabled)\("[A-Z_][A-Z_0-9]*"\)' |
+  sed 's/.*("//; s/")//' | sort -u >"$code"
 
 # Names given an ENTRY in the ENVIRONMENT section -- the tag line directly after
 # a .TP. Deliberately not every .B in the section: its introduction names two

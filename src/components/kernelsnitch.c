@@ -798,7 +798,7 @@ int main(int argc, char **argv) {
    * KASLD_KERNELSNITCH_DEBUG means what the other timing components' variables
    * mean -- this component's full detail -- without -v turning on the firehose
    * of every other component in the run. */
-  if (getenv("KASLD_KERNELSNITCH_DEBUG"))
+  if (kasld_env_enabled("KASLD_KERNELSNITCH_DEBUG"))
     kasld_verbose = 1;
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] kernelsnitch: experimental component; "

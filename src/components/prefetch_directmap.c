@@ -379,7 +379,7 @@ int main(int argc, char *argv[]) {
   if (kasld_skip_live_probe("prefetch directmap"))
     return 0;
   verbose = kasld_is_verbose();
-  debug_mode = getenv("KASLD_PREFETCH_DIRECTMAP_DEBUG") != NULL;
+  debug_mode = kasld_env_enabled("KASLD_PREFETCH_DIRECTMAP_DEBUG");
 
   kasld_info("trying prefetch direct-map side-channel ...");
 

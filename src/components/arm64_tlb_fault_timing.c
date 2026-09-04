@@ -493,7 +493,7 @@ int main(int argc, char **argv) {
   if (kasld_skip_live_probe("arm64_tlb_fault_timing"))
     return 0;
 
-  debug_mode = getenv("KASLD_ARM64_TLB_DEBUG") != NULL;
+  debug_mode = kasld_env_enabled("KASLD_ARM64_TLB_DEBUG");
 
   /* Nothing to search for when the base is not randomized -- checked FIRST.
    *

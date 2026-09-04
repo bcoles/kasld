@@ -255,7 +255,7 @@ int main(void) {
   if (kasld_skip_live_probe("echoload"))
     return 0;
 
-  debug_mode = getenv("KASLD_ECHOLOAD_DEBUG") != NULL;
+  debug_mode = kasld_env_enabled("KASLD_ECHOLOAD_DEBUG");
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] echoload: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");
