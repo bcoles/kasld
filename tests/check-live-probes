@@ -49,14 +49,45 @@ COMP=$ROOT/src/components
 # shellcheck source=tests/lib/guard-scope.sh
 . "$ROOT/tests/lib/guard-scope.sh"
 
-# Live primitive signatures: a source hit means the component reads live
-# executing-kernel/CPU state. Kept deliberately specific to avoid false hits.
-#   perf_event_open / SYS_/__NR_  — perf ksymbol/LBR/event leaks
+# Live primitive signatures: a source hit means the component's own code reaches
+# a channel that answers for the kernel or CPU executing it. A hit contradicts
+# nothing but a source:files declaration, so the list is broad on purpose --
+# naming a channel a files component turns out to use costs one review and an
+# entry in SIG_EXEMPT, where leaving a channel out costs a component reading the
+# analysing host with nothing in the tree to say so.
+#
+# What stays out is a general facility rather than a channel onto kernel state.
+# mmap() is that case twice over: the VA-boundary sweeps probe with it, but it
+# allocates buffers everywhere too, and the token is a substring of the memmap
+# and vmemmap the memory-map parsers name constantly.
+#
+# A channel named only inside a shared header does not reach this scan, which is
+# the intended reading: dmesg.h prefers klogctl() and falls back to the captured
+# log on its own, so a component using it is source:files and holds no branch.
+#
+# Channels -- any component reaching one of these reads live state:
+#   socket(                        — a kernel socket family opened to reach a
+#                                    subsystem (netlink, AF_CAN, ...)
+#   ioctl(                         — driving a live device node
+#   syscall(                       — a raw syscall, whatever it carries
+#   sysconf( / getauxval           — the auxiliary vector of the process this
+#                                    kernel started, so it answers for that
+#                                    kernel and no other (page size, ...)
+#   klogctl(                       — the live kernel log ring buffer
+#   prctl( / personality( / sysinfo( — the executing kernel asked about itself
+#   getuid/geteuid/getgid/getegid  — this process's identity on the analysing
+#                                    host, not the captured target's
+#   getppid(                       — the same, for the parent
+#   /proc/self/                    — a self-referential pseudo-file describes
+#                                    the process doing the reading; a capture
+#                                    carries the collector's, not the target's
 #   rdtsc                          — timing side-channels (matches rdtsc/rdtscp)
 #   sidechannel.h                  — the shared Flush+Reload / timing helpers
-#   mincore(                       — mincore() residency oracle
 #   sidt                           — SIDT instruction (IDT register)
-#   /proc/self/syscall, getppid(   — self/parent pseudo-files (host-live)
+#
+# Technique tokens -- each names one live leak:
+#   perf_event_open / SYS_/__NR_  — perf ksymbol/LBR/event leaks
+#   mincore(                       — mincore() residency oracle
 #   PF_CAN / AF_CAN                — CAN BCM socket leak
 #   NILFS_IOCTL                    — nilfs2 ioctl uninitialised-page leak
 #   FBIOGET_FSCREENINFO/TIOCGSERIAL— fb / serial device-MMIO ioctl leaks
@@ -69,7 +100,9 @@ COMP=$ROOT/src/components
 #                                    the running kernel's sequencer)
 #   SYS_getdents64                 — kernfs seek-cookie leak (reads the running
 #                                    kernel's live /sys/class/net directory)
-SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\.h|mincore[[:space:]]*\(|sidt|/proc/self/syscall|getppid[[:space:]]*\(|PF_CAN|AF_CAN|NILFS_IOCTL|FBIOGET_FSCREENINFO|TIOCGSERIAL|pppd|SYS_bpf|BPF_PROG_LOAD|KBASE_IOCTL|/dev/mali|/dev/snd/seq|SYS_getdents64'
+SIG_CHANNEL='socket[[:space:]]*\(|ioctl[[:space:]]*\(|syscall[[:space:]]*\(|sysconf[[:space:]]*\(|getauxval|klogctl[[:space:]]*\(|prctl[[:space:]]*\(|personality[[:space:]]*\(|sysinfo[[:space:]]*\(|getuid[[:space:]]*\(|geteuid[[:space:]]*\(|getgid[[:space:]]*\(|getegid[[:space:]]*\(|getppid[[:space:]]*\(|/proc/self/|rdtsc|sidechannel\.h|sidt'
+SIG_TECHNIQUE='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|mincore[[:space:]]*\(|PF_CAN|AF_CAN|NILFS_IOCTL|FBIOGET_FSCREENINFO|TIOCGSERIAL|pppd|SYS_bpf|BPF_PROG_LOAD|KBASE_IOCTL|/dev/mali|/dev/snd/seq|SYS_getdents64'
+SIG="$SIG_CHANNEL|$SIG_TECHNIQUE"
 
 # Components that legitimately declare source:files while their text matches
 # SIG -- a primitive named in a comment saying what the file does NOT do, say.
