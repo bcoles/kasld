@@ -256,6 +256,10 @@ if ! command -v unshare >/dev/null 2>&1; then
 elif ! unshare -Ur true 2>/dev/null; then
   note "masked-proc: unprivileged user namespaces disabled — skipped"
 else
+  # The script is single-quoted on purpose: $p and $1 belong to the inner shell
+  # this hands to unshare, and expanding them out here would bind-mount nothing
+  # and exec an empty path.
+  # shellcheck disable=SC2016
   unshare -Urmpf --mount-proc sh -c '
     for p in kcore iomem kallsyms modules; do
       [ -e "/proc/$p" ] && mount --bind /dev/null "/proc/$p" 2>/dev/null

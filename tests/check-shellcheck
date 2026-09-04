@@ -35,16 +35,29 @@ fi
 
 # Every shipped shell script, detected by shebang (a #! line mentioning
 # sh/bash/...): the operator helpers in extra/ and the build/lint/replay drivers
-# under tests/. Globs are one level deep per directory, so the gitignored
-# kernel-source cache (tests/vm/.cache) and the binary fuzz corpora are not
-# walked. All are shellcheck-clean; this guard keeps them so.
+# under tests/.
+#
+# The directories are DISCOVERED rather than listed. A list is a second
+# inventory, and it fell behind: tests/container/ was added and its harness went
+# unchecked, which reads exactly like a clean tree because the guard reports on
+# what it walked and says nothing about what it did not. Only the exclusions are
+# named, so a new directory arrives covered and a deliberate omission has to be
+# written down.
+#
+# Each directory is walked one level deep, which is what keeps the gitignored
+# kernel-source cache (tests/vm/.cache) and the binary fuzz corpora out. The
+# fixture corpus is skipped outright: it holds captured filesystem trees, and a
+# script inside one is a captured fact rather than something this tree ships.
 scripts=
-for f in "$EXTRA"/* "$ROOT"/tests/* "$ROOT"/tests/lib/* "$ROOT"/tests/vm/* "$ROOT"/tests/fuzz/*; do
-  [ -f "$f" ] || continue
-  case "$(head -1 "$f" 2>/dev/null)" in
-    '#!'*sh*) scripts="$scripts $f" ;;
-    '# shellcheck shell='*) scripts="$scripts $f" ;;
-  esac
+for d in "$EXTRA/" "$ROOT/tests/" "$ROOT"/tests/*/; do
+  case "$d" in */fixtures/) continue ;; esac
+  for f in "$d"*; do
+    [ -f "$f" ] || continue
+    case "$(head -1 "$f" 2>/dev/null)" in
+      '#!'*sh*) scripts="$scripts $f" ;;
+      '# shellcheck shell='*) scripts="$scripts $f" ;;
+    esac
+  done
 done
 
 if [ -z "$scripts" ]; then
