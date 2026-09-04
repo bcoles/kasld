@@ -19,7 +19,8 @@
 #
 # Detection is structural: a component is "live" if its source matches a live
 # primitive signature (SIG below) OR is a reviewed live probe whose liveness is
-# not greppable (NAME_ALLOW — mmap VA-boundary sweeps, the iret CPU probe).
+# not greppable (NAME_ALLOW — mmap VA-boundary sweeps, the iret CPU probe,
+# the arm64 TLB fault timer, the page-size read).
 #
 # The check FAILS if, for any component, DETECTED / TAGGED / GUARDED disagree:
 #   - a detected live probe missing live:1 (would run offline via the
@@ -71,7 +72,12 @@ SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\
 # page size, and the analysing host's is not the target's: the rules that
 # multiply a page-frame number by it would otherwise convert a replayed arm64
 # capture at the x86_64 host's 4 KiB.
-NAME_ALLOW="mmap_arm64_va_bits
+# arm64_tlb_fault_timing times faulting stores with clock_gettime(): a live
+# probe with no primitive SIG can match. It matched only because "rdtsc" and
+# "sidechannel.h" appear in two comments saying what the file does NOT do, so
+# rewording either of them silently un-detected it and failed this guard.
+NAME_ALLOW="arm64_tlb_fault_timing
+mmap_arm64_va_bits
 mmap_brute_vmsplit
 mmap_riscv64_va_bits
 mmap_s390_va_bits
