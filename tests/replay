@@ -55,71 +55,14 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # shellcheck source=tests/lib/qemu-target.sh
 . "$ROOT/tests/lib/qemu-target.sh"
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 QEMU_DIR=${QEMU_DIR:-}   # empty: resolve qemu-<arch> from PATH
 BUILD_DIR=${BUILD_DIR:-$ROOT/build}
 FIXROOT=$ROOT/tests/fixtures
 
-# `uname -m` encodes byte order on most architectures — arm reports armv7b,
-# arm64 aarch64_be, powerpc ppc64le — which is why this keys on uname_m_raw
-# rather than the coarser canonical arch. MIPS is the exception: it reports
-# "mips"/"mips64" whatever the byte order, so a bundle's `endianness:` field
-# has to supply what the machine string cannot. SuperH and microblaze are
-# equally blind but have no entry below and no cross target, so they skip
-# either way.
-#
-# $1 = uname_m_raw, $2 = endianness (little/big/unknown/empty). A bundle
-# without the field, or with `unknown`, leaves the raw string standing.
-effective_machine() {
-  case "$1" in
-  mips | mips64) [ "${2:-}" = little ] && { echo "${1}el"; return; } ;;
-  esac
-  echo "$1"
-}
-
-# Map a raw `uname -m` to "<build-subdir> <qemu-binary>".
-target_for() {
-  case "$1" in
-  x86_64)            echo "x86_64-linux-musl qemu-x86_64" ;;
-  i686 | i386)       echo "i686-unknown-linux-musl qemu-i386" ;;
-  aarch64)           echo "aarch64-linux-musl qemu-aarch64" ;;
-  armv7l | armv6l | armhf | arm)
-                     echo "armv7-unknown-linux-musleabi qemu-arm" ;;
-  # armv7b/armv6b is a big-endian arm kernel naming itself; armeb is the
-  # toolchain name for the same target.
-  armeb | armv7b | armv6b) echo "armeb-linux-musleabi qemu-armeb" ;;
-  riscv64)           echo "riscv64-linux-musl qemu-riscv64" ;;
-  riscv32)           echo "riscv32-linux-musl qemu-riscv32" ;;
-  mips)              echo "mips-unknown-linux-musl qemu-mips" ;;
-  mipsel)            echo "mipsel-unknown-linux-musl qemu-mipsel" ;;
-  mips64)            echo "mips64-unknown-linux-musl qemu-mips64" ;;
-  mips64el)          echo "mips64el-unknown-linux-musl qemu-mips64el" ;;
-  ppc | powerpc)     echo "powerpc-linux-musl qemu-ppc" ;;
-  # 32-bit little-endian powerpc. A cross target exists; qemu ships no ppcle
-  # linux-user binary, so the build dir resolves and the skip names the runner
-  # that is missing.
-  ppcle | powerpcle) echo "powerpcle-unknown-linux-musl qemu-ppcle" ;;
-  ppc64 | powerpc64) echo "powerpc64-unknown-linux-musl qemu-ppc64" ;;
-  ppc64le | powerpc64le)
-                     echo "powerpc64le-unknown-linux-musl qemu-ppc64le" ;;
-  s390x)             echo "s390x-ibm-linux-musl qemu-s390x" ;;
-  loongarch64)       echo "loongarch64-unknown-linux-musl qemu-loongarch64" ;;
-  *)                 echo "" ;;
-  esac
-}
 
 # Native (KASLD_NATIVE=1) helpers: run host-runnable fixtures with no qemu.
-HOST_ARCH=$(uname -m)
-
-# True if the host can execute fixtures of uname_m_raw $1 directly. An x86_64
-# host also runs 32-bit x86; otherwise the arch must match exactly.
-native_ok() {
-  case "$HOST_ARCH" in
-  x86_64 | amd64) case "$1" in x86_64 | i686 | i386) return 0 ;; esac ;;
-  *) [ "$1" = "$HOST_ARCH" ] && return 0 ;;
-  esac
-  return 1
-}
-
 # Echo a build/<arch>-*/ dir holding a host-runnable kasld for uname_m_raw $1,
 # or nothing. Globs the arch prefix so any triple matches (x86_64-linux-gnu from
 # `make`, x86_64-linux-musl from `make cross`, i686-linux-gnu, ...).
@@ -162,7 +105,7 @@ run_fixture() {
 
   if [ "${KASLD_NATIVE:-0}" = 1 ]; then
     # No qemu: only fixtures the host can run directly; binary from build/.
-    if ! native_ok "$machine"; then
+    if ! host_runs_machine "$machine"; then
       printf 'SKIP  %-44s (native mode: non-host arch %s)\n' "$name" "$machine"; echo skip >"$st"; return
     fi
     bindir=$(native_bindir "$machine")
@@ -171,11 +114,11 @@ run_fixture() {
     fi
     kasld="$bindir/kasld"; comps="$bindir/components"; runner=""
   else
-    map=$(target_for "$machine")
-    if [ -z "$map" ]; then
+    subdir=$(target_triple_for "$machine")
+    if [ -z "$subdir" ]; then
       printf 'SKIP  %-44s (no target mapping for uname_m=%s)\n' "$name" "$machine"; echo skip >"$st"; return
     fi
-    subdir=${map% *}; qbin=${map#* }
+    qbin=$(qemu_for "$subdir")
     # Resolve the build dir by arch glob, not the exact triple: `make cross`
     # (dev) and the cross-tools/musl-cross CI toolchains spell the triple
     # differently (e.g. aarch64-linux-musl vs aarch64-unknown-linux-musl) but
@@ -189,7 +132,10 @@ run_fixture() {
     fi
     runner=$(resolve_qemu "$qbin")
     if [ -z "$runner" ]; then
-      printf 'SKIP  %-44s (no qemu: %s)\n' "$name" "$qbin"; echo skip >"$st"; return
+      # An empty name is a target qemu has no linux-user binary for at all, so
+      # the triple is what identifies it; otherwise name the binary not found.
+      printf 'SKIP  %-44s (no qemu: %s)\n' "$name" "${qbin:-none for $subdir}"
+      echo skip >"$st"; return
     fi
   fi
 

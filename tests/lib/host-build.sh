@@ -30,6 +30,7 @@
 #   host_arch             its leading component alone, or empty
 #   build_triple          $(CC)'s triple — the build directory's name, or empty
 #   host_runs_arch ARCH   whether a binary for ARCH executes here
+#   host_runs_machine M   the same, for the `uname -m` spelling a capture uses
 #   host_triples          candidate build triples, most specific first
 #   is_host_triple T      whether T is one of them
 #   host_kasld            path to a runnable kasld under $ROOT/build
@@ -70,6 +71,22 @@ host_runs_arch() {
   case "$_hb_host" in
   x86_64 | amd64) case "$1" in x86_64 | amd64 | i686 | i586 | i386) return 0 ;; esac ;;
   *) [ "$1" = "$_hb_host" ] && return 0 ;;
+  esac
+  return 1
+}
+
+# Whether this host can execute a binary built for the machine string a CAPTURE
+# names. That is the `uname -m` spelling, which is not the triple's: a kernel
+# reports armv7l where the toolchain says armv7, ppc64le where it says
+# powerpc64le, and plain "mips" whichever byte order it was built for. Both
+# functions exist because their inputs arrive from different places, and the
+# translation between the two spellings is a table of its own
+# (target_triple_for, tests/lib/qemu-target.sh).
+host_runs_machine() {
+  _hb_m=$(uname -m)
+  case "$_hb_m" in
+  x86_64 | amd64) case "$1" in x86_64 | amd64 | i686 | i586 | i386) return 0 ;; esac ;;
+  *) [ "$1" = "$_hb_m" ] && return 0 ;;
   esac
   return 1
 }

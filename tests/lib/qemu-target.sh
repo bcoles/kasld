@@ -21,8 +21,16 @@
 # there is nothing to name. A caller that reports its scope will show the target
 # missing rather than leaving it silently unswept.
 #
-# qemu_for <triple-or-arch>  -> prints the qemu binary name, or nothing
-# resolve_qemu <binary-name> -> prints its path (QEMU_DIR, else PATH), or nothing
+# The machine a CAPTURE names is a third spelling again: `uname -m` reports
+# armv7l where the toolchain says armv7, ppc64le where it says powerpc64le, and
+# plain "mips" whichever byte order the kernel was built for. Translating one to
+# the other is target_triple_for, and the qemu binary follows from the triple
+# rather than being restated beside it, so the two answers cannot disagree.
+#
+# qemu_for <triple-or-arch>       -> prints the qemu binary name, or nothing
+# resolve_qemu <binary-name>      -> prints its path (QEMU_DIR, else PATH)
+# effective_machine <machine> [E] -> the machine string with byte order applied
+# target_triple_for <machine>     -> the build triple for a captured machine
 # ---
 # <bcoles@gmail.com>
 
@@ -58,4 +66,53 @@ resolve_qemu() {
     return 1
   fi
   command -v "$1" 2>/dev/null
+}
+
+# `uname -m` encodes byte order on most architectures — arm reports armv7b,
+# arm64 aarch64_be, powerpc ppc64le — which is why a capture is keyed on the raw
+# machine string rather than a coarser canonical arch. MIPS is the exception: it
+# reports "mips"/"mips64" whatever the byte order, so a bundle's `endianness:`
+# field has to supply what the machine string cannot. SuperH and microblaze are
+# equally blind but have no target below and no cross build, so they resolve to
+# nothing either way.
+#
+# $1 = the raw machine string, $2 = endianness (little/big/unknown/empty). A
+# capture without the field, or with `unknown`, leaves the raw string standing.
+effective_machine() {
+  case "$1" in
+  mips | mips64) [ "${2:-}" = little ] && { echo "${1}el"; return; } ;;
+  esac
+  echo "$1"
+}
+
+# The build triple for a captured machine string, or nothing where no target
+# exists. Callers take ${triple%%-*} to glob build/<arch>-*, since the dev and CI
+# toolchains spell the tail differently, and pass the whole triple to qemu_for.
+target_triple_for() {
+  case "$1" in
+  x86_64)                  echo x86_64-linux-musl ;;
+  i686 | i386)             echo i686-unknown-linux-musl ;;
+  aarch64)                 echo aarch64-linux-musl ;;
+  armv7l | armv6l | armhf | arm)
+                           echo armv7-unknown-linux-musleabi ;;
+  # armv7b/armv6b is a big-endian arm kernel naming itself; armeb is the
+  # toolchain name for the same target.
+  armeb | armv7b | armv6b) echo armeb-linux-musleabi ;;
+  riscv64)                 echo riscv64-linux-musl ;;
+  riscv32)                 echo riscv32-linux-musl ;;
+  mips)                    echo mips-unknown-linux-musl ;;
+  mipsel)                  echo mipsel-unknown-linux-musl ;;
+  mips64)                  echo mips64-unknown-linux-musl ;;
+  mips64el)                echo mips64el-unknown-linux-musl ;;
+  ppc | powerpc)           echo powerpc-linux-musl ;;
+  # 32-bit little-endian powerpc: a cross target exists, and qemu ships no
+  # ppcle linux-user binary, so qemu_for resolves it to nothing and the caller
+  # names the runner that is missing.
+  ppcle | powerpcle)       echo powerpcle-unknown-linux-musl ;;
+  ppc64 | powerpc64)       echo powerpc64-unknown-linux-musl ;;
+  ppc64le | powerpc64le)   echo powerpc64le-unknown-linux-musl ;;
+  s390x)                   echo s390x-ibm-linux-musl ;;
+  loongarch64)             echo loongarch64-unknown-linux-musl ;;
+  *)                       echo "" ;;
+  esac
 }
