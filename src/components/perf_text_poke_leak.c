@@ -273,12 +273,12 @@ static void drain_ring(struct perf_event_mmap_page *meta, const char *ring,
 }
 
 int main(int argc, char *argv[]) {
-  kasld_cli(argc, argv);
+  int poll_ms = kasld_cli_timed(argc, argv, POLL_MS);
   if (kasld_skip_live_probe("perf text_poke"))
     return 0;
-  int poll_ms = POLL_MS;
-  if (kasld_time_s > 0)
-    poll_ms = (kasld_time_s > 600) ? 600000 : (int)(kasld_time_s * 1000);
+  /* Ceiling kept here, not in the accessor: see mali_timeline. */
+  if (poll_ms > 600000)
+    poll_ms = 600000;
 
   long page_size = sysconf(_SC_PAGESIZE);
   if (page_size <= 0)

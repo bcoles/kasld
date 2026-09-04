@@ -19,6 +19,7 @@
 #ifndef KASLD_CLI_H
 #define KASLD_CLI_H
 
+#include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -85,13 +86,20 @@ static inline int kasld_skip_live_probe(const char *what) {
   return 1;
 }
 
-static inline void kasld_cli_usage(const char *prog, FILE *out) {
-  fprintf(out,
-          "usage: %s [-v] [-t SECS] [-h]\n"
-          "  -v, --verbose    extra (debug-level) diagnostics\n"
-          "  -t, --time SECS  probe budget in seconds (0 = component default)\n"
-          "  -h, --help       show this message\n",
-          prog);
+/* A component that has no probe budget calls kasld_cli(); one that has a budget
+ * calls kasld_cli_timed(), which is the only way to obtain the budget's value.
+ * A component therefore cannot advertise -t without consuming it, nor consume
+ * one without advertising it -- the two are the same act. That is what keeps
+ * the usage text true: it was previously printed by every caller, while four in
+ * five ignored the flag, so `-t 1` was accepted and the probe ran to its own
+ * default. */
+static inline void kasld_cli_usage(const char *prog, FILE *out, int timed) {
+  fprintf(out, "usage: %s [-v]%s [-h]\n", prog, timed ? " [-t SECS]" : "");
+  fprintf(out, "  -v, --verbose    extra (debug-level) diagnostics\n");
+  if (timed)
+    fprintf(out, "  -t, --time SECS  probe budget in seconds (0 = component "
+                 "default)\n");
+  fprintf(out, "  -h, --help       show this message\n");
 }
 
 /* Parse the standard options. Call once at the top of main():
@@ -99,12 +107,12 @@ static inline void kasld_cli_usage(const char *prog, FILE *out) {
  * Unknown option -> usage to stderr + exit 2;  -h/--help -> usage to stdout +
  * exit 0. The component then reads kasld_verbose / kasld_time_s as it cares; it
  * never touches argv itself. */
-static inline void kasld_cli(int argc, char **argv) {
+static inline void kasld_cli_parse(int argc, char **argv, int timed) {
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
     if (!strcmp(a, "-v") || !strcmp(a, "--verbose")) {
       kasld_verbose = 1;
-    } else if (!strcmp(a, "-t") || !strcmp(a, "--time")) {
+    } else if (timed && (!strcmp(a, "-t") || !strcmp(a, "--time"))) {
       if (++i >= argc) {
         fprintf(stderr, "[-] %s: %s requires a SECS value\n", argv[0], a);
         exit(2);
@@ -117,14 +125,45 @@ static inline void kasld_cli(int argc, char **argv) {
       }
       kasld_time_s = v;
     } else if (!strcmp(a, "-h") || !strcmp(a, "--help")) {
-      kasld_cli_usage(argv[0], stdout);
+      kasld_cli_usage(argv[0], stdout, timed);
       exit(0);
     } else {
       fprintf(stderr, "[-] %s: unknown option: %s\n", argv[0], a);
-      kasld_cli_usage(argv[0], stderr);
+      kasld_cli_usage(argv[0], stderr, timed);
       exit(2);
     }
   }
+}
+
+/* Parse the standard options for a component with no probe budget: -v and -h.
+ * A -t here is an unknown option and is rejected, because there is nothing for
+ * it to bound. Call once at the top of main(). */
+static inline void kasld_cli(int argc, char **argv) {
+  kasld_cli_parse(argc, argv, 0);
+}
+
+/* As kasld_cli(), plus -t SECS, and returns the probe budget in MILLISECONDS:
+ * the -t value where one was given, else default_ms unchanged.
+ *
+ * Milliseconds because three of the callers hand the result straight to poll()
+ * and one polls on a 250 ms interval, so seconds would round away resolution
+ * the components already rely on.
+ *
+ * No policy clamp is applied. Two callers deliberately accept an unbounded
+ * budget today and capping them here would quietly overrule a chosen value; a
+ * caller wanting a ceiling applies its own, as the poll() users do. The only
+ * bound is against int overflow in the conversion.
+ *
+ * warn_unused_result is the enforcement: discarding the return advertises -t
+ * while ignoring it, which is the defect this split exists to remove. */
+__attribute__((warn_unused_result)) static inline int
+kasld_cli_timed(int argc, char **argv, int default_ms) {
+  kasld_cli_parse(argc, argv, 1);
+  if (kasld_time_s <= 0)
+    return default_ms;
+  if (kasld_time_s > (long)(INT_MAX / 1000))
+    return INT_MAX;
+  return (int)(kasld_time_s * 1000);
 }
 
 #endif /* KASLD_CLI_H */

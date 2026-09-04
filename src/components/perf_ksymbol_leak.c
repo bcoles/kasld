@@ -248,14 +248,14 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
 }
 
 int main(int argc, char *argv[]) {
-  kasld_cli(argc, argv);
+  int poll_ms = kasld_cli_timed(argc, argv, POLL_MS);
   if (kasld_skip_live_probe("perf ksymbol"))
     return 0;
   /* -t SECS overrides the default poll budget (POLL_MS); clamp to 600 s so a
    * stray large value can't wedge the poll loop. */
-  int poll_ms = POLL_MS;
-  if (kasld_time_s > 0)
-    poll_ms = (kasld_time_s > 600) ? 600000 : (int)(kasld_time_s * 1000);
+  /* Ceiling kept here, not in the accessor: see mali_timeline. */
+  if (poll_ms > 600000)
+    poll_ms = 600000;
 
   long page_size = sysconf(_SC_PAGESIZE);
   if (page_size <= 0)

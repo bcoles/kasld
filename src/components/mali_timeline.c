@@ -259,7 +259,7 @@ static int scan_buf(const unsigned char *buf, size_t len) {
 }
 
 int main(int argc, char **argv) {
-  kasld_cli(argc, argv);
+  int budget_ms = kasld_cli_timed(argc, argv, 3000 /* DEFAULT_WINDOW_MS */);
   /* Live host probe: opens the running kernel's Mali GPU device and reads its
    * timeline stream; the leaked pointers are this machine's, not reproducible
    * from a captured tree. */
@@ -345,10 +345,11 @@ int main(int argc, char **argv) {
    * a mostly-static desktop, where genuine objects only appear when something
    * draws — and is overridable with the standard -t/--time SECS flag (clamped
    * to 600 s so a stray value cannot wedge the loop). */
-  enum { POLL_MS = 250, DEFAULT_WINDOW_MS = 3000 };
-  int window_ms = DEFAULT_WINDOW_MS;
-  if (kasld_time_s > 0)
-    window_ms = (kasld_time_s > 600) ? 600000 : (int)(kasld_time_s * 1000);
+  enum { POLL_MS = 250 };
+  /* Ceiling kept here, not in the accessor: a stray large budget must not wedge
+   * the poll loop, but two other callers deliberately accept an unbounded one.
+   */
+  int window_ms = budget_ms > 600000 ? 600000 : budget_ms;
   int max_idle = window_ms / POLL_MS;
   if (max_idle < 1)
     max_idle = 1;

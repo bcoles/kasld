@@ -54,6 +54,12 @@
 // https://github.com/IAIK/KernelSnitch
 //
 // The IAIK/KernelSnitch reference code is MIT licensed; attribution retained.
+//
+// Debugging:
+//   -v / KASLD_VERBOSE          the bucket pile-ups, every timed collision and
+//                               the brute-force progress -- for every component
+//                               in the run, not just this one.
+//   KASLD_KERNELSNITCH_DEBUG=1  the same detail from this component alone.
 // ---
 // <bcoles@gmail.com>
 
@@ -781,9 +787,19 @@ static unsigned long detect_mm_struct_size(void) {
  * =========================================================================
  */
 
-int main(void) {
+int main(int argc, char **argv) {
+  kasld_cli(argc, argv);
   if (kasld_skip_live_probe("kernelsnitch"))
     return 0;
+
+  /* This component's detail predates the per-component debug convention and
+   * already flows through kasld_debug(), which is gated on verbosity. Raise
+   * verbosity here rather than adding a second set of prints, so
+   * KASLD_KERNELSNITCH_DEBUG means what the other timing components' variables
+   * mean -- this component's full detail -- without -v turning on the firehose
+   * of every other component in the run. */
+  if (getenv("KASLD_KERNELSNITCH_DEBUG"))
+    kasld_verbose = 1;
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] kernelsnitch: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");

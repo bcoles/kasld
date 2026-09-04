@@ -489,7 +489,7 @@ int main(int argc, char **argv) {
   unsigned long long slots, scanned = 0;
   int run = 0, holes = 0, attempt;
 
-  kasld_cli(argc, argv);
+  int budget_ms = kasld_cli_timed(argc, argv, DEFAULT_BUDGET_S * 1000);
   if (kasld_skip_live_probe("arm64_tlb_fault_timing"))
     return 0;
 
@@ -643,7 +643,7 @@ int main(int argc, char **argv) {
   top = vmalloc_start + span - span / 8;
   slots = ((unsigned long long)(top - scan_start)) / SCAN_STEP;
 
-  budget = kasld_time_s > 0 ? (double)kasld_time_s : (double)DEFAULT_BUDGET_S;
+  budget = budget_ms / 1000.0;
   kasld_info("scanning %llu slots of %lu MiB from 0x%016lx, budget %.0fs",
              slots, SCAN_STEP >> 20, scan_start, budget);
 

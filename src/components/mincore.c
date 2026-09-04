@@ -71,7 +71,7 @@ KASLD_META("method:heuristic\n"
            "cve:CVE-2017-16994\n"
            "patch:v4.15\n");
 
-static unsigned long get_kernel_addr_mincore(void) {
+static unsigned long get_kernel_addr_mincore(int budget_ms) {
   /* Heap-allocate the page_sized cookie buffer: the runtime size from
    * getpagesize() would otherwise require a VLA, which conflicts with
    * -Wvla and pessimises -fstack-protector-strong on this frame. */
@@ -97,7 +97,7 @@ static unsigned long get_kernel_addr_mincore(void) {
   /* -t SECS overrides the default give-up budget: on a vulnerable kernel the
    * leak is found in a few thousand iterations, but on a patched one this scan
    * runs to the deadline before concluding "likely patched". */
-  int budget_s = kasld_time_s > 0 ? (int)kasld_time_s : TIMEOUT_SECS;
+  int budget_s = budget_ms / 1000;
   struct timespec deadline;
   clock_gettime(CLOCK_MONOTONIC, &deadline);
   deadline.tv_sec += budget_s;
@@ -175,7 +175,7 @@ static unsigned long get_kernel_addr_mincore(void) {
 }
 
 int main(int argc, char *argv[]) {
-  kasld_cli(argc, argv);
+  int budget_ms = kasld_cli_timed(argc, argv, TIMEOUT_SECS * 1000);
   if (kasld_skip_live_probe("mincore"))
     return 0;
 
@@ -183,7 +183,7 @@ int main(int argc, char *argv[]) {
    * running kernel's mincore() output vector. */
   kasld_info("trying mincore info leak...");
 
-  unsigned long addr = get_kernel_addr_mincore();
+  unsigned long addr = get_kernel_addr_mincore(budget_ms);
   if (!addr)
     return 0;
 
