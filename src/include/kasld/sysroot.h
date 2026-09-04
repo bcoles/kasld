@@ -242,8 +242,9 @@ kasld_uname_from_proc_version(struct utsname *u) {
  * they come from the captured /proc/version, which carries both.
  *
  * KASLD_UNAME_RELEASE overrides the release afterwards, and only alongside a
- * sysroot. It names the kernel a CAPTURE was taken from -- what a capture
- * carrying no /proc/version cannot state for itself -- and it propagates to
+ * sysroot. It names the kernel a CAPTURE was taken from: it takes precedence
+ * over a release the capture did state, and supplies one for a capture that
+ * carries no /proc/version to state it with. It propagates to
  * subprocesses via the environment, whereas qemu-user's QEMU_UNAME is not
  * honored after the self-re-exec qemu performs for a foreign-arch child.
  *
