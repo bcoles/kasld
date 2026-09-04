@@ -18,9 +18,9 @@
  * Evidence leaves the pipeline in several places: a wire line that fails
  * validation, an address outside its region's address space, a fixed-size
  * store that fills, a curation rule that invalidates an observation, the
- * resolver rejecting a conflicting constraint. Each was previously reported
- * (or not) by its own mechanism, on its own channel, which is how curation
- * came to be reported nowhere at all.
+ * resolver rejecting a conflicting constraint. Each arises in a different
+ * layer with its own mechanism, so without one place to record them a loss
+ * reaches no channel at all.
  *
  * A discarded record matters to the answer: the run resolved from a subset of
  * the available evidence, so its residual-entropy figure OVERSTATES what KASLR

@@ -268,6 +268,11 @@ static void json_excluded(const struct kasld_report_window *w) {
   printf("\n      ]");
 }
 
+/* Whether a window states a single address rather than a range. */
+static int window_names_one(const struct kasld_report_window *w) {
+  return w && w->present && w->has_lo && w->has_hi && w->lo == w->hi;
+}
+
 static void render_environment_json(void) {
   const struct kasld_vantage *v = &kasld_env.vantage;
 
@@ -578,7 +583,7 @@ void render_json(const struct summary *s) {
       kasld_report_find(rep, Q_VIRT_IMAGE_BASE);
   /* A concrete base shown while the proven window is still a range is a guess,
    * and both the base block and the window block key off that. */
-  int v_spec = rv && rv->has_point && kaslr_virt_is_window();
+  int v_spec = rv && rv->has_point && !window_names_one(&rv->guaranteed);
   if (rv && rv->has_point) {
     printf(",\n    \"virtual\": {\n");
     printf("      \"image_base\": \"0x%016lx\",\n", rv->point);
@@ -647,7 +652,7 @@ void render_json(const struct summary *s) {
 
   const struct kasld_report_quantity *rp =
       kasld_report_find(rep, Q_PHYS_IMAGE_BASE);
-  int p_spec = rp && rp->has_point && kaslr_phys_is_window();
+  int p_spec = rp && rp->has_point && !window_names_one(&rp->guaranteed);
   if (rp && rp->has_point) {
     printf(",\n    \"physical\": {\n");
     printf("      \"image_base\": \"0x%016lx\",\n", rp->point);

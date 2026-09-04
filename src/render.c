@@ -79,16 +79,6 @@ int in_bounds(const struct result *r) { return result_in_bounds(r, &layout); }
 const char *const kasld_render_sections[] = {
     "text", "module", "directmap", "data", "bss", "dram", "mmio", NULL};
 
-/* The guaranteed image-base window is still a range, not pinned to one value —
- * so a concrete base presented against it is speculative, not proven. The
- * single authoritative test of the window-vs-pin distinction for renderers. */
-int kaslr_virt_is_window(void) {
-  return layout.virt_kaslr_text_max != layout.virt_kaslr_text_min;
-}
-int kaslr_phys_is_window(void) {
-  return layout.phys_kaslr_text_max != layout.phys_kaslr_text_min;
-}
-
 /* The compile-time default, phrased as a remark on the resolved image base.
  *
  * The default is a link-time constant, not a measurement, so it fits neither
@@ -400,12 +390,12 @@ static const char *layout_row_slide(const struct kasld_report_quantity *it,
  * the item's grain. A caller supplies WHICH window to draw and, at most, a note
  * beside it -- it cannot supply the numbers.
  *
- * That is the whole point of the signature. The previous one took the count as
- * a plain parameter, and a caller that believed it had the answer could pass a
- * literal beside a window holding many candidates: a row read "1 of 472" while
- * the engine, and json reading the same engine, said 33. A format that can
- * assert a count can contradict the engine, and two formats asserting
- * separately can contradict each other. Here there is nothing to assert. */
+ * That is the whole point of the signature. A signature taking the count as a
+ * plain parameter lets a caller that believes it has the answer pass a literal
+ * beside a window holding many candidates, so a row reads "1 of 472" while the
+ * engine, and json reading the same engine, say 33. A format that can assert a
+ * count can contradict the engine, and two formats asserting separately can
+ * contradict each other. Here there is nothing to assert. */
 static void layout_add_window(const struct kasld_report_quantity *it,
                               const char *basis,
                               const struct kasld_report_window *w,
@@ -871,9 +861,8 @@ int count_derived(void) {
  *
  * Held here for the duration of a render rather than threaded through every
  * format, because layout_build() is called from five places inside the format
- * modules and none of them should have to carry it. Transitional: it replaces
- * reads of four separate globals with one pointer to the finished model, and it
- * goes away when the formats take the model as a parameter. */
+ * modules and none of them should have to carry it. One pointer to the
+ * finished model, rather than four separate globals each read on its own. */
 static const struct kasld_report *g_render_report;
 
 const struct kasld_report *render_report(void) { return g_render_report; }

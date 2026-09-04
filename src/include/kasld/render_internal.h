@@ -94,11 +94,6 @@ void json_print_escaped(const char *s);
 /* Canonical section iteration order (NULL-terminated), shared by all modes. */
 extern const char *const kasld_render_sections[];
 
-/* Window-vs-pin test for the guaranteed image-base window (1 = still a range,
- * so a shown concrete base is speculative). Single source of truth. */
-int kaslr_virt_is_window(void);
-int kaslr_phys_is_window(void);
-
 /* -------------------------------------------------------------------------
  * Per-mode entry points — each is defined in one src/render/<mode>.c file.
  * render_summary() in render.c dispatches to these based on the output flags.
@@ -351,8 +346,7 @@ extern int n_layout_rows;
 extern const char *const layout_hdr[LAYOUT_COLS];
 void layout_build(void);
 /* The report model for the run being rendered, or NULL where none was built
- * (the engine-less test build). Formats read the model through this while the
- * migration is under way. */
+ * (the engine-less test build). Formats read the model through this. */
 const struct kasld_report *render_report(void);
 /* True when any row carries a bound -- the model's own answer to "is there a
  * table to draw", which every format asks instead of inferring it from the
