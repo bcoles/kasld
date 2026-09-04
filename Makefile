@@ -687,6 +687,11 @@ $(TEST_FWMEMMAP_BIN): $(TEST_DIR)/test_sysfs_firmware_memmap.c $(SRC_DIR)/compon
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_firmware_memmap.c -o $@
 
+TEST_XEN_NOTES_BIN := $(TEST_OBJ_DIR)/test_sysfs_kernel_notes_xen
+$(TEST_XEN_NOTES_BIN): $(TEST_DIR)/test_sysfs_kernel_notes_xen.c $(SRC_DIR)/components/sysfs_kernel_notes_xen.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_kernel_notes_xen.c -o $@
+
 TEST_MEMINFO_FACTS_BIN := $(TEST_OBJ_DIR)/test_meminfo_facts
 $(TEST_MEMINFO_FACTS_BIN): $(TEST_DIR)/test_meminfo_facts.c $(SRC_DIR)/components/meminfo_facts.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
@@ -883,6 +888,7 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_ZFSDBG_BIN) \
   $(TEST_FWMEMMAP_BIN) \
   $(TEST_ZONEINFO_BIN) \
+  $(TEST_XEN_NOTES_BIN) \
   $(TEST_MEMINFO_FACTS_BIN) \
   $(TEST_CPUINFO_FACTS_BIN) \
   $(TEST_FIRMWARE_MEMMAP_BIN) \
