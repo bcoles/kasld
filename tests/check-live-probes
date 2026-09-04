@@ -1,7 +1,13 @@
 #!/bin/sh
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
-# check-live-probes — hold each component's source: declaration to its code.
+# check-live-probes — hold each component's declarations to its code.
+#
+# Two declarations decide whether a component runs, and each is enforced in two
+# places because a component runs both ways -- under the orchestrator, which
+# reads .kasld_meta and schedules, and on its own, where there is no
+# orchestrator to ask and the binary has to refuse itself. This holds the
+# metadata and the self-refusal together.
 #
 # source: (KASLD_META, required by check-component-meta) names where a
 # component's own inputs come from, and the orchestrator schedules on it when
@@ -38,6 +44,11 @@
 # primitive SIG does not know. The declaration being MANDATORY is what bounds
 # that: every component states a value, so the case is a wrong answer to a
 # question that was asked, not a question nobody was made to answer.
+#
+# status:experimental is the second, and simpler: it is opt-in, so a component
+# declaring it must call kasld_skip_experimental() and a component calling that
+# must declare it. Without the call the orchestrator holds the component back
+# while a direct invocation runs it, which is the drift the pairing prevents.
 #
 # Usage: tests/check-live-probes   (also run by `make lint`)
 # ---
@@ -130,6 +141,7 @@ emit_fail() { # $1 = message header (printed once per kind)
 n=0
 nlive=0
 nhybrid=0
+nexp=0
 for f in "$COMP"/*.c; do
   b=$(basename "$f" .c)
   n=$((n + 1))
@@ -150,6 +162,20 @@ for f in "$COMP"/*.c; do
   grep -q 'kasld_skip_live_probe(' "$f" && guarded=1
   branches=0
   grep -q 'kasld_fact_source(' "$f" && branches=1
+  exp_declared=0
+  grep -q '"status:experimental' "$f" && exp_declared=1
+  exp_guarded=0
+  grep -q 'kasld_skip_experimental(' "$f" && exp_guarded=1
+
+  if [ "$exp_declared" = 1 ] && [ "$exp_guarded" = 0 ]; then
+    emit_fail 'declares status:experimental, but has no kasld_skip_experimental():'
+    printf '  %s\n' "$b" >&2
+  fi
+  if [ "$exp_guarded" = 1 ] && [ "$exp_declared" = 0 ]; then
+    emit_fail 'calls kasld_skip_experimental(), but declares no status:experimental:'
+    printf '  %s\n' "$b" >&2
+  fi
+  [ "$exp_declared" = 1 ] && nexp=$((nexp + 1))
 
   case "$src" in
   files)
@@ -200,5 +226,5 @@ fi
 
 guard_scope "check-live-probes" "$n" 80
 
-printf '%slive-probe guard: OK%s (%d components: %d live, %d hybrid, %d files; every declaration agrees with its code)\n' \
-  "$GREEN" "$RESET" "$n" "$nlive" "$nhybrid" "$((n - nlive - nhybrid))"
+printf '%slive-probe guard: OK%s (%d components: %d live, %d hybrid, %d files, %d experimental; every declaration agrees with its code)\n' \
+  "$GREEN" "$RESET" "$n" "$nlive" "$nhybrid" "$((n - nlive - nhybrid))" "$nexp"

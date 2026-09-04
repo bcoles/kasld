@@ -613,8 +613,12 @@ static void classify_components(void) {
     snprintf(components[i].phase, sizeof(components[i].phase), "%s",
              phase ? phase : "inference");
 
-    const char *status = meta_get(&m, "status");
-    if (status && strcmp(status, "experimental") == 0)
+    /* status: is an opt-in gate, so presence gates and absence does not. A
+     * value this build does not recognise gates too: holding back a component
+     * whose declaration cannot be read costs a result, where running it means
+     * running something its author marked as not ready. -x reaches both, and
+     * the 117 components that declare no status at all are unaffected. */
+    if (meta_get(&m, "status") != NULL)
       components[i].is_experimental = 1;
 
     components[i].source = component_source_from_meta(meta_get(&m, "source"));

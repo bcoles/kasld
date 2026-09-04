@@ -10,9 +10,11 @@
 //   * stdout is the MACHINE channel — only wire lines (P/V/S via the
 //     kasld_result_* / kasld_emit_scalar helpers). Never a human message.
 //   * stderr is the HUMAN channel — every diagnostic, via the macros below.
-//   * options are MANUAL (testing / debugging); the orchestrator passes none
-//     and sets no env. A component's -t budget is its own; it is deliberately
-//     NOT kasld's per-component kill timeout (different roles).
+//   * options are MANUAL (testing / debugging); the orchestrator passes none.
+//     A component's -t budget is its own; it is deliberately NOT kasld's
+//     per-component kill timeout (different roles). The environment is the one
+//     channel the orchestrator does use, and only to carry a decision its
+//     children cannot otherwise see -- see kasld_skip_experimental below.
 // ---
 // <bcoles@gmail.com>
 
@@ -25,7 +27,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "sysroot.h" /* kasld_sysroot() for the live-probe guard below */
+#include "api.h"     /* kasld_disp_disabled(), for the experimental gate */
+#include "sysroot.h" /* kasld_fact_source(), for the live-probe guard */
 
 static int kasld_verbose; /* set by -v / --verbose (or $KASLD_VERBOSE)        */
 static long kasld_time_s; /* -t SECS; 0 = unset -> component's own default    */
@@ -95,6 +98,30 @@ static inline int kasld_skip_live_probe(const char *what) {
     return 0;
   kasld_info("skipping live %s probe under KASLD_SYSROOT", what);
   return 1;
+}
+
+/* Experimental gate for standalone invocation, the same shape as the live-probe
+ * guard above and there for the same reason: a component runs both under the
+ * orchestrator and on its own, so the decision has to reach it either way.
+ *
+ * A component declaring status:experimental in KASLD_META is opt-in. The
+ * orchestrator does not schedule it without -x, and -x sets KASLD_EXPERIMENTAL
+ * so the components it forks see that decision; run directly there is no
+ * orchestrator to ask, and the component reads the variable itself.
+ *
+ * Returns 0 when the gate is open. Otherwise the disposition has been emitted
+ * and the return value is the exit code main() should hand back:
+ *     int gated = kasld_skip_experimental("zombieload");
+ *     if (gated)
+ *       return gated;
+ */
+static inline int kasld_skip_experimental(const char *what) {
+  if (getenv("KASLD_EXPERIMENTAL") != NULL)
+    return 0;
+  kasld_err("%s: experimental component; set KASLD_EXPERIMENTAL=1 (or run "
+            "kasld -x) to enable",
+            what);
+  return kasld_disp_disabled("experimental (set KASLD_EXPERIMENTAL=1)");
 }
 
 /* A component that has no probe budget calls kasld_cli(); one that has a budget

@@ -256,11 +256,9 @@ int main(void) {
     return 0;
 
   debug_mode = kasld_env_enabled("KASLD_ECHOLOAD_DEBUG");
-  if (!getenv("KASLD_EXPERIMENTAL")) {
-    fprintf(stderr, "[-] echoload: experimental component; "
-                    "set KASLD_EXPERIMENTAL=1 to enable\n");
-    return kasld_disp_disabled("experimental (set KASLD_EXPERIMENTAL=1)");
-  }
+  int gated = kasld_skip_experimental("echoload");
+  if (gated)
+    return gated;
 
   if (!is_intel_cpu()) {
     fprintf(stderr, "[-] echoload: not an Intel CPU; attack not applicable\n");

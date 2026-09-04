@@ -375,11 +375,9 @@ static unsigned long analyze_histograms(void) {
 int main(void) {
   if (kasld_skip_live_probe("zombieload"))
     return 0;
-  if (!getenv("KASLD_EXPERIMENTAL")) {
-    fprintf(stderr, "[-] zombieload: experimental component; "
-                    "set KASLD_EXPERIMENTAL=1 to enable\n");
-    return kasld_disp_disabled("experimental (set KASLD_EXPERIMENTAL=1)");
-  }
+  int gated = kasld_skip_experimental("zombieload");
+  if (gated)
+    return gated;
 
   if (!is_intel_cpu()) {
     fprintf(stderr,

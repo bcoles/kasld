@@ -22,7 +22,20 @@
 # so would have run there had the default gone the other way. Neither is a state
 # worth having, and requiring the key removes both.
 #
-# It also holds the method:/discloses:/source: VOCABULARY together. Each list is
+# status: is checked differently, and the difference is the point. It stays
+# OPTIONAL -- 117 of 120 components are not gated and say nothing -- because the
+# default is right for nearly all of them, where source: had to be mandatory
+# since either default was wrong for half the tree.
+#
+# Its VALUE is checked all the same. The orchestrator gates on the key being
+# present, so a misspelling still holds the component back; what it breaks is
+# every other reader. The JSON publishes the value, CONTRIBUTING documents it,
+# and check-readout-docs counts the literal `status:experimental` against the
+# tally the sample readouts quote -- so a misspelt value leaves a component
+# gated while nothing in the tree agrees that it is, and the count check names
+# the documents rather than the component.
+#
+# It also holds the method:/discloses:/source:/status: VOCABULARY together. Each list is
 # written in three places -- the allowed sets below, the KASLD_META key reference
 # in src/include/kasld/api.h, and the metadata table in CONTRIBUTING.md -- and it
 # discriminates only while all three agree. Both failure directions have been
@@ -72,10 +85,12 @@ fi
 METHOD_VALUES='parsed heuristic inferred timing brute detection'
 DISCLOSES_VALUES='virtual physical both facts'
 SOURCE_VALUES='files live hybrid'
+STATUS_VALUES='experimental'
 
 meth_alt=$(printf '%s' "$METHOD_VALUES" | tr ' ' '|')
 disc_alt=$(printf '%s' "$DISCLOSES_VALUES" | tr ' ' '|')
 src_alt=$(printf '%s' "$SOURCE_VALUES" | tr ' ' '|')
+stat_alt=$(printf '%s' "$STATUS_VALUES" | tr ' ' '|')
 
 # Space- or comma-separated words -> sorted and space-separated, so two
 # vocabularies can be compared as sets regardless of how either was written.
@@ -93,6 +108,7 @@ nodisc=""
 baddisc=""
 nosrc=""
 badsrc=""
+badstatus=""
 n=0
 for f in "$COMP"/*.c; do
   n=$((n + 1))
@@ -145,6 +161,16 @@ for f in "$COMP"/*.c; do
     rc=1
   fi
 
+  # status: is optional, so an absent key is the ordinary case and says the
+  # component is not gated. A PRESENT key with a value outside the set is what
+  # this catches: the gate itself survives a misspelling, and every reader of
+  # the value does not.
+  if grep -qE '"status:' "$f" &&
+    ! grep -qE '"status:('"$stat_alt"')\\n"' "$f"; then
+    badstatus="$badstatus $base"
+    rc=1
+  fi
+
   # The hardware: field names the requirement; a feature that DISABLES the leak
   # belongs in a trailing "(mitigated by X)", never as the bare value. The flagged
   # tokens name mitigations, not requirements: KPTI is a kernel config, not
@@ -166,10 +192,12 @@ MD="$ROOT/CONTRIBUTING.md"
 used_method=$(grep -ho '"method:[a-z]*' "$COMP"/*.c | sed 's/"method://')
 used_disc=$(grep -ho '"discloses:[a-z]*' "$COMP"/*.c | sed 's/"discloses://')
 used_src=$(grep -ho '"source:[a-z]*' "$COMP"/*.c | sed 's/"source://')
+used_status=$(grep -ho '"status:[a-z]*' "$COMP"/*.c | sed 's/"status://')
 
 want_method=$(norm "$METHOD_VALUES")
 want_disc=$(norm "$DISCLOSES_VALUES")
 want_src=$(norm "$SOURCE_VALUES")
+want_status=$(norm "$STATUS_VALUES")
 
 # The quoted values of one api.h key entry: from its own line to the line
 # starting the NEXT key, with that delimiter dropped so a neighbour's values
@@ -183,6 +211,7 @@ api_method=$(norm "$(sed -n '/^ \*   method:/,/^ \*   phase:/p' "$API" |
                      tr '\n' ' ' | sed -E 's/.*Values:([^.]*)\..*/\1/' | tr -d '*')")
 api_disc=$(norm "$(api_quoted discloses source)")
 api_src=$(norm "$(api_quoted source status)")
+api_status=$(norm "$(api_quoted status sysctl)")
 # The backticks are literal table markup, not command substitution, so both
 # patterns must stay single-quoted.
 # shellcheck disable=SC2016
@@ -194,6 +223,9 @@ md_disc=$(norm "$(grep -E '^\| `discloses` \|' "$MD" |
 # shellcheck disable=SC2016
 md_src=$(norm "$(grep -E '^\| `source` \|' "$MD" |
                  awk -F'|' '{ print $(NF - 1) }' | tr -d '` ')")
+# shellcheck disable=SC2016
+md_status=$(norm "$(grep -E '^\| `status` \|' "$MD" |
+                    awk -F'|' '{ print $(NF - 1) }' | tr -d '` ')")
 
 # <key> <document> <documented set> <expected set>
 vocab_cmp() {
@@ -211,6 +243,8 @@ vocab_cmp source    "src/include/kasld/api.h" "$api_src" "$want_src" || rc=1
 vocab_cmp method    "CONTRIBUTING.md" "$md_method" "$want_method" || rc=1
 vocab_cmp discloses "CONTRIBUTING.md" "$md_disc" "$want_disc" || rc=1
 vocab_cmp source    "CONTRIBUTING.md" "$md_src" "$want_src" || rc=1
+vocab_cmp status    "src/include/kasld/api.h" "$api_status" "$want_status" || rc=1
+vocab_cmp status    "CONTRIBUTING.md" "$md_status" "$want_status" || rc=1
 
 # A value no component carries names a category the tree does not have.
 unused=""
@@ -222,6 +256,9 @@ for v in $DISCLOSES_VALUES; do
 done
 for v in $SOURCE_VALUES; do
   printf '%s\n' "$used_src" | grep -qx "$v" || unused="$unused source:$v"
+done
+for v in $STATUS_VALUES; do
+  printf '%s\n' "$used_status" | grep -qx "$v" || unused="$unused status:$v"
 done
 if [ -n "$unused" ]; then
   printf '%scheck-component-meta: FAIL%s — allowed value no component carries:\n' "$RED" "$RESET"
@@ -261,6 +298,13 @@ if [ -n "$badsrc" ]; then
   printf '%scheck-component-meta: FAIL%s — source: must be one of %s:\n' "$RED" "$RESET" "$SOURCE_VALUES"
   for c in $badsrc; do printf '  %s\n' "$c"; done
 fi
+if [ -n "$badstatus" ]; then
+  printf '%scheck-component-meta: FAIL%s — status: must be one of %s:\n' "$RED" "$RESET" "$STATUS_VALUES"
+  for c in $badstatus; do printf '  %s\n' "$c"; done
+  printf '  the gate reads the key by presence, so the component is still held\n'
+  printf '  back -- but the JSON, the documents and the readout tally all go by\n'
+  printf '  the value, and none of them will agree that it is\n'
+fi
 if [ -n "$badhw" ]; then
   printf '%scheck-component-meta: FAIL%s — hardware: names a mitigation as the requirement (move it into "(mitigated by X)"):\n' "$RED" "$RESET"
   for c in $badhw; do printf '  %s\n' "$c"; done
@@ -268,6 +312,6 @@ fi
 if [ "$rc" -eq 0 ]; then
 guard_scope "check-component-meta" "$n" 80
 
-  printf '%scheck-component-meta: OK%s (%d components, all declare KASLD_META with method:, discloses: and source:; vocabulary matches api.h and CONTRIBUTING.md)\n' "$GREEN" "$RESET" "$n"
+  printf '%scheck-component-meta: OK%s (%d components: method:, discloses: and source: on every one, status: where present; all four vocabularies match api.h and CONTRIBUTING.md)\n' "$GREEN" "$RESET" "$n"
 fi
 exit $rc

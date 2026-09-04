@@ -514,6 +514,16 @@ the same question from a file under a capture — the kernel log via `dmesg.h`, 
 process identity via the environment gatherer — the component is `files`: the
 abstraction holds the branch, not the component.
 
+`status` is optional, since most components are not gated, but a component that
+declares it must also call `kasld_skip_experimental("<name>")` at the top of
+`main()` and return what it hands back — the orchestrator will not schedule the
+component without `-x`, and that call is what refuses a direct invocation, which
+has no orchestrator to ask. `tests/check-live-probes` pairs the two. Its value is
+held to the list above all the same. The gate reads the key by presence, so a
+misspelling still holds the component back — what it breaks is every reader of
+the value: the JSON publishes it, this table documents it, and the sample
+readouts are checked against a count of the literal declaration.
+
 Each component should also include structured comment blocks in its file
 header documenting the leak primitive and mitigations:
 

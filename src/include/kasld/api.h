@@ -2579,7 +2579,9 @@ typedef int make_iso_compilers_happy;
  *            Absent from a metadata block, or unrecognised, reads as "live" —
  *            the safe direction: a component that does not say is not run
  *            against a capture.
- *   status:  "experimental" — opt-in via -x.
+ *   status:  "experimental" — opt-in via -x. Optional, and the only key here
+ *            whose mere presence is the signal: a value this build does not
+ *            recognise gates the component rather than running it.
  *
  * Hardening-report inputs — a technique names what would neutralise it:
  *   sysctl:  Mitigating sysctl.
