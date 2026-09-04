@@ -51,12 +51,6 @@ enum kasld_report_shape {
  * -- a bound, not an answer. Recorded here because by the time a format sees an
  * address it is only a number, and presenting an interior-derived value as the
  * base overstates by however far the sample sits above it. */
-enum kasld_anchor_kind {
-  RANCHOR_NONE = 0,
-  RANCHOR_BASE,    /* a witness to the region's base */
-  RANCHOR_INTERIOR /* a point inside the region; the base is at or below it */
-};
-
 /* One excluded sub-range carved out of a window's hull. */
 struct kasld_report_hole {
   unsigned long lo, hi; /* inclusive */
@@ -197,12 +191,11 @@ struct kasld_report_quantity {
   struct kasld_report_window guaranteed; /* sound floor: contains the truth */
   struct kasld_report_window likely; /* all signals: a subset, may be wrong */
 
-  /* The single concrete value, where one was picked, with the provenance that
-   * says how much it is worth. A RANCHOR_INTERIOR point is a ceiling on the
-   * base, not the base. */
+  /* The single concrete value, where one was picked. Recorded only where the
+   * resolved window already names one address, so it IS the base: how it was
+   * witnessed cannot change what it means by the time it reaches here. */
   int has_point;
   unsigned long point;
-  enum kasld_anchor_kind anchor;
   long slide; /* displacement from the un-randomized base */
   int has_slide;
 
@@ -237,13 +230,11 @@ enum kasld_posture {
  *
  * Not derivable from the estimates: the headline base is chosen by scanning the
  * observations and reconciling that pick against the engine, which is the
- * orchestrator's job. The model records it, and records HOW it was witnessed --
- * an interior sample bounds the base from above rather than being it, and that
- * distinction is lost the moment the value becomes a bare address. */
+ * orchestrator's job. The model records the value; the report keeps it only
+ * where the window it is reconciled against names one address. */
 struct kasld_report_point {
   int present;
   unsigned long value;
-  enum kasld_anchor_kind anchor;
   long slide;
   int has_slide;
   /* An observed _stext for the same region, or 0. Supplied, not derived: only

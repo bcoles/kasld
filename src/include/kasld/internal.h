@@ -112,8 +112,9 @@ struct kasld_layout {
   unsigned long virt_kaslr_text_min;
   unsigned long virt_kaslr_text_max;
   unsigned long virt_kaslr_align;
-  /* Physical KASLR range (!TEXT_TRACKS_DIRECTMAP arches only; zero otherwise).
-   */
+  /* Physical KASLR range, narrowed by the engine on every architecture.
+   * Initialized from the architectural bracket, which api.h supplies a default
+   * for, so an un-narrowed value is indistinguishable from a resolved one. */
   unsigned long phys_kaslr_text_min;
   unsigned long phys_kaslr_text_max;
   unsigned long phys_kaslr_align;

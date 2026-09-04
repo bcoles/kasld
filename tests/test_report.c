@@ -320,7 +320,6 @@ int main(void) {
     memset(pts, 0, sizeof(pts));
     pts[Q_VIRT_IMAGE_BASE].present = 1;
     pts[Q_VIRT_IMAGE_BASE].value = lo + span / 2;
-    pts[Q_VIRT_IMAGE_BASE].anchor = RANCHOR_INTERIOR;
     kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
     CHECK(it != NULL);
@@ -334,7 +333,6 @@ int main(void) {
     memset(pts, 0, sizeof(pts));
     pts[Q_VIRT_IMAGE_BASE].present = 1;
     pts[Q_VIRT_IMAGE_BASE].value = gest[Q_VIRT_IMAGE_BASE].lo;
-    pts[Q_VIRT_IMAGE_BASE].anchor = RANCHOR_BASE;
     kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
     CHECK(it != NULL);
@@ -346,7 +344,6 @@ int main(void) {
     memset(pts, 0, sizeof(pts));
     pts[Q_VIRT_IMAGE_BASE].present = 1;
     pts[Q_VIRT_IMAGE_BASE].value = gest[Q_VIRT_IMAGE_BASE].lo + 0x1000ul;
-    pts[Q_VIRT_IMAGE_BASE].anchor = RANCHOR_BASE;
     kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
     CHECK(it != NULL);

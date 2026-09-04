@@ -433,7 +433,6 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
       if (names_one && points[q].value == w->lo) {
         it->has_point = 1;
         it->point = points[q].value;
-        it->anchor = points[q].anchor;
         it->slide = points[q].slide;
         it->has_slide = points[q].has_slide;
         /* Only alongside a resolved base, and only where it differs from it. */

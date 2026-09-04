@@ -275,7 +275,6 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
   if (s->kaslr.vtext) {
     it->has_point = 1;
     it->point = s->kaslr.vtext;
-    it->anchor = RANCHOR_BASE;
     it->slide = s->kaslr.vslide;
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
   }
@@ -302,7 +301,6 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
   if (s->kaslr.ptext) {
     it->has_point = 1;
     it->point = s->kaslr.ptext;
-    it->anchor = RANCHOR_BASE;
     it->slide = s->kaslr.pslide;
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
   }

@@ -1415,21 +1415,13 @@ static void fill_mem_likely(const struct estimate *l, unsigned long g_lo,
  * the head gap the arch declares in STEXT_OFFSET (a no-op where that is 0).
  * Returns 0 when no kernel-image/text base anchor exists.
  */
-static unsigned long anchor_image_base(enum kasld_addr_type type,
-                                       enum kasld_position *pos_out) {
+static unsigned long anchor_image_base(enum kasld_addr_type type) {
   const struct result *r = select_anchor(type, REGION_KERNEL_IMAGE);
   int is_stext = 0;
   if (!r) {
     r = select_anchor(type, REGION_KERNEL_TEXT);
     is_stext = 1;
   }
-  /* Report HOW the address was witnessed, not just the address. A base witness
-   * states where the region starts; an interior sample states only that the
-   * region contains that point, so the base lies at or below it. Discarding the
-   * distinction here is what leaves a later consumer holding a bare number it
-   * can only present as the base. */
-  if (pos_out)
-    *pos_out = r ? r->pos : POS_INTERIOR;
   return kasld_image_base_from(anchor_addr(r), is_stext);
 }
 
@@ -1554,13 +1546,10 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
    * (virt_kaslr_disabled_pin etc. land there — engine_sync projects the
    * resolved window onto virt_kaslr_text_min/max, so min==max means "pinned").
    */
-  enum kasld_position vpos = POS_INTERIOR, ppos = POS_INTERIOR;
-  unsigned long vtext = anchor_image_base(KASLD_TYPE_VIRT, &vpos);
-  if (vtext == 0 && layout.virt_kaslr_text_min == layout.virt_kaslr_text_max) {
+  unsigned long vtext = anchor_image_base(KASLD_TYPE_VIRT);
+  if (vtext == 0 && layout.virt_kaslr_text_min == layout.virt_kaslr_text_max)
     vtext = layout.virt_kaslr_text_min;
-    vpos = POS_BASE; /* an engine pin IS the base, not a sample inside it */
-  }
-  unsigned long ptext = anchor_image_base(KASLD_TYPE_PHYS, &ppos);
+  unsigned long ptext = anchor_image_base(KASLD_TYPE_PHYS);
   unsigned long vraw = vtext, praw = ptext;
   if (auth) {
     /* The raw anchor scan above is verdict-blind (it reads results[], not the
@@ -1582,12 +1571,6 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
       ptext = kasld_reconcile_concrete_base(ptext, gp->lo, gp->hi,
                                             likely != NULL, lp->lo, lp->hi);
     }
-    /* Where reconciliation replaced the raw pick, the value is the engine's
-     * pinned singleton rather than the observation's anchor -- a base. */
-    if (vtext != vraw)
-      vpos = POS_BASE;
-    if (ptext != praw)
-      ppos = POS_BASE;
   }
   (void)vraw;
   (void)praw;
@@ -1826,8 +1809,6 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
     if (s->kaslr.vtext) {
       pts[Q_VIRT_IMAGE_BASE].present = 1;
       pts[Q_VIRT_IMAGE_BASE].value = s->kaslr.vtext;
-      pts[Q_VIRT_IMAGE_BASE].anchor =
-          vpos == POS_BASE ? RANCHOR_BASE : RANCHOR_INTERIOR;
       pts[Q_VIRT_IMAGE_BASE].slide = s->kaslr.vslide;
       pts[Q_VIRT_IMAGE_BASE].has_slide = posture == RPOSTURE_RANDOMIZED;
       pts[Q_VIRT_IMAGE_BASE].stext = s->kaslr.vstext;
@@ -1835,8 +1816,6 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
     if (s->kaslr.ptext) {
       pts[Q_PHYS_IMAGE_BASE].present = 1;
       pts[Q_PHYS_IMAGE_BASE].value = s->kaslr.ptext;
-      pts[Q_PHYS_IMAGE_BASE].anchor =
-          ppos == POS_BASE ? RANCHOR_BASE : RANCHOR_INTERIOR;
       pts[Q_PHYS_IMAGE_BASE].slide = s->kaslr.pslide;
       pts[Q_PHYS_IMAGE_BASE].has_slide = posture == RPOSTURE_RANDOMIZED;
       pts[Q_PHYS_IMAGE_BASE].stext = s->kaslr.pstext;
@@ -2719,12 +2698,24 @@ static void engine_sync_authoritative(const struct engine *e) {
       layout.virt_page_offset = po_lo;
   }
 
-  const struct estimate *pt = &e->est[Q_PHYS_IMAGE_BASE];
-  layout.phys_kaslr_text_min = pt->lo;
-  layout.phys_kaslr_text_max = pt->hi;
-  if (e->est[Q_PHYS_KASLR_ALIGN].lo)
-    layout.phys_kaslr_align = e->est[Q_PHYS_KASLR_ALIGN].lo;
 #endif
+
+  /* The physical window, on every architecture. api.h supplies a default
+   * KASLR_PHYS_MIN/MAX for any arch that declares none, so these fields are
+   * INITIALIZED from the architectural bracket everywhere -- leaving the
+   * override to decoupled arches only meant that on the eight where text tracks
+   * the direct map they kept that bracket for the life of the run, and a reader
+   * asking whether the window was still a range got the architecture's answer
+   * rather than the engine's. A coupled arch resolves this quantity too: it is
+   * a fixed projection of the virtual base, which is precisely why it is
+   * pinned whenever that one is. */
+  {
+    const struct estimate *pt = &e->est[Q_PHYS_IMAGE_BASE];
+    layout.phys_kaslr_text_min = pt->lo;
+    layout.phys_kaslr_text_max = pt->hi;
+    if (e->est[Q_PHYS_KASLR_ALIGN].lo)
+      layout.phys_kaslr_align = e->est[Q_PHYS_KASLR_ALIGN].lo;
+  }
 
   if (e->est[Q_VMALLOC_BASE].lo_binding)
     layout.virt_vmalloc_base_min = e->est[Q_VMALLOC_BASE].lo;
