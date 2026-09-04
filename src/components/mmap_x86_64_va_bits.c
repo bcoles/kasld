@@ -45,8 +45,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:inferred\n"
            "phase:probing\n"
-           "live:1\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:live\n");
 
 int main(void) {
   if (kasld_skip_live_probe("x86_64 paging-level mmap"))

@@ -12,7 +12,8 @@ KASLD_EXPLAIN("Reads the flattened device tree /chosen/kaslr-seed and emits it "
               "KASLR offset deterministically from this seed. No privileges.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   unsigned long seed = (unsigned long)kasld_read_fdt_kaslr_seed();

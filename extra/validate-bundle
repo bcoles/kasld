@@ -205,11 +205,11 @@ JSON=$TMP/kasld.json
 # / ioctl leaks, /proc/self, ...) obtain their result from the RUNNING kernel,
 # not from a captured file, so on a native-arch replay they describe the HOST
 # kernel and could push the engine's window off the bundle's true base. The
-# binary excludes every such probe under KASLD_SYSROOT (they carry live:1 in
-# .kasld_meta and the orchestrator filters them), which this tool always sets —
-# so no --skip is needed. Every remaining component is a pure function of the
-# captured files: deterministic, host-independent, and sound for a bundle
-# captured on a different machine.
+# binary excludes every such probe under KASLD_SYSROOT (they declare
+# source:live in .kasld_meta and the orchestrator filters them), which this
+# tool always sets — so no --skip is needed. Every remaining component is a
+# pure function of the captured files: deterministic, host-independent, and
+# sound for a bundle captured on a different machine.
 # run_kasld_sysroot SYSROOT OUT — run the arch-correct binary (native or under
 # qemu-user) over an arbitrary sysroot.
 run_kasld_sysroot() {
@@ -282,8 +282,8 @@ perturb_case() {
 # inputs). kallsyms is removed first so the base is a window bounded by the
 # ceiling (a pin would conflict-drop the bad ceiling and mask the bug). No ground
 # truth needed — runs on anonymized bundles too. The binary skips live probes
-# under KASLD_SYSROOT (live:1 in .kasld_meta), so each run is a deterministic
-# function of the captured files.
+# under KASLD_SYSROOT (source:live in .kasld_meta), so each run is a
+# deterministic function of the captured files.
 if [ "$PERTURB" = 1 ]; then
   printf '%sPerturbation:%s no container-fakeable input may move the guaranteed window\n' \
     "$BOLD" "$RESET"

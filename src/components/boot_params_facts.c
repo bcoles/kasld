@@ -39,7 +39,8 @@ KASLD_EXPLAIN(
     "itself. x86 only.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   unsigned long init_size = 0, align = 0;

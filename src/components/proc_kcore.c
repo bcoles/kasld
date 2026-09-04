@@ -71,6 +71,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:virtual\n"
+           "source:files\n"
            "lockdown:confidentiality\n"
            "bypass:CAP_SYS_RAWIO\n");
 

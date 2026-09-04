@@ -98,8 +98,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "cve:CVE-2022-4543\n"
            "patch:v6.2\n"
            "hardware:prefetch side-channel\n");

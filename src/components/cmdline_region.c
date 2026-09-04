@@ -17,7 +17,8 @@ KASLD_EXPLAIN("Reads the physical address and length of the kernel cmdline "
               "the kernel physical base. x86 only.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:physical\n");
+           "discloses:physical\n"
+           "source:files\n");
 
 int main(void) {
   unsigned long ptr = kasld_read_boot_cmd_line_ptr();

@@ -57,6 +57,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:physical\n"
+           "source:files\n"
            "config:CONFIG_VMCORE_INFO\n");
 
 static unsigned long get_phys_addr_vmcoreinfo(void) {

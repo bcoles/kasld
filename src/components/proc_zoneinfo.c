@@ -88,7 +88,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:physical\n");
+           "discloses:physical\n"
+           "source:hybrid\n");
 
 int main(void) {
   FILE *f;
@@ -163,7 +164,7 @@ int main(void) {
   unsigned long page_size = (unsigned long)PAGE_SIZE_MIN;
 #else
   unsigned long page_size = 0;
-  if (!kasld_sysroot()) {
+  if (kasld_fact_source() == KASLD_FACTS_LIVE) {
     long p = sysconf(_SC_PAGESIZE);
     if (p > 0)
       page_size = (unsigned long)p;

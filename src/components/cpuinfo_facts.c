@@ -12,7 +12,8 @@ KASLD_EXPLAIN("Reads the CPU physical-address width from /proc/cpuinfo and "
               "World-readable, no privileges.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   int bits = kasld_read_phys_addr_bits();

@@ -199,8 +199,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "patch:v7.0\n");
 
 /* end_name_hash (hash_32/hash_64 by word size) + kernfs's 31-bit mask and

@@ -13,7 +13,8 @@ KASLD_EXPLAIN("Reads /proc/meminfo (MemTotal, LowTotal) and /proc/zoneinfo "
               "the physical address window. World-readable, no privileges.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   unsigned long v;

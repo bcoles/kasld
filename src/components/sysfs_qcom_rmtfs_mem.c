@@ -70,6 +70,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:physical\n"
+           "source:files\n"
            "config:CONFIG_QCOM_RMTFS_MEM\n");
 
 int main(void) {

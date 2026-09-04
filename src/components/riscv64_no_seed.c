@@ -31,7 +31,8 @@ KASLD_EXPLAIN("On non-EFI riscv64 with no FDT /chosen/kaslr-seed and no 'zkr' "
               "excluded from the verdict. riscv64 only.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   if (kasld_kaslr_disabled_text_default()) {

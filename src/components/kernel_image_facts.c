@@ -21,7 +21,8 @@ KASLD_EXPLAIN(
     "No privileges.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   struct utsname uts;

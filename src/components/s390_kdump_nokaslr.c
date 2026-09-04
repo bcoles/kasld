@@ -47,7 +47,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:detection\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   if (!cmdline_has_prefix("elfcorehdr=")) {

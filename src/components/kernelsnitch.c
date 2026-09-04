@@ -213,8 +213,8 @@ KASLD_EXPLAIN(
  * protect the target and must not be reported as a mitigation. */
 KASLD_META("method:timing\n"
            "phase:probing\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "status:experimental\n");
 
 /* Hash exactly 4 u32 words with initval (matches kernel futex path). */

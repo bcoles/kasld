@@ -70,6 +70,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:both\n"
+           "source:files\n"
            "sysctl:dmesg_restrict>=1\n"
            "bypass:CAP_SYSLOG\n"
            "fallback:/var/log/dmesg\n");

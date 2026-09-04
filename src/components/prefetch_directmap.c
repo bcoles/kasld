@@ -79,8 +79,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "hardware:prefetch side-channel (mitigated by KPTI)\n"
            "config:RANDOMIZE_MEMORY\n");
 

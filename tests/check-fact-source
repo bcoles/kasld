@@ -1,0 +1,99 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-fact-source — "where do this run's facts come from" is asked one way.
+#
+# src/include/kasld/sysroot.h holds two things that look interchangeable and are
+# not. kasld_sysroot() returns the path prefix kasld_resolve() composes with;
+# kasld_fact_source() returns which system the run's facts describe. Testing the
+# prefix for NULL answers the second question with the first, and the two spread
+# independently: the same decision was written as `kasld_sysroot() != NULL`, as
+# `!kasld_sysroot()`, and as a fresh `getenv("KASLD_SYSROOT")` that never reached
+# the cached accessor at all. No single grep found them, so a change to how the
+# mode is established reached some sites and not others.
+#
+# This guard FAILS if, outside sysroot.h, any C source calls kasld_sysroot() or
+# reads KASLD_SYSROOT from the environment directly. Both belong to that header;
+# everything else asks kasld_fact_source() and compares against KASLD_FACTS_LIVE
+# or KASLD_FACTS_CAPTURE.
+#
+# Comments and string literals are stripped before matching (tests/lib/
+# c-code-grep.sh), so a comment naming the variable is not a violation -- the
+# rule is about code, and the header's own documentation names both.
+#
+# One use is not a mode test and is exempted by naming itself: a line carrying
+# the token KASLD_ENV_BLOCK in a comment is asserting about the environment
+# array itself -- that a variable survived a prefix drop, say -- where the
+# cached accessor would answer from its cache and prove nothing. The token is
+# on the line it excuses, so the reason is read where the read is.
+#
+# Shell and documentation are out of scope: KASLD_SYSROOT is the published
+# interface a harness sets, and setting it is not the thing this guard is about.
+#
+# Usage: tests/check-fact-source   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/c-code-grep.sh
+. "$ROOT/tests/lib/c-code-grep.sh"
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+OWNER=src/include/kasld/sysroot.h
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+fail=0
+n=0
+bad=""
+
+# Every C translation unit and header in the tree, plus the test sources: a
+# test that re-derives the mode drifts from the code exactly as the code does.
+for f in "$ROOT"/src/*.c "$ROOT"/src/*/*.c "$ROOT"/src/include/*.h \
+         "$ROOT"/src/include/kasld/*.h "$ROOT"/src/include/kasld/arch/*.h \
+         "$ROOT"/tests/*.c "$ROOT"/tests/*.h; do
+  [ -f "$f" ] || continue
+  rel=${f#"$ROOT"/}
+  [ "$rel" = "$OWNER" ] && continue
+  n=$((n + 1))
+
+  # kasld_sysroot() in code.
+  hits=$(c_code_grep "$f" '(^|[^A-Za-z0-9_])kasld_sysroot[[:space:]]*\(')
+  # getenv() in code whose raw line names the variable; the literal is stripped
+  # by the time the matcher sees it, so the name is recovered from the text.
+  hits="$hits
+$(c_code_grep "$f" '(^|[^A-Za-z0-9_])getenv[[:space:]]*\(' |
+    grep 'KASLD_SYSROOT')"
+
+  # A line naming KASLD_ENV_BLOCK asserts about the environment array, not
+  # about which system the facts describe.
+  hits=$(printf '%s\n' "$hits" | grep -v '^$' | grep -v 'KASLD_ENV_BLOCK')
+  if [ -n "$hits" ]; then
+    fail=1
+    bad="$bad
+$(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
+  fi
+done
+
+if [ "$fail" = 1 ]; then
+  printf '%sfact-source guard: FAIL%s — the run mode is asked outside %s:\n' \
+    "$RED" "$RESET" "$OWNER" >&2
+  printf '%s\n' "$bad" | grep -v '^$' >&2
+  printf 'Ask kasld_fact_source() and compare against KASLD_FACTS_LIVE or\n' >&2
+  printf 'KASLD_FACTS_CAPTURE. kasld_sysroot() is the path prefix, not the mode,\n' >&2
+  printf 'and the environment is read once, in %s.\n' "$OWNER" >&2
+  printf 'A read that asserts about the environment ARRAY rather than the run\n' >&2
+  printf 'mode says so with a KASLD_ENV_BLOCK comment on the line.\n' >&2
+  exit 1
+fi
+
+guard_scope "check-fact-source" "$n" 60
+
+printf '%sfact-source guard: OK%s (%d files; the mode is read only through kasld_fact_source())\n' \
+  "$GREEN" "$RESET" "$n"

@@ -67,6 +67,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:physical\n"
+           "source:files\n"
            "config:CONFIG_CXL_BUS\n");
 
 int main(void) {

@@ -73,6 +73,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:virtual\n"
+           "source:files\n"
            "config:CONFIG_ZFS\n"
            "note:bypasses_kptr_restrict\n");
 

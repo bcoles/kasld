@@ -126,8 +126,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "sysctl:perf_event_paranoid>=1\n"
            "bypass:CAP_PERFMON\n"
            "bypass:CAP_SYS_ADMIN\n");

@@ -102,8 +102,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "patch:v3.10\n"
            "hardware:user-mode SIDT (mitigated by UMIP)\n");
 

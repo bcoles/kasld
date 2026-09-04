@@ -85,6 +85,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:virtual\n"
+           "source:hybrid\n"
            "cve:CVE-2021-27363\n"
            "patch:v5.12\n"
            "config:CONFIG_SCSI_ISCSI_ATTRS\n");
@@ -324,7 +325,7 @@ int main(void) {
   /* KASLD_SYSROOT redirects reads to a copied tree: there is no live module to
    * load and whatever was captured is already present, so skip the trigger and
    * the wait and read the captured class directly. */
-  if (!kasld_sysroot()) {
+  if (kasld_fact_source() == KASLD_FACTS_LIVE) {
     if (!trigger_transport_class())
       return kasld_disp_absent("NETLINK_ISCSI protocol unavailable");
 

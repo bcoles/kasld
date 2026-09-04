@@ -19,7 +19,8 @@ KASLD_EXPLAIN("Reads /sys/firmware/memmap (the authoritative firmware System "
               "World-readable, no privileges.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:physical\n");
+           "discloses:physical\n"
+           "source:files\n");
 
 int main(void) {
   struct kasld_ram_extent ext[128];

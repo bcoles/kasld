@@ -57,8 +57,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:heuristic\n"
            "phase:probing\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "cve:CVE-2021-34693\n"
            "patch:v5.12\n"
            "config:CONFIG_CAN\n"

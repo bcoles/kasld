@@ -114,8 +114,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "hardware:TSX required (mitigated by tsx=off)\n");
 
 /* =========================================================================

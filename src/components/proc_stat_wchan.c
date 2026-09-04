@@ -54,8 +54,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "patch:v4.4\n");
 
 static unsigned long get_kernel_addr_proc_stat_wchan(void) {

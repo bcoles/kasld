@@ -63,6 +63,7 @@ KASLD_EXPLAIN("Searches dmesg for device tree reserved memory messages (OF: "
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:physical\n"
+           "source:files\n"
            "sysctl:dmesg_restrict>=1\n"
            "bypass:CAP_SYSLOG\n"
            "fallback:/var/log/dmesg\n");

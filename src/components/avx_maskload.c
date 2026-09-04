@@ -123,8 +123,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "hardware:AVX masked-load translation timing (mitigated by KPTI)\n");
 
 #define STEP KASLR_VIRT_ALIGN

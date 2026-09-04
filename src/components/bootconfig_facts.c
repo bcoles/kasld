@@ -14,7 +14,8 @@ KASLD_EXPLAIN("Reads the kernel boot config (/boot/config-*, /lib/modules/...) "
               "emitted as scalar facts. No privileges.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   unsigned long v;

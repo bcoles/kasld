@@ -115,7 +115,7 @@ static int mmap_syslog(char **buffer, int *size) {
    * instead. With no sysroot set (the normal case) this falls through to the
    * klogctl-first path below (the live ring buffer is authoritative; the file
    * is only the fallback when klogctl is denied). */
-  if (kasld_sysroot())
+  if (kasld_fact_source() == KASLD_FACTS_CAPTURE)
     return read_dmesg_log_file(buffer, size);
 
   /* The reported ring size is held apart from *size until the read succeeds,

@@ -84,8 +84,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "patch:QEMU v9.1\n");
 
 /* UMIP (User-Mode Instruction Prevention) emulation dummy GDT base. When UMIP

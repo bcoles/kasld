@@ -77,7 +77,8 @@ KASLD_EXPLAIN(
  * emitted fact's confidence is CONF_HEURISTIC (separate from the method). */
 KASLD_META("method:detection\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   FILE *f = kasld_fopen("/proc/kallsyms", "r");

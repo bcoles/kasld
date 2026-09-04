@@ -104,8 +104,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "hardware:MMU fault-path timing (mitigated by KPTI / E0PD)\n");
 
 /* Faulting stores per timed decision. The separation runs 10-24% of the fault

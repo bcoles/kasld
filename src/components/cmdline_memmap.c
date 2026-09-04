@@ -49,7 +49,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:detection\n"
            "phase:inference\n"
-           "discloses:physical\n");
+           "discloses:physical\n"
+           "source:files\n");
 
 #if defined(__x86_64__) || defined(__i386__)
 /* Parse one memmap=<size><sep><start> token starting at p. On success,

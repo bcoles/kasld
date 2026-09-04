@@ -2556,12 +2556,29 @@ typedef int make_iso_compilers_happy;
  *   discloses: what the component reveals — "virtual", "physical" or "both"
  *            (a kernel address of that kind), or "facts" (scalar system facts
  *            only, no address).
- *   live:    "1" — the result derives from live runtime state of the
- *            executing kernel/CPU (a syscall, a CPU instruction, a timing
- *            measurement, a setuid helper, or a self-referential /proc/self
- *            pseudo-file) rather than a static captured fact, so it cannot be
- *            reproduced from a copied tree. The orchestrator skips such
- *            components when KASLD_SYSROOT is set (offline analysis).
+ *   source:  Where the technique's own inputs come from. Mandatory, one of
+ *            "files", "live" or "hybrid" — a closed axis, and the one the
+ *            orchestrator schedules on when the run reads a captured tree
+ *            rather than the running kernel.
+ *              "files"  — every input is a fact file, so the technique
+ *                         replays against a capture unchanged.
+ *              "live"   — the result derives from live runtime state of the
+ *                         executing kernel/CPU (a syscall, a CPU instruction,
+ *                         a timing measurement, a setuid helper, or a
+ *                         self-referential /proc/self pseudo-file), which no
+ *                         captured tree carries. The orchestrator drops it
+ *                         against a capture and the standalone binary skips
+ *                         itself (kasld_skip_live_probe).
+ *              "hybrid" — a live step AND a captured-file read, so it runs in
+ *                         either mode with the live step suppressed. Such a
+ *                         component branches on kasld_fact_source().
+ *            It names what the COMPONENT'S OWN code needs: where a shared
+ *            header answers the same question from a file under a capture
+ *            (the kernel log, the process identity), the component is
+ *            "files" — the abstraction, not the component, holds the branch.
+ *            Absent from a metadata block, or unrecognised, reads as "live" —
+ *            the safe direction: a component that does not say is not run
+ *            against a capture.
  *   status:  "experimental" — opt-in via -x.
  *
  * Hardening-report inputs — a technique names what would neutralise it:

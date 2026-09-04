@@ -341,18 +341,39 @@ struct component_log comp_logs[MAX_COMPONENTS];
  * Component discovery
  * =========================================================================
  */
+/* Where a component's own inputs come from, read from "source:" in
+ * .kasld_meta. The orchestrator schedules on it: against a captured tree a
+ * CSRC_LIVE component would describe the analysing host rather than the target,
+ * so it does not run at all.
+ *
+ * CSRC_LIVE is deliberately the zero value, so a component that declares
+ * metadata and does not name its source — an older build, a misspelt value, a
+ * classification path added later that forgets to set the field — is kept away
+ * from a capture rather than run against one. Losing a result is the cheap
+ * failure; reporting the analysing host as the target is not.
+ *
+ * A binary carrying no .kasld_meta at all is a different case and is set
+ * CSRC_FILES explicitly where that is established: nothing this build produced
+ * lacks the section (check-component-meta), so what remains is an executable
+ * the operator put in the component directory, which the orchestrator runs for
+ * its wire lines and classifies by default throughout. The axis describes
+ * components; it does not decide whether a stranger runs. */
+enum component_source {
+  CSRC_LIVE,  /* live runtime state of the executing kernel/CPU */
+  CSRC_FILES, /* fact files, which the sysroot wrappers redirect */
+  CSRC_HYBRID /* a live step and a captured-file read */
+};
+
 struct component {
   char name[256];
   char phase[32];      /* scheduling phase: "inference" or "probing".
                         * Set from "phase:" in .kasld_meta; falls back to
                         * method-based inference when "phase:" is absent. */
   int is_experimental; /* set from status:experimental in .kasld_meta */
-  int is_live;         /* set from live:1 in .kasld_meta — result comes from
-                        * live runtime state of the executing kernel/CPU, so it
-                        * cannot be reproduced from a captured tree. */
-  int is_filtered;     /* set by apply_skip_filter() from --skip patterns, or by
-                        * apply_sysroot_filter() for live probes under
-                        * KASLD_SYSROOT */
+  enum component_source source; /* from "source:" in .kasld_meta */
+  int is_filtered; /* set by apply_skip_filter() from --skip patterns, or by
+                    * apply_sysroot_filter() for live-sourced components
+                    * against a capture */
 };
 
 /* Every component lives in the one directory discovery settled on, so a full
@@ -554,6 +575,18 @@ static long deadline_remaining_ms(const struct timespec *deadline) {
  * Defaults to "inference" when the key is absent or the binary has no
  * .kasld_meta section. */
 #ifndef KASLD_TESTING
+/* Map the "source:" value to the axis. Any other answer — the key absent from
+ * a metadata block that exists, or a value this build does not know — is
+ * CSRC_LIVE, so a component that declares metadata without stating where its
+ * inputs come from is not run against a captured tree. */
+static enum component_source component_source_from_meta(const char *v) {
+  if (v && strcmp(v, "files") == 0)
+    return CSRC_FILES;
+  if (v && strcmp(v, "hybrid") == 0)
+    return CSRC_HYBRID;
+  return CSRC_LIVE;
+}
+
 static void classify_components(void) {
   for (int i = 0; i < num_components; i++) {
     char cpath[KASLD_PATH_MAX];
@@ -561,10 +594,16 @@ static void classify_components(void) {
     char *meta_raw = cp ? extract_elf_section(cp, ".kasld_meta") : NULL;
     if (!meta_raw) {
       snprintf(components[i].phase, sizeof(components[i].phase), "inference");
+      /* No metadata section: not a component this build produced, so the
+       * source: axis says nothing about it. Defaulted like phase above rather
+       * than by the fail-closed reading, which answers for a component that
+       * declares metadata and omits the key — an executable the operator put
+       * in the component directory is run for its wire lines either way. */
+      components[i].source = CSRC_FILES;
       continue;
     }
-    /* Read here and discard: this pass keeps only the three flags below, so
-     * the section is freed once they are copied out. The entries point into
+    /* Read here and discard: this pass keeps only the fields below, so the
+     * section is freed once they are copied out. The entries point into
      * meta_raw, so every read must precede the free. */
     struct component_meta m = {0};
     if (parse_meta(meta_raw, &m))
@@ -578,9 +617,7 @@ static void classify_components(void) {
     if (status && strcmp(status, "experimental") == 0)
       components[i].is_experimental = 1;
 
-    const char *live = meta_get(&m, "live");
-    if (live && strcmp(live, "1") == 0)
-      components[i].is_live = 1;
+    components[i].source = component_source_from_meta(meta_get(&m, "source"));
 
     free(meta_raw);
   }
@@ -601,20 +638,20 @@ static void apply_skip_filter(void) {
   }
 }
 
-/* Under KASLD_SYSROOT (offline analysis against a captured tree), filter out
- * components tagged live:1 in .kasld_meta. Their result comes from live
- * runtime state of the executing kernel/CPU — a syscall, a CPU instruction, a
- * timing measurement, a setuid helper, or a self-referential /proc/self
- * pseudo-file — so against a copied tree it describes the wrong (host) kernel
- * or cannot be produced at all. Reusing is_filtered excludes them from
- * scheduling and accounting exactly as --skip does. No-op on a live system
- * (KASLD_SYSROOT unset). Called after apply_skip_filter(). */
+/* Against a captured tree, drop the components whose inputs are live runtime
+ * state of the executing kernel/CPU — a syscall, a CPU instruction, a timing
+ * measurement, a setuid helper, or a self-referential /proc/self pseudo-file.
+ * Such a result describes the analysing host, not the captured target, or
+ * cannot be produced at all. A CSRC_HYBRID component keeps running: its live
+ * step is one it suppresses itself, and what remains is a captured-file read.
+ *
+ * Reusing is_filtered excludes them from scheduling and accounting exactly as
+ * --skip does. No-op on a live run. Called after apply_skip_filter(). */
 static void apply_sysroot_filter(void) {
-  const char *root = getenv("KASLD_SYSROOT");
-  if (!root || !*root)
+  if (kasld_fact_source() != KASLD_FACTS_CAPTURE)
     return;
   for (int i = 0; i < num_components; i++) {
-    if (components[i].is_live)
+    if (components[i].source == CSRC_LIVE)
       components[i].is_filtered = 1;
   }
 }
@@ -1829,7 +1866,8 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
     lv.cs = likely ? likely->constraints : NULL;
     lv.n_cs = likely ? likely->n_constraints : 0;
     lv.floor = CONF_BRUTE;
-    kasld_report_build(gv, lv, pts, posture, kasld_sysroot() != NULL, report);
+    kasld_report_build(gv, lv, pts, posture,
+                       kasld_fact_source() == KASLD_FACTS_CAPTURE, report);
   }
 }
 
@@ -3512,7 +3550,7 @@ int main(int argc, char *argv[]) {
    * on the report. */
   {
     const char *rel = getenv("KASLD_UNAME_RELEASE");
-    if (!kasld_sysroot() && rel && *rel)
+    if (kasld_fact_source() == KASLD_FACTS_LIVE && rel && *rel)
       fprintf(stderr,
               "warning: KASLD_UNAME_RELEASE is set without KASLD_SYSROOT; the "
               "facts come from the running kernel, which uname(2) already "
@@ -3530,7 +3568,7 @@ int main(int argc, char *argv[]) {
   kasld_env_snapshot();
   if (verbose && !quiet && plain_output()) {
     render_banner();
-    render_system_config(kasld_sysroot() != NULL);
+    render_system_config(kasld_fact_source() == KASLD_FACTS_CAPTURE);
   }
 
   /* A build narrower than the target kernel cannot model it. The arch header is
@@ -3541,9 +3579,7 @@ int main(int argc, char *argv[]) {
    * parse layer already refuses individual addresses it cannot represent; this
    * refuses the analysis. */
   {
-    const char *sysroot_env = getenv("KASLD_SYSROOT");
-    struct kasld_width_check w =
-        kasld_check_target_width(sysroot_env && *sysroot_env);
+    struct kasld_width_check w = kasld_check_target_width(kasld_fact_source());
     if (w.verdict == KASLD_WIDTH_MISMATCH) {
       char detail[160];
       if (w.signal == KASLD_WIDTH_SIGNAL_TASK_SIZE)
@@ -3613,12 +3649,11 @@ int main(int argc, char *argv[]) {
   /* Verbose: list components excluded by --skip or, under KASLD_SYSROOT, by the
    * offline live-probe filter (apply_sysroot_filter). */
   if (verbose && plain_output()) {
-    const char *sysroot = getenv("KASLD_SYSROOT");
-    int offline = sysroot && *sysroot;
+    int offline = kasld_fact_source() == KASLD_FACTS_CAPTURE;
     for (int i = 0; i < num_components; i++) {
       if (!components[i].is_filtered)
         continue;
-      if (offline && components[i].is_live)
+      if (offline && components[i].source == CSRC_LIVE)
         printf("[.] skipping %s (live probe, not replayable under "
                "KASLD_SYSROOT)\n",
                components[i].name);
@@ -3654,10 +3689,12 @@ int main(int argc, char *argv[]) {
      * the progress bar omits this block; see render_readout(). */
     printf("%sKASLD %s%s  --  Kernel Address Space Layout Derandomization\n",
            c(C_BOLD), VERSION, c(C_RESET));
+    const char *replayed =
+        kasld_fact_source() == KASLD_FACTS_CAPTURE ? " (replayed capture)" : "";
     struct utsname u;
     if (kasld_uname(&u) == 0)
       printf("%sTarget: %s / %s%s%s\n", c(C_DIM), u.machine, u.release,
-             kasld_sysroot() ? " (replayed capture)" : "", c(C_RESET));
+             replayed, c(C_RESET));
     printf("\n");
 
     clock_gettime(CLOCK_MONOTONIC, &progress_start);
@@ -3674,9 +3711,9 @@ int main(int argc, char *argv[]) {
     }
     /* Under KASLD_SYSROOT the filtered set also includes live probes skipped
      * for offline analysis (not just --skip), so word the count neutrally. */
-    const char *sysroot = getenv("KASLD_SYSROOT");
-    const char *skipped_by =
-        (sysroot && *sysroot) ? "skipped" : "skipped by --skip";
+    const char *skipped_by = kasld_fact_source() == KASLD_FACTS_CAPTURE
+                                 ? "skipped"
+                                 : "skipped by --skip";
     /* "N of M" rather than a bare N: the skipped counts that follow are
      * excluded from N, so a bare count reads either way. */
     if (num_active_components == 0) {

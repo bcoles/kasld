@@ -49,7 +49,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:detection\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 /* Return 1 if CONFIG_HIBERNATION=y appears in an already-open config file. */
 static int config_has_hibernation(FILE *fp) {

@@ -103,17 +103,19 @@ static inline int kasld__kallsyms_hex_digits(void) {
 
 /* Establish whether the target is wider than this build can represent.
  *
- * `replaying` is non-zero when analysing a captured tree (KASLD_SYSROOT), which
- * suppresses the TASK_SIZE probe: mmap would measure the host running the
- * analysis, not the kernel the capture came from. */
-static inline struct kasld_width_check kasld_check_target_width(int replaying) {
+ * `facts` says where the run's facts come from. KASLD_FACTS_CAPTURE suppresses
+ * the TASK_SIZE probe: mmap would measure the host running the analysis, not
+ * the kernel the capture came from. Passed rather than read here so a test can
+ * exercise both answers without staging a tree. */
+static inline struct kasld_width_check
+kasld_check_target_width(enum kasld_fact_source facts) {
   struct kasld_width_check r;
   memset(&r, 0, sizeof(r));
 
 #if defined(__LP64__) || defined(_LP64)
   /* A 64-bit build cannot be narrower than its kernel: a 32-bit kernel would
    * not have loaded it. */
-  (void)replaying;
+  (void)facts;
   return r;
 #else
   /* Signal 1: the measured user/kernel boundary against the highest this
@@ -121,7 +123,7 @@ static inline struct kasld_width_check kasld_check_target_width(int replaying) {
    * PAGE_OFFSET (arm32 leaves a 16 MiB gap, riscv32 the whole fixmap stack), so
    * a boundary ABOVE the highest split is not a wide-split kernel — it is a
    * kernel whose user half is the compat window of a 64-bit address space. */
-  if (!replaying) {
+  if (facts == KASLD_FACTS_LIVE) {
     unsigned long split = 0;
     enum kasld_ts_status st = kasld_task_size_probe(&split);
     if ((st == KASLD_TS_EXACT || st == KASLD_TS_APPROX) && split != 0) {
@@ -146,7 +148,7 @@ static inline struct kasld_width_check kasld_check_target_width(int replaying) {
    * the second — the fixmap/PCI-IO/vmemmap stack sits between TASK_SIZE and
    * PAGE_OFFSET — so declaring it there would refuse every native kernel. */
 #ifdef TASK_SIZE_EXACT
-  if (!replaying && r.task_size != 0 &&
+  if (facts == KASLD_FACTS_LIVE && r.task_size != 0 &&
       r.task_size != (unsigned long)TASK_SIZE_EXACT) {
     r.verdict = KASLD_WIDTH_MISMATCH;
     r.signal = KASLD_WIDTH_SIGNAL_TASK_SIZE;

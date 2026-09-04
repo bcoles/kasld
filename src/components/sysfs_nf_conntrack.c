@@ -52,6 +52,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:virtual\n"
+           "source:files\n"
            "patch:v4.6\n"
            "config:CONFIG_NF_CONNTRACK\n");
 

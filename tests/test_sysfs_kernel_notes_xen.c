@@ -87,7 +87,9 @@ static unsigned long live_phys32(void) {
   return (unsigned long)KERNEL_PHYS_MIN + 4ul * (unsigned long)KASLR_PHYS_ALIGN;
 }
 
-static void run(int *rc) { TH_RUN_COMPONENT(*rc, sysfs_kernel_notes_xen_main()); }
+static void run(int *rc) {
+  TH_RUN_COMPONENT(*rc, sysfs_kernel_notes_xen_main());
+}
 
 /* Relocated notes are the one publishable state. */
 static void test_live_notes_are_published(void) {
@@ -137,9 +139,8 @@ static void test_place_relative_symbols_discard_everything(void) {
   note_add("Xen", XEN_ELFNOTE_ENTRY, &entry, sizeof entry);
   note_add("Xen", XEN_ELFNOTE_PHYS32_ENTRY, &p32, sizeof p32);
   stage_notes();
-  th_sysroot_write("/proc/kallsyms",
-                   "ffffffff81000000 T _text\n"
-                   "ffffffff81234000 T xen_elfnote_entry\n");
+  th_sysroot_write("/proc/kallsyms", "ffffffff81000000 T _text\n"
+                                     "ffffffff81234000 T xen_elfnote_entry\n");
   int rc;
   run(&rc);
   assert(strstr(th_cap, "startup_xen") == NULL);

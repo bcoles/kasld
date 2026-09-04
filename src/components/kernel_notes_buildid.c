@@ -125,7 +125,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 /* Print a hex-encoded descriptor (build_id is binary; render lowercase
  * without separators to match `readelf -n` and debuginfod lookup keys). */

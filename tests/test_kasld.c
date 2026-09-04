@@ -3319,9 +3319,11 @@ static void test_env_drop_prefix_removes_only_the_prefix(void) {
   assert(getenv("PATH_KASLDTEST_MIDDLE") != NULL);
 
   /* Unrelated entries survive, the staged sysroot among them, and the block is
-   * still a well-formed environment that setenv and getenv work over. */
+   * still a well-formed environment that setenv and getenv work over.
+   * The sysroot is read from the array because the claim is about the array;
+   * the cached accessor would answer either way. */
   assert(getenv("PATH") != NULL);
-  assert(getenv("KASLD_SYSROOT") != NULL);
+  assert(getenv("KASLD_SYSROOT") != NULL); /* KASLD_ENV_BLOCK */
   setenv("KASLDTEST_GAMMA", "3", 1);
   assert(getenv("KASLDTEST_GAMMA") != NULL);
 
@@ -3333,9 +3335,11 @@ static void test_env_drop_prefix_removes_only_the_prefix(void) {
 /* An ordinary run must not lose its environment: the constructor has already
  * run by the time any test does, and it must have changed nothing. */
 static void test_unprivileged_exec_keeps_its_environment(void) {
+  /* What survived the constructor is the environment array itself, which is
+   * what these read. */
   assert(kasld_exec_gained_privilege() == 0);
   assert(getenv("PATH") != NULL);
-  assert(getenv("KASLD_SYSROOT") != NULL);
+  assert(getenv("KASLD_SYSROOT") != NULL); /* KASLD_ENV_BLOCK */
 }
 
 int main(void) {

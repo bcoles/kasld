@@ -11,10 +11,18 @@
 # hardening report — so the metadata block is mandatory.
 #
 # This check FAILS if any src/components/*.c lacks a KASLD_META(...) declaration,
-# or carries one with no method: key (the field that classifies the component), or
-# no discloses: key naming what it leaks.
+# or carries one with no method: key (the field that classifies the component),
+# no discloses: key naming what it leaks, or no source: key naming where its
+# inputs come from.
 #
-# It also holds the method:/discloses: VOCABULARY together. The same list is
+# source: is mandatory for a reason the other two are not: the orchestrator
+# schedules on it. An absent value reads as "live" and the component is kept away
+# from a captured tree -- safe, but a component that meant "files" and forgot to
+# say so silently stops running offline, and one that IS live and forgot to say
+# so would have run there had the default gone the other way. Neither is a state
+# worth having, and requiring the key removes both.
+#
+# It also holds the method:/discloses:/source: VOCABULARY together. Each list is
 # written in three places -- the allowed sets below, the KASLD_META key reference
 # in src/include/kasld/api.h, and the metadata table in CONTRIBUTING.md -- and it
 # discriminates only while all three agree. Both failure directions have been
@@ -36,9 +44,14 @@
 #
 # The documents are read as text, so their present shape is load-bearing: the
 # api.h method entry lists its values after "Values:" and closes the sentence with
-# a period, its discloses entry quotes each value, and CONTRIBUTING.md carries one
-# table row per key with the values in the last column. Rewriting either away from
-# that shape fails this check rather than passing silently.
+# a period, its discloses and source entries quote each value, and
+# CONTRIBUTING.md carries one table row per key with the values in the last
+# column. Rewriting either away from that shape fails this check rather than
+# passing silently.
+#
+# A quoted-values entry is read from its own lines only: the range runs to the
+# NEXT key and that delimiter line is dropped, so a value quoted in the
+# neighbouring entry cannot be counted as this one's.
 # ---
 # <bcoles@gmail.com>
 
@@ -58,9 +71,11 @@ fi
 # per-component checks alike; see the note above before adding a value.
 METHOD_VALUES='parsed heuristic inferred timing brute detection'
 DISCLOSES_VALUES='virtual physical both facts'
+SOURCE_VALUES='files live hybrid'
 
 meth_alt=$(printf '%s' "$METHOD_VALUES" | tr ' ' '|')
 disc_alt=$(printf '%s' "$DISCLOSES_VALUES" | tr ' ' '|')
+src_alt=$(printf '%s' "$SOURCE_VALUES" | tr ' ' '|')
 
 # Space- or comma-separated words -> sorted and space-separated, so two
 # vocabularies can be compared as sets regardless of how either was written.
@@ -76,6 +91,8 @@ nomethod=""
 badhw=""
 nodisc=""
 baddisc=""
+nosrc=""
+badsrc=""
 n=0
 for f in "$COMP"/*.c; do
   n=$((n + 1))
@@ -114,6 +131,20 @@ for f in "$COMP"/*.c; do
     baddisc="$baddisc $base"
     rc=1
   fi
+  # source: names where the technique's own inputs come from -- fact files, live
+  # runtime state, or both -- and is what the orchestrator schedules on against a
+  # captured tree. Required of every component because the alternative to a
+  # declaration is a default, and either default is wrong for half the tree: a
+  # live probe silently reporting the analysing host, or a file parser silently
+  # dropped from every replay.
+  if ! grep -qE '"source:' "$f"; then
+    nosrc="$nosrc $base"
+    rc=1
+  elif ! grep -qE '"source:('"$src_alt"')\\n"' "$f"; then
+    badsrc="$badsrc $base"
+    rc=1
+  fi
+
   # The hardware: field names the requirement; a feature that DISABLES the leak
   # belongs in a trailing "(mitigated by X)", never as the bare value. The flagged
   # tokens name mitigations, not requirements: KPTI is a kernel config, not
@@ -134,14 +165,24 @@ MD="$ROOT/CONTRIBUTING.md"
 
 used_method=$(grep -ho '"method:[a-z]*' "$COMP"/*.c | sed 's/"method://')
 used_disc=$(grep -ho '"discloses:[a-z]*' "$COMP"/*.c | sed 's/"discloses://')
+used_src=$(grep -ho '"source:[a-z]*' "$COMP"/*.c | sed 's/"source://')
 
 want_method=$(norm "$METHOD_VALUES")
 want_disc=$(norm "$DISCLOSES_VALUES")
+want_src=$(norm "$SOURCE_VALUES")
+
+# The quoted values of one api.h key entry: from its own line to the line
+# starting the NEXT key, with that delimiter dropped so a neighbour's values
+# cannot leak in. $1 = key, $2 = the key that follows it.
+api_quoted() {
+  sed -n "/^ \\*   $1:/,/^ \\*   $2:/p" "$API" | sed '$d' |
+    grep -o '"[a-z]*"' | tr -d '"' | tr '\n' ' '
+}
 
 api_method=$(norm "$(sed -n '/^ \*   method:/,/^ \*   phase:/p' "$API" |
                      tr '\n' ' ' | sed -E 's/.*Values:([^.]*)\..*/\1/' | tr -d '*')")
-api_disc=$(norm "$(sed -n '/^ \*   discloses:/,/^ \*   live:/p' "$API" |
-                   grep -o '"[a-z]*"' | tr -d '"' | tr '\n' ' ')")
+api_disc=$(norm "$(api_quoted discloses source)")
+api_src=$(norm "$(api_quoted source status)")
 # The backticks are literal table markup, not command substitution, so both
 # patterns must stay single-quoted.
 # shellcheck disable=SC2016
@@ -150,6 +191,9 @@ md_method=$(norm "$(grep -E '^\| `method` \|' "$MD" |
 # shellcheck disable=SC2016
 md_disc=$(norm "$(grep -E '^\| `discloses` \|' "$MD" |
                   awk -F'|' '{ print $(NF - 1) }' | tr -d '` ')")
+# shellcheck disable=SC2016
+md_src=$(norm "$(grep -E '^\| `source` \|' "$MD" |
+                 awk -F'|' '{ print $(NF - 1) }' | tr -d '` ')")
 
 # <key> <document> <documented set> <expected set>
 vocab_cmp() {
@@ -163,8 +207,10 @@ vocab_cmp() {
 
 vocab_cmp method    "src/include/kasld/api.h" "$api_method" "$want_method" || rc=1
 vocab_cmp discloses "src/include/kasld/api.h" "$api_disc" "$want_disc" || rc=1
+vocab_cmp source    "src/include/kasld/api.h" "$api_src" "$want_src" || rc=1
 vocab_cmp method    "CONTRIBUTING.md" "$md_method" "$want_method" || rc=1
 vocab_cmp discloses "CONTRIBUTING.md" "$md_disc" "$want_disc" || rc=1
+vocab_cmp source    "CONTRIBUTING.md" "$md_src" "$want_src" || rc=1
 
 # A value no component carries names a category the tree does not have.
 unused=""
@@ -173,6 +219,9 @@ for v in $METHOD_VALUES; do
 done
 for v in $DISCLOSES_VALUES; do
   printf '%s\n' "$used_disc" | grep -qx "$v" || unused="$unused discloses:$v"
+done
+for v in $SOURCE_VALUES; do
+  printf '%s\n' "$used_src" | grep -qx "$v" || unused="$unused source:$v"
 done
 if [ -n "$unused" ]; then
   printf '%scheck-component-meta: FAIL%s — allowed value no component carries:\n' "$RED" "$RESET"
@@ -202,6 +251,16 @@ if [ -n "$baddisc" ]; then
   printf '%scheck-component-meta: FAIL%s — discloses: must be virtual/physical/both/facts:\n' "$RED" "$RESET"
   for c in $baddisc; do printf '  %s\n' "$c"; done
 fi
+if [ -n "$nosrc" ]; then
+  printf '%scheck-component-meta: FAIL%s — KASLD_META without a source: key:\n' "$RED" "$RESET"
+  for c in $nosrc; do printf '  %s\n' "$c"; done
+  printf '  name where the inputs come from: files (fact files only), live\n'
+  printf '  (live runtime state of the executing kernel/CPU) or hybrid (both)\n'
+fi
+if [ -n "$badsrc" ]; then
+  printf '%scheck-component-meta: FAIL%s — source: must be one of %s:\n' "$RED" "$RESET" "$SOURCE_VALUES"
+  for c in $badsrc; do printf '  %s\n' "$c"; done
+fi
 if [ -n "$badhw" ]; then
   printf '%scheck-component-meta: FAIL%s — hardware: names a mitigation as the requirement (move it into "(mitigated by X)"):\n' "$RED" "$RESET"
   for c in $badhw; do printf '  %s\n' "$c"; done
@@ -209,6 +268,6 @@ fi
 if [ "$rc" -eq 0 ]; then
 guard_scope "check-component-meta" "$n" 80
 
-  printf '%scheck-component-meta: OK%s (%d components, all declare KASLD_META with method: and discloses:; vocabulary matches api.h and CONTRIBUTING.md)\n' "$GREEN" "$RESET" "$n"
+  printf '%scheck-component-meta: OK%s (%d components, all declare KASLD_META with method:, discloses: and source:; vocabulary matches api.h and CONTRIBUTING.md)\n' "$GREEN" "$RESET" "$n"
 fi
 exit $rc

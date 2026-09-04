@@ -479,8 +479,8 @@ Supported metadata keys:
 |---|---|---|
 | `method` | **Required.** Technique category, used by the hardening report | `parsed`, `heuristic`, `inferred`, `timing`, `brute`, `detection` |
 | `discloses` | **Required.** What the technique leaks | `virtual`, `physical`, `both`, `facts` |
+| `source` | **Required.** Where the technique's own inputs come from; the orchestrator schedules on it against a captured tree | `files`, `live`, `hybrid` |
 | `phase` | Scheduling phase | `inference` (default when omitted), `probing` |
-| `live` | Result comes from live runtime state, not a captured file — skipped offline | `1` |
 | `sysctl` | Runtime sysctl gate | `dmesg_restrict>=1`, `kptr_restrict>=1` |
 | `bypass` | Condition that bypasses the gate | `CAP_SYSLOG`, `adm group` |
 | `fallback` | Alternative data source | `/var/log/dmesg` |
@@ -491,13 +491,28 @@ Supported metadata keys:
 | `patch` | Kernel version where the leak was patched | `v4.10`, `v6.2` |
 | `status` | Opt-in gate; the component runs only with `-x` | `experimental` |
 
-`method` and `discloses` are mandatory — `tests/check-component-meta` fails the
-build without them, and rejects a `discloses` value outside the four above.
+`method`, `discloses` and `source` are mandatory — `tests/check-component-meta`
+fails the build without them, and rejects a value outside each key's list above.
+
 `discloses` names what the *technique* leaks, a static property of the component,
 as distinct from what a given run observed. The JSON publishes every component's
 metadata block, and the compile-time-surface and hardware-side-channel sections
 of the hardening report fall back to `discloses` because they list a component
 whether or not it produced anything.
+
+`source` names where the technique's own inputs come from, and decides whether it
+runs when the analysis reads a captured tree instead of the running kernel:
+
+- `files` — every input is a fact file, so the technique replays unchanged.
+- `live` — the result derives from live runtime state of the executing
+  kernel/CPU, which no capture carries; the component does not run there.
+- `hybrid` — a live step *and* a captured-file read, so it runs in either mode
+  with the live step suppressed.
+
+It describes the component's *own* code. Where a shared header already answers
+the same question from a file under a capture — the kernel log via `dmesg.h`, the
+process identity via the environment gatherer — the component is `files`: the
+abstraction holds the branch, not the component.
 
 Each component should also include structured comment blocks in its file
 header documenting the leak primitive and mitigations:
@@ -550,12 +565,25 @@ oversized-input case.
 executing kernel/CPU — a perf syscall, a CPU instruction, a timing side-channel,
 a set-uid helper, or a self-referential `/proc/self` pseudo-file — cannot be
 reproduced from a captured tree: under `KASLD_SYSROOT` it would describe the
-analysis host, not the target. Such a component must (1) declare `live:1` in
-`KASLD_META`, so the orchestrator filters it under `KASLD_SYSROOT`, and (2) call
-`kasld_skip_live_probe("<name>")` at the top of `main()` (returning when it
-returns non-zero), so a direct standalone run skips itself too. The
-`tests/check-live-probes` guard fails the build if a live probe is missing
-either. A component that only reads capturable files needs neither.
+analysis host, not the target. Such a component must (1) declare `source:live`
+in `KASLD_META`, so the orchestrator filters it under `KASLD_SYSROOT`, and (2)
+call `kasld_skip_live_probe("<name>")` at the top of `main()` (returning when it
+returns non-zero), so a direct standalone run skips itself too.
+
+A component that needs a live step but still has something to say from the
+capture declares `source:hybrid` and brackets the live step alone:
+
+```c
+if (kasld_fact_source() == KASLD_FACTS_LIVE) {
+  /* trigger the module load / measure the running kernel */
+}
+/* read the captured files either way */
+```
+
+The `tests/check-live-probes` guard holds each declaration to the code: a
+`files` component must contain no live primitive, and a `live` or `hybrid` one
+must carry its guard. Reach for `kasld_fact_source()` rather than testing
+`KASLD_SYSROOT`; `tests/check-fact-source` keeps the question to one spelling.
 
 Hermetic tests are regression guards against parser *code* changes, not a way to
 detect kernel-side ABI drift — a frozen fixture cannot track a moving kernel.

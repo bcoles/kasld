@@ -39,7 +39,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:detection\n"
            "phase:inference\n"
-           "discloses:virtual\n");
+           "discloses:virtual\n"
+           "source:files\n");
 
 /* Read the first value for a given key from /proc/cpuinfo.
  * Returns a pointer into buf on success, NULL on failure.

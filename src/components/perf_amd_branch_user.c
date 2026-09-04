@@ -90,8 +90,8 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "live:1\n"
            "discloses:virtual\n"
+           "source:live\n"
            "note:bypasses_perfmon\n"
            "patch:v7.2\n");
 

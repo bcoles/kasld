@@ -109,6 +109,7 @@ KASLD_EXPLAIN("On Xen PV and PVH guests, /sys/kernel/notes contains ELF notes "
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:virtual\n"
+           "source:files\n"
            "cve:CVE-2024-26816\n"
            "patch:v6.9\n"
            "config:CONFIG_XEN_PV\n");

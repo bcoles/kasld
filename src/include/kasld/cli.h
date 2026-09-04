@@ -79,17 +79,19 @@ kasld_logf(char level, int gated, const char *fmt, ...) {
 #define kasld_found(...)                                                       \
   kasld_logf('+', 0, __VA_ARGS__) /* a leak was produced*/
 
-/* Live-probe guard for standalone invocation. A component whose result comes
- * from live runtime state of the executing kernel/CPU (tagged live:1 in
- * KASLD_META — perf, timing side-channels, mmap VA sweeps, ioctl/socket leaks,
- * /proc/self, ...) is meaningless against a captured tree: under KASLD_SYSROOT
- * it would describe the analysis host, not the target. Call it at the top of
- * such a component's main() and return when it returns non-zero:
+/* Live-probe guard for standalone invocation. A component declaring
+ * source:live in KASLD_META draws its result from live runtime state of the
+ * executing kernel/CPU — perf, timing side-channels, mmap VA sweeps,
+ * ioctl/socket leaks, /proc/self — which against a captured tree describes the
+ * analysis host, not the target. Call it at the top of such a component's
+ * main() and return when it returns non-zero:
  *     if (kasld_skip_live_probe("mincore")) return 0;
- * The orchestrator independently filters these components under KASLD_SYSROOT
- * (they never fork); this is the safety net for running the binary directly. */
+ * The orchestrator filters those components out on its own (they never fork);
+ * this is the safety net for running the binary directly. A source:hybrid
+ * component runs in both modes instead, and branches on kasld_fact_source()
+ * around the live step alone. */
 static inline int kasld_skip_live_probe(const char *what) {
-  if (!kasld_sysroot())
+  if (kasld_fact_source() == KASLD_FACTS_LIVE)
     return 0;
   kasld_info("skipping live %s probe under KASLD_SYSROOT", what);
   return 1;

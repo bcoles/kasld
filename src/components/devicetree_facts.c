@@ -13,7 +13,8 @@ KASLD_EXPLAIN("Reads the OPAL/RTAS firmware reserved-region base from the "
               "fact bounding the kernel ceiling. ppc64 only.");
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "discloses:facts\n");
+           "discloses:facts\n"
+           "source:files\n");
 
 int main(void) {
   unsigned long v = kasld_read_ppc64_fw_reserved_base();

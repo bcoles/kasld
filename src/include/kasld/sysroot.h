@@ -15,6 +15,12 @@
 // pass-throughs: kasld_resolve() returns the original pointer and no copy is
 // made. Only absolute paths are rewritten; a relative path is left alone.
 //
+// Which of the two a run is doing is a value, kasld_fact_source(), not a test
+// on the prefix: the wrappers redirect the filesystem channel, and a source
+// that answers only for the executing kernel -- a syscall, an instruction, a
+// timing measurement -- has to be suppressed rather than redirected. Every
+// such site reads the same value.
+//
 // Not everything routes through here. Runtime-discovered objects that must
 // observe the actual running system regardless of any sysroot deliberately
 // keep the raw libc calls: /proc/self/exe (the real running binary), an
@@ -53,6 +59,24 @@ __attribute__((unused)) static const char *kasld_sysroot(void) {
     cached = 1;
   }
   return root;
+}
+
+/* Where this run's facts come from: the kernel this process is executing on,
+ * or a tree captured from another system. The two are alternatives rather than
+ * a flag, so they are one value with one name, and a site deciding policy on
+ * the answer reads it here instead of re-deriving it.
+ *
+ * This is the mode test. kasld_sysroot() above is the path accessor
+ * kasld_resolve() composes with; testing that pointer for NULL to learn WHICH
+ * SYSTEM the facts describe answers the question in a second vocabulary, and
+ * tests/check-fact-source refuses it outside this header. */
+enum kasld_fact_source {
+  KASLD_FACTS_LIVE,   /* the kernel this process runs on */
+  KASLD_FACTS_CAPTURE /* a tree captured from another system */
+};
+
+__attribute__((unused)) static enum kasld_fact_source kasld_fact_source(void) {
+  return kasld_sysroot() != NULL ? KASLD_FACTS_CAPTURE : KASLD_FACTS_LIVE;
 }
 
 #ifdef KASLD_HERMETIC_PROBE
@@ -263,7 +287,7 @@ __attribute__((unused)) static int kasld_uname(struct utsname *u) {
   int rc = uname(u);
   if (rc == 0) {
     const char *rel = getenv("KASLD_UNAME_RELEASE");
-    int have_rel = rel && *rel && kasld_sysroot() != NULL;
+    int have_rel = rel && *rel && kasld_fact_source() == KASLD_FACTS_CAPTURE;
 
     /* Under a sysroot, uname(2) answers for the machine reading the capture,
      * not for the capture. Where the capture states no identity of its own,
@@ -277,7 +301,8 @@ __attribute__((unused)) static int kasld_uname(struct utsname *u) {
      * the version still unknown. .machine is left alone throughout: it is the
      * emulated arch under qemu and compile-time on native, so it describes the
      * binary doing the reading in either case. */
-    if (kasld_sysroot() && kasld_uname_from_proc_version(u) != 0) {
+    if (kasld_fact_source() == KASLD_FACTS_CAPTURE &&
+        kasld_uname_from_proc_version(u) != 0) {
       memset(u->release, 0, sizeof(u->release));
       memset(u->version, 0, sizeof(u->version));
       if (!have_rel)
@@ -305,7 +330,7 @@ __attribute__((unused)) static int kasld_uname(struct utsname *u) {
  * since nothing else in it gives the gap away. */
 __attribute__((unused)) static int kasld_uname_describes_target(void) {
   struct utsname probe;
-  if (!kasld_sysroot())
+  if (kasld_fact_source() == KASLD_FACTS_LIVE)
     return 1;
   return kasld_uname_from_proc_version(&probe) == 0;
 }

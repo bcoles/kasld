@@ -65,7 +65,7 @@ static void test_kallsyms_non_column_is_no_signal(void) {
  * have contributed, since it would describe the analysing host. */
 static void test_replay_uses_only_the_file_signal(void) {
   stage_kallsyms("ffffffff81a00000 T _text\n");
-  struct kasld_width_check w = kasld_check_target_width(1);
+  struct kasld_width_check w = kasld_check_target_width(KASLD_FACTS_CAPTURE);
   if (sizeof(kasld_addr_t) < 8) {
     assert(w.verdict == KASLD_WIDTH_MISMATCH);
     assert(w.signal == KASLD_WIDTH_SIGNAL_KALLSYMS);
@@ -83,7 +83,7 @@ static void test_matching_width_is_not_a_mismatch(void) {
   snprintf(line, sizeof(line), "%0*lx T _text\n",
            (int)(sizeof(kasld_addr_t) * 2), (unsigned long)0x1000);
   stage_kallsyms(line);
-  struct kasld_width_check w = kasld_check_target_width(1);
+  struct kasld_width_check w = kasld_check_target_width(KASLD_FACTS_CAPTURE);
   assert(w.verdict == KASLD_WIDTH_OK);
 }
 
@@ -92,7 +92,7 @@ static void test_matching_width_is_not_a_mismatch(void) {
  * policy hides the file — and the case a careless implementation gets wrong. */
 static void test_no_signal_is_not_a_mismatch(void) {
   stage_kallsyms(NULL);
-  struct kasld_width_check w = kasld_check_target_width(1);
+  struct kasld_width_check w = kasld_check_target_width(KASLD_FACTS_CAPTURE);
   assert(w.verdict == KASLD_WIDTH_OK);
   assert(w.signal == KASLD_WIDTH_SIGNAL_NONE);
 }
@@ -103,8 +103,9 @@ static void test_64bit_build_is_inert(void) {
   if (sizeof(kasld_addr_t) < 8)
     return;
   stage_kallsyms("ffffffffffffffff T _text\n");
-  assert(kasld_check_target_width(0).verdict == KASLD_WIDTH_OK);
-  assert(kasld_check_target_width(1).verdict == KASLD_WIDTH_OK);
+  assert(kasld_check_target_width(KASLD_FACTS_LIVE).verdict == KASLD_WIDTH_OK);
+  assert(kasld_check_target_width(KASLD_FACTS_CAPTURE).verdict ==
+         KASLD_WIDTH_OK);
 }
 
 /* Where the architecture fixes the boundary, the expectation is exact, and the

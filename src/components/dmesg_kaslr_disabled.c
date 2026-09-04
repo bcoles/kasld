@@ -103,6 +103,7 @@ KASLD_EXPLAIN("Searches dmesg for messages indicating KASLR was disabled or "
 KASLD_META("method:detection\n"
            "phase:inference\n"
            "discloses:facts\n"
+           "source:files\n"
            "sysctl:dmesg_restrict>=1\n"
            "bypass:CAP_SYSLOG\n"
            "fallback:/var/log/dmesg\n");

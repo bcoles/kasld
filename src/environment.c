@@ -462,7 +462,7 @@ void kasld_gather_vantage(struct kasld_vantage *v) {
       parse_id_pair(st.gid, &v->gid, &v->egid)) {
     v->have_ids = 1;
     parse_groups(st.groups, st.groups_cut, v);
-  } else if (!kasld_sysroot()) {
+  } else if (kasld_fact_source() == KASLD_FACTS_LIVE) {
     identity_from_syscalls(v);
   }
   if (v->ngroups > 0)

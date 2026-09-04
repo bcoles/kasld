@@ -64,6 +64,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:physical\n"
+           "source:files\n"
            "config:CONFIG_OF\n");
 
 #define MAX_EMIT 256

@@ -72,6 +72,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:virtual\n"
+           "source:files\n"
            "config:CONFIG_PTDUMP_DEBUGFS\n");
 
 #if !TEXT_TRACKS_DIRECTMAP
