@@ -943,6 +943,7 @@ lint :
 	    $(TEST_DIR)/check-live-probes \
 	    $(TEST_DIR)/check-fact-source \
 	    $(TEST_DIR)/check-bundle-prepare \
+	    $(TEST_DIR)/check-host-build \
 	    $(TEST_DIR)/check-hash-parity \
 	    $(TEST_DIR)/check-text-floor \
 	    $(TEST_DIR)/check-text-region \

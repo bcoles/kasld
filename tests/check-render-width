@@ -21,6 +21,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # shellcheck source=tests/lib/qemu-target.sh
 . "$ROOT/tests/lib/qemu-target.sh"
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 
 if [ -t 1 ]; then
   RED=$(printf '\033[31m')
@@ -42,7 +44,6 @@ fi
 # table never reflows between runs.
 MAX_COLS=110
 QEMU_DIR=${QEMU_DIR:-}
-HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
 fail=0
 
 # Output modes worth measuring: the default readout, the readout plus the
@@ -98,9 +99,9 @@ ALL=${KASLD_WIDTH_ALL:-0}
 for bin in "$ROOT"/build/*/kasld; do
   [ -x "$bin" ] || continue
   triple=$(basename "$(dirname "$bin")")
-  [ "$ALL" = "1" ] || [ "$triple" = "$HOST_TRIPLE" ] || continue
+  [ "$ALL" = "1" ] || is_host_triple "$triple" || continue
   runner=
-  if [ "$triple" != "$HOST_TRIPLE" ]; then
+  if ! is_host_triple "$triple"; then
     runner=$(resolve_qemu "$(qemu_for "$triple")") || continue
   fi
   printf '%s\n' "$MODES" | while read -r mode; do

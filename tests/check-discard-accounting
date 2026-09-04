@@ -46,6 +46,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
@@ -66,14 +68,7 @@ note() {
 # executes perfectly well on an x86_64 host and then declines the analysis,
 # being a 32-bit build against a 64-bit kernel — so it emits no discarded block
 # and this guard would report a parse failure instead of a real result.
-BIN=
-for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
-  [ -n "$t" ] || continue
-  if [ -x "$ROOT/build/$t/kasld" ]; then
-    BIN=$ROOT/build/$t/kasld
-    break
-  fi
-done
+BIN=$(host_kasld)
 [ -n "$BIN" ] || {
   printf 'check-discard-accounting: SKIP (no native kasld build; run make first)\n'
   exit 0

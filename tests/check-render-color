@@ -38,6 +38,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # shellcheck source=tests/lib/qemu-target.sh
 . "$ROOT/tests/lib/qemu-target.sh"
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
@@ -58,7 +60,6 @@ fi
 ESC=$(printf '\033')
 
 QEMU_DIR=${QEMU_DIR:-}
-HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
 fail=0
 checked=0
 targets=0
@@ -150,7 +151,7 @@ for bin in "$ROOT"/build/*/kasld; do
   [ -x "$bin" ] || continue
   triple=$(basename "$(dirname "$bin")")
   runner=
-  if [ "$triple" != "$HOST_TRIPLE" ]; then
+  if ! is_host_triple "$triple"; then
     runner=$(resolve_qemu "$(qemu_for "$triple")") || continue
   fi
   targets=$((targets + 1))
@@ -164,7 +165,7 @@ for bin in "$ROOT"/build/*/kasld; do
   # The remaining modes run on the host only. They exercise call sites, not
   # per-architecture layout, so one target settles them and the sweep stays fast
   # enough to sit in the default lint run.
-  [ "$triple" = "$HOST_TRIPLE" ] || continue
+  is_host_triple "$triple" || continue
   printf '%s\n' "$TEXT_MODES" | while read -r mode; do
     [ "$mode" = "-q" ] && continue
     printf '%s\n' "$mode"

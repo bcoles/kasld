@@ -32,6 +32,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT INT TERM
 
 # The soundness invariant needs a PURE FUNCTION OF THE FILES. Skip every
@@ -43,9 +45,11 @@ WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT INT TERM
 # and so vary every run. With these skipped the replay is deterministic.
 SKIP='prefetch*,perf*,mmap*,databounce,echoload,entrybleed,zombieload,kernelsnitch,page_size,sidt,proc_pid_syscall,proc_stat_wchan,function_order_fingerprint'
 
-# Native (host-arch) build dir + binary; KASLD_BIN overrides the binary.
-HOSTDIR=$ROOT/build/$(uname -m)-linux-gnu
-HOSTBIN=${KASLD_BIN:-$HOSTDIR/kasld}
+# Native build dir + binary; KASLD_BIN overrides the binary. The directory is
+# named the way the build system names it, so a build made with a non-default
+# CC resolves as readily as the default one.
+HOSTBIN=${KASLD_BIN:-$(host_kasld)}
+HOSTDIR=$(dirname "$HOSTBIN")
 
 # KASLD_COLOR keeps the colours when stdout is not a terminal, which is how
 # this runs under a log capture or a CI job. Same override the source guards
@@ -56,6 +60,15 @@ if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
 else
   RED=; GRN=; YEL=; RST=
 fi
+# Every check below runs this binary, so an unresolved one is the end of the
+# run rather than a note: without it each check would report its own unrelated
+# failure and the cause would be stated nowhere.
+if [ -z "$HOSTBIN" ] || [ ! -x "$HOSTBIN" ]; then
+  printf '%scontainer: no native kasld under %s/build%s -- run make first\n' \
+    "$YEL" "$ROOT" "$RST" >&2
+  exit 2
+fi
+
 PASS=0; FAIL=0; SKIP_N=0
 pass() { PASS=$((PASS+1)); printf '  %sPASS%s %s\n' "$GRN" "$RST" "$1"; }
 fail() { FAIL=$((FAIL+1)); printf '  %sFAIL%s %s\n' "$RED" "$RST" "$1"; }

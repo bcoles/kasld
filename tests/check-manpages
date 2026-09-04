@@ -17,6 +17,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
@@ -88,14 +90,9 @@ fi
 # the current source. That compares the man page against a stale --help, which
 # passes or fails for reasons unrelated to the man page.
 KASLD_BIN=
-# Name the native build the way the Makefile does -- $(CC) -dumpmachine -- not
-# by assembling "$(uname -m)-linux-gnu", which is only the host triple on a
-# glibc host and misses e.g. a musl or bare-metal one.
-host_dir=
-for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
-  [ -n "$t" ] || continue
-  [ -x "$ROOT/build/$t/kasld" ] && { host_dir="$ROOT/build/$t/kasld"; break; }
-done
+# The native build, resolved by tests/lib/host-build.sh, which names it the way
+# the build system does.
+host_dir=$(host_kasld)
 if [ -n "$host_dir" ] && "$host_dir" --version >/dev/null 2>&1; then
   KASLD_BIN=$host_dir
 else

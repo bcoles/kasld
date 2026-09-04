@@ -53,6 +53,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 # The caps live wherever the tree declares them, and that moves: MAX_SCALAR_FACTS
 # sits with the store it bounds, the others with the orchestrator's own limits.
 # Searching the set rather than one path keeps a relocation from silently
@@ -102,14 +104,7 @@ done
 
 # Select the host build by its triple, as check-discard-accounting does: an
 # i686 cross build runs fine on an x86_64 host and then declines the analysis.
-BIN=
-for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
-  [ -n "$t" ] || continue
-  if [ -x "$ROOT/build/$t/kasld" ]; then
-    BIN=$ROOT/build/$t/kasld
-    break
-  fi
-done
+BIN=$(host_kasld)
 [ -n "$BIN" ] || {
   printf 'check-discard-report: SKIP (no native kasld build; run make first)\n'
   exit 0

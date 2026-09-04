@@ -29,6 +29,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); YELLOW=$(printf '\033[33m')
@@ -43,11 +45,10 @@ fi
 ESC=$(printf '\033')
 CR=$(printf '\r')
 
-HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
-BIN="$ROOT/build/$HOST_TRIPLE/kasld"
-if [ ! -x "$BIN" ]; then
-  printf '%swire-text guard: SKIP%s (no host binary at %s; run make first)\n' \
-    "$YELLOW" "$RESET" "$BIN"
+BIN=$(host_kasld)
+if [ -z "$BIN" ]; then
+  printf '%swire-text guard: SKIP%s (no native kasld build under %s; run make first)\n' \
+    "$YELLOW" "$RESET" "$ROOT/build"
   exit 0
 fi
 

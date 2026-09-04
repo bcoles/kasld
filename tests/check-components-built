@@ -35,6 +35,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # shellcheck source=tests/lib/guard-scope.sh
 . "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 
 if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
@@ -47,8 +49,7 @@ fi
 # build/*/ and taking the first that exists would pick a cross directory --
 # i686 sorts before x86_64 -- and check a set this host never built.
 COMP=
-for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
-  [ -n "$t" ] || continue
+for t in $(host_triples); do
   if [ -d "$ROOT/build/$t/components" ]; then
     COMP=$ROOT/build/$t/components
     break

@@ -41,6 +41,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/tests/lib/guard-scope.sh"
 # shellcheck source=tests/lib/qemu-target.sh
 . "$ROOT/tests/lib/qemu-target.sh"
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 
 BUILD_DIR=${BUILD_DIR:-$ROOT/build}
 QEMU_DIR=${QEMU_DIR:-}
@@ -114,14 +116,20 @@ spawn() {
 skipped=""
 labels=""
 
-HOSTDIR=$BUILD_DIR/$(uname -m)-linux-gnu
-if [ ! -d "$HOSTDIR/components" ]; then
-  printf '%scheck-fail-closed: SKIP%s (no native components: %s — run make)\n' \
-    "$YELLOW" "$RESET" "$HOSTDIR/components"
+# The native build, named the way the build system names it rather than
+# assembled as "<machine>-linux-gnu", which is the host triple on a glibc host
+# and on no other.
+HOSTTRIPLE=
+for t in $(host_triples); do
+  [ -d "$BUILD_DIR/$t/components" ] && { HOSTTRIPLE=$t; break; }
+done
+if [ -z "$HOSTTRIPLE" ]; then
+  printf '%scheck-fail-closed: SKIP%s (no native components under %s — run make)\n' \
+    "$YELLOW" "$RESET" "$BUILD_DIR"
   exit 0
 fi
-spawn sweep_dir "$HOSTDIR/components" "$(uname -m)-linux-gnu"
-labels="$(uname -m)-linux-gnu"
+spawn sweep_dir "$BUILD_DIR/$HOSTTRIPLE/components" "$HOSTTRIPLE"
+labels="$HOSTTRIPLE"
 
 # Cross targets: whatever `make cross` built and qemu can run. Absent toolchains
 # and absent qemu binaries are ordinary, so they are counted and named rather
@@ -130,7 +138,7 @@ if [ -z "${FAIL_CLOSED_NATIVE_ONLY:-}" ]; then
   for bd in "$BUILD_DIR"/*/; do
     triple=$(basename "$bd")
     [ -d "$bd/components" ] || continue
-    case $triple in "$(uname -m)"-linux-gnu) continue ;; esac
+    [ "$triple" = "$HOSTTRIPLE" ] && continue
     qbin=$(qemu_for "$triple")
     runner=$(resolve_qemu "$qbin") || runner=""
     if [ -z "$runner" ]; then

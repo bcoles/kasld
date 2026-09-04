@@ -1,0 +1,84 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-host-build — "which build is this host's" is asked one way.
+#
+# Two triples decide it and the Makefile keeps them apart (HOST_ARCH from a
+# native compiler, _ARCH from $(CC), which names the build directory).
+# tests/lib/host-build.sh is where a harness asks; this holds the question to
+# that one place.
+#
+# Every harness that needed the answer had worked it out again, and the copies
+# did not agree. `cc -dumpmachine` alone finds nothing when a build was made
+# with a non-default CC, so the guard SKIPs while reporting success -- which is
+# what the release CI job does, running `make test CC=<triple>-gcc`. Assembling
+# "$(uname -m)-linux-gnu" is the host triple on a glibc host and on no other.
+# Neither is visible in the ordinary case, where a plain `make` makes every
+# spelling agree.
+#
+# The pattern also spreads on its own: the commit that introduced the reviewed
+# form converted the harnesses that existed, and four written afterwards used
+# the narrow one, copied from whichever neighbour they were written beside. A
+# helper is what stops that; this is what keeps them using it.
+#
+# FAILS if, outside the helper, a script runs a compiler to learn its triple or
+# assembles one from `uname -m`. Comments are exempt -- the rule is about what
+# runs.
+#
+# Usage: tests/check-host-build   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+OWNER=tests/lib/host-build.sh
+# This guard names the tokens it bans, in the pattern that finds them.
+SELF=tests/check-host-build
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+[ -f "$ROOT/$OWNER" ] || {
+  printf '%shost-build guard: FAIL%s — %s is missing\n' "$RED" "$RESET" "$OWNER" >&2
+  exit 1
+}
+
+n=0
+bad=""
+for f in "$ROOT"/tests/* "$ROOT"/tests/lib/* "$ROOT"/tests/vm/* \
+         "$ROOT"/tests/container/* "$ROOT"/extra/*; do
+  [ -f "$f" ] || continue
+  head -1 "$f" | grep -qE '^#!/bin/sh|^# shellcheck shell=' || continue
+  rel=${f#"$ROOT"/}
+  { [ "$rel" = "$OWNER" ] || [ "$rel" = "$SELF" ]; } && continue
+  n=$((n + 1))
+  # Strip comments before matching: the helper's own reasoning is quoted in
+  # several headers, and describing the rule is not breaking it.
+  hits=$(sed 's/#.*//' "$f" |
+    grep -nE 'dumpmachine|uname[[:space:]]+-m[^)]*\)?-linux-')
+  [ -n "$hits" ] && bad="$bad
+$(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
+done
+
+if [ -n "$bad" ]; then
+  printf '%shost-build guard: FAIL%s — the host build is resolved outside %s:\n' \
+    "$RED" "$RESET" "$OWNER" >&2
+  printf '%s\n' "$bad" | grep -v '^$' >&2
+  printf 'Source %s and call host_kasld (a runnable binary),\n' "$OWNER" >&2
+  printf 'host_triples (candidate build directories), is_host_triple (is this\n' >&2
+  printf 'directory the native one) or host_arch.\n' >&2
+  printf 'A triple assembled from the machine name is the host triple on a\n' >&2
+  printf 'glibc host and on no other.\n' >&2
+  exit 1
+fi
+
+guard_scope "check-host-build" "$n" 60
+
+printf '%shost-build guard: OK%s (%d scripts; the host build is resolved only through %s)\n' \
+  "$GREEN" "$RESET" "$n" "$OWNER"

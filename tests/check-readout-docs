@@ -45,6 +45,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
@@ -198,29 +200,28 @@ fi
 # ---- 4. Replayed sample blocks --------------------------------------------
 # Marker syntax, on the line before the fence:  <!-- replay: <fixture> <flags> -->
 # The fixture is a directory holding a sysroot/; the flags are passed to kasld.
-HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
-BIN="$ROOT/build/$HOST_TRIPLE/kasld"
+BIN=$(host_kasld)
 replayed=0
 # Which capture this host can replay. The layout windows are compiled in, so an
 # aarch64 build reading an x86_64 capture renders a different table -- correct
 # for that build, and nothing like what the document shows. The fixture tree
 # names each capture's architecture in its directory; this is the same name for
 # the binary. Ordered longest-first: mips64 is not mips32, and aarch64 is not
-# arm. `unknown` matches no fixture, which is the safe answer.
-case ${HOST_TRIPLE%%-*} in
-x86_64 | amd64) host_arch=x86_64 ;;
-i?86) host_arch=x86_32 ;;
-aarch64) host_arch=arm64 ;;
-arm*) host_arch=arm32 ;;
-mips64*) host_arch=mips64 ;;
-mips*) host_arch=mips32 ;;
-powerpc64* | ppc64*) host_arch=ppc64 ;;
-powerpc* | ppc*) host_arch=ppc32 ;;
-riscv64) host_arch=riscv64 ;;
-riscv32) host_arch=riscv32 ;;
-s390*) host_arch=s390 ;;
-loongarch64) host_arch=loongarch64 ;;
-*) host_arch=unknown ;;
+# arm. An empty triple matches no fixture, which is the safe answer.
+case $(host_arch) in
+x86_64 | amd64) fixture_arch=x86_64 ;;
+i?86) fixture_arch=x86_32 ;;
+aarch64) fixture_arch=arm64 ;;
+arm*) fixture_arch=arm32 ;;
+mips64*) fixture_arch=mips64 ;;
+mips*) fixture_arch=mips32 ;;
+powerpc64* | ppc64*) fixture_arch=ppc64 ;;
+powerpc* | ppc*) fixture_arch=ppc32 ;;
+riscv64) fixture_arch=riscv64 ;;
+riscv32) fixture_arch=riscv32 ;;
+s390*) fixture_arch=s390 ;;
+loongarch64) fixture_arch=loongarch64 ;;
+*) fixture_arch=unknown ;;
 esac
 # As with the tally loop above, this one is fed by a pipe and runs in a
 # subshell, so a failure it finds is recorded in a file rather than in `fail`.
@@ -262,9 +263,9 @@ else
     # block is still checked wherever a matching build exists, and a host that
     # cannot check it must not report it wrong.
     if [ "$(printf '%s' "$fixture" | sed -n 's#^tests/fixtures/\([^/]*\)/.*#\1#p')" \
-      != "$host_arch" ]; then
+      != "$fixture_arch" ]; then
       printf '  (skipped %s:%s: this %s build cannot render that capture)\n' \
-        "$file" "$lno" "$host_arch"
+        "$file" "$lno" "$fixture_arch"
       echo SKIP >>"$skipped"
       continue
     fi

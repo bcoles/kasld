@@ -187,6 +187,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-log-prefixes` | no diagnostic message begins with a `[.]`/`[-]`/`[+]` marker (the `kasld_info`/`kasld_err`/`kasld_found` helper already prepends one — an embedded marker doubles it) |
 | `check-live-probes` | every component's `source:` declaration agrees with its code: a `files` component contains no live primitive, and a `live` or `hybrid` one carries the self-guard that keeps it from running offline against the analysis host |
 | `check-fact-source` | "where do this run's facts come from" is asked only through `kasld_fact_source()`; `kasld_sysroot()` and the environment variable belong to `sysroot.h` |
+| `check-host-build` | "which build directory is this host's" is asked only through `tests/lib/host-build.sh`. The build system keeps two triples apart — a native compiler's, and `$(CC)`'s, which names the directory — and a harness that resolves it by hand finds nothing when a build was made with a non-default `CC`, then skips while reporting success |
 | `check-bundle-prepare` | one program restores a captured bundle to a runnable sysroot — `extra/prepare-bundle`. A harness carrying its own copy of the restore builds a tree short a file length, and a run over it resolves one bound fewer with nothing to show for it |
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
 | `check-shellcheck` | shellcheck over the `extra/` helper scripts |

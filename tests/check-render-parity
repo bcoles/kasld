@@ -38,6 +38,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # shellcheck source=tests/lib/qemu-target.sh
 . "$ROOT/tests/lib/qemu-target.sh"
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
 QEMU_DIR=${QEMU_DIR:-}
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
@@ -470,14 +472,7 @@ compare_one() {
 # (an i686 binary executes on x86_64) and sorts first, so a probe would select
 # it and every "host" comparison below would silently be exercising i386
 # rendering instead of the host's.
-BIN=
-for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
-  [ -n "$t" ] || continue
-  if [ -x "$ROOT/build/$t/kasld" ]; then
-    BIN=$ROOT/build/$t/kasld
-    break
-  fi
-done
+BIN=$(host_kasld)
 [ -n "$BIN" ] || {
   printf '%scheck-render-parity: SKIP%s (no native kasld build; run make first)\n' \
     "$YELLOW" "$RESET"
