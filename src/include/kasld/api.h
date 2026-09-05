@@ -2049,9 +2049,9 @@ enum kasld_scalar_fact {
   /* the consuming rule gates on the arch. Today only    */
   /* s390 has the knob (CONFIG_KERNEL_IMAGE_BASE, s390-  */
   /* only) and a consumer: a positive value selects the  */
-  /* modern (v6.8+) high separate-kernel-mapping layout  */
+  /* modern (v6.10+) high separate-kernel-mapping layout  */
   /* and gives its relocation floor; 0 means the config  */
-  /* is an s390 config that LACKS the knob — the pre-v6.8 */
+  /* is an s390 config that LACKS the knob — the pre-v6.10 */
   /* identity-mapped layout (kernel text in low RAM).    */
   /* Consumed by s390_image_base_from_config to recover  */
   /* a tight Q_VIRT_IMAGE_BASE window without trusting    */

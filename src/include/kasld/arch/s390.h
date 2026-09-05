@@ -21,9 +21,9 @@
 //   - Physical alignment: _SEGMENT_SIZE (1 MiB).
 //   - Virtual alignment: THREAD_SIZE (typically 16 KiB).
 //
-// Note: The above layout describes v6.8+ kernels with CONFIG_KERNEL_IMAGE_BASE
-// (introduced ~v6.8). Pre-v6.8 kernels ran identity-mapped: virtual = physical,
-// with _stext at IMAGE_BASE_OFFSET (0x100000) and physical-only KASLR
+// Note: The above layout describes v6.10+ kernels with CONFIG_KERNEL_IMAGE_BASE
+// (introduced ~v6.10). Pre-v6.10 kernels ran identity-mapped: virtual =
+// physical, with _stext at IMAGE_BASE_OFFSET (0x100000) and physical-only KASLR
 // randomization (THREAD_SIZE alignment within the identity map).
 //
 // Note: s390 does NOT have a traditional kernel/user address space split.
@@ -67,7 +67,7 @@
 // Physical memory starts at address 0.
 #define PHYS_OFFSET 0ul
 
-// On s390 v6.8+, PAGE_OFFSET (= __identity_base) may be runtime-randomized
+// On s390 v6.10+, PAGE_OFFSET (= __identity_base) may be runtime-randomized
 // when CONFIG_RANDOMIZE_IDENTITY_BASE is set; the compile-time formula is
 // then NOT a sound runtime directmap projection. Treat as runtime
 // conservatively — phys_to_directmap_virt() is left undefined (see gate at
@@ -159,8 +159,8 @@
 // v6.18 system was 0x4000-aligned but not 1 MiB aligned.
 #define IMAGE_ALIGN 0x4000ul
 
-// Physical KASLR uses _SEGMENT_SIZE (1 MiB) alignment (v6.8+).
-// Pre-v6.8 physical KASLR used THREAD_SIZE alignment.
+// Physical KASLR uses _SEGMENT_SIZE (1 MiB) alignment (v6.10+).
+// Pre-v6.10 physical KASLR used THREAD_SIZE alignment.
 #define KASLR_PHYS_ALIGN 0x100000ul
 
 // IMAGE_BASE_OFFSET: .text begins 1 MiB (0x100000) into the kernel image.
@@ -181,7 +181,7 @@
 // ceilings.
 #define PHYS_ADDR_TOP (1ul << 53)
 
-// Virtual KASLR randomization window (v6.8+ upstream defaults):
+// Virtual KASLR randomization window (v6.10+ upstream defaults):
 // Image base picked from [CONFIG_KERNEL_IMAGE_BASE, vmax - image_size) where
 // vmax = asce_limit (paging-level-dependent):
 //   3-level: vmax = _REGION2_SIZE = 1 << 42 = 4 TiB
@@ -197,7 +197,7 @@
 #define KASLR_VIRT_TEXT_MAX KERNEL_VIRT_TEXT_MAX
 
 /* Honest-top floor for Q_VIRT_IMAGE_BASE. KASLR_VIRT_TEXT_MIN is the modern
- * (v6.8+ CONFIG_KERNEL_IMAGE_BASE) high-kernel KASLR floor (~4 TiB). Pre-v6.8
+ * (v6.10+ CONFIG_KERNEL_IMAGE_BASE) high-kernel KASLR floor (~4 TiB). Pre-v6.10
  * kernels run identity-mapped: kernel text lives near address 0 (image base at
  * the bottom of RAM, _stext at IMAGE_BASE_OFFSET = 0x100000). With no narrowing
  * leak (the unprivileged/hardened case) flooring Q_VIRT_IMAGE_BASE at the
@@ -216,7 +216,7 @@
  * that is the minimum physical _stext, but Q_PHYS_IMAGE_BASE solves the
  * physical IMAGE base (_text = __kaslr_offset_phys), which sits
  * IMAGE_BASE_OFFSET below _stext and can be as low as KERNEL_PHYS_MIN (0). A
- * pre-v6.8 identity-mapped kernel loads the image at the bottom of RAM
+ * pre-v6.10 identity-mapped kernel loads the image at the bottom of RAM
  * (physical _text near 0; a real 4.14 boot shows iomem "Kernel code" starting
  * at 0x200), below 0x100000 — flooring Q_PHYS_IMAGE_BASE at 0x100000 reports a
  * window EXCLUDING that base, and rejects the parsed low-base pin, unsound.
@@ -227,12 +227,11 @@
 #define KASLR_PHYS_MIN_WIDE KERNEL_PHYS_MIN
 
 // Default kernel text virtual address without KASLR.
-// CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.8) default = 0x3FFE0000000
-// (+ IMAGE_BASE_OFFSET for _stext). Pre-v6.8 kernels used identity mapping with
-// _stext at IMAGE_BASE_OFFSET (0x100000). Distros may override.
-// See docs/kaslr.md "Default text base and KASLR alignment" for all
-// architectures. Kernel source: arch/s390/kernel/vmlinux.lds.S,
-// arch/s390/boot/startup.c
+// CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.10) default = 0x3FFE0000000
+// (+ IMAGE_BASE_OFFSET for _stext). Pre-v6.10 kernels used identity mapping
+// with _stext at IMAGE_BASE_OFFSET (0x100000). Distros may override. See
+// docs/kaslr.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/s390/kernel/vmlinux.lds.S, arch/s390/boot/startup.c
 #define KERNEL_VIRT_TEXT_DEFAULT 0x3FFE0100000ul
 
 #define KASLR_SUPPORTED 1
@@ -243,7 +242,7 @@
 
 /* s390 opts OUT of the generic compile-time-default disabled-pin: the no-KASLR
  * image base is LAYOUT-DEPENDENT (modern high CONFIG_KERNEL_IMAGE_BASE vs
- * pre-v6.8 low identity-mapped, ~4 TiB apart) and CONFIG_KERNEL_IMAGE_BASE is
+ * pre-v6.10 low identity-mapped, ~4 TiB apart) and CONFIG_KERNEL_IMAGE_BASE is
  * itself configurable, so the compile-time KERNEL_VIRT_TEXT_DEFAULT is not a
  * sound pin — a wrong default still lies inside the historical-layout-spanning
  * [low, ASCE] window, and the disabled-pin's window-containment backstop cannot

@@ -7,24 +7,24 @@
 // rather than the KASLR-selected slot. The exact value depends on the
 // kernel version:
 //
-//   Pre-v6.8 (identity-mapped layout):
+//   Pre-v6.10 (identity-mapped layout):
 //     phys_text = IMAGE_BASE_OFFSET = 0x100000 (1 MiB exactly).
 //     KASLR-off keeps the IPL-loaded image at the link-time LMA.
 //
-//   v6.8 → v6.10 (arch/s390/boot/startup.c uses nokaslr_offset_phys):
+//   v6.10 (arch/s390/boot/startup.c uses nokaslr_offset_phys):
 //     nokaslr_offset_phys = ALIGN(mem_safe_offset(), _SEGMENT_SIZE)
 //     phys_text = nokaslr_offset_phys + IMAGE_BASE_OFFSET (effectively
 //     ALIGN(decompressor_heap_end, 1 MiB)).
 //
-//   v6.12+ (nokaslr_text_lma renamed, same algorithm):
+//   v6.11+ (nokaslr_text_lma renamed, same algorithm):
 //     text_lma = nokaslr_text_lma = ALIGN(mem_safe_offset(), _SEGMENT_SIZE)
 //     __kaslr_offset_phys = text_lma − IMAGE_BASE_OFFSET
 //     phys_text base = text_lma (with kaslr_large_page_offset OR'd in,
 //     which is 0 when kaslr is off).
 //
 // In every case the kernel sits in the LOW portion of physical memory:
-// either at IMAGE_BASE_OFFSET (pre-v6.8) or immediately above the decompressor
-// heap (v6.8+). Worst-case decompressor heap is bounded by the compressor
+// either at IMAGE_BASE_OFFSET (pre-v6.10) or immediately above the decompressor
+// heap (v6.10+). Worst-case decompressor heap is bounded by the compressor
 // choice:
 //   gzip:  ~64 KiB
 //   xz:    typically 32 MiB dictionary
@@ -33,7 +33,7 @@
 // S390_NO_RAND_PHYS_TEXT_MAX = 256 MiB is a conservative upper bound
 // that admits every configuration the algorithm can produce, with a
 // safety margin:
-//   • Pre-v6.8 case (kernel at IMAGE_BASE_OFFSET = 1 MiB)
+//   • Pre-v6.10 case (kernel at IMAGE_BASE_OFFSET = 1 MiB)
 //   • Typical compressed kernels (decompressor heap end ~10 MiB
 //     after init)
 //   • Worst-case zstd-compressed (~128 MiB peak heap)
@@ -64,7 +64,7 @@
 #if defined(__s390__) || defined(__s390x__)
 
 /* Upper bound on phys_image_base when randomization failed. 256 MiB
- * covers every algorithm variant (pre-v6.8 fixed at 1 MiB; v6.8+
+ * covers every algorithm variant (pre-v6.10 fixed at 1 MiB; v6.10+
  * bounded by decompressor heap end aligned to 1 MiB). */
 #define S390_NO_RAND_PHYS_TEXT_MAX (256ul * 1024ul * 1024ul)
 

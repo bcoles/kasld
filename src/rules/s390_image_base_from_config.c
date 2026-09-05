@@ -9,7 +9,7 @@
 // numbers, via SF_VIRT_KERNEL_IMAGE_BASE (CONFIG_KERNEL_IMAGE_BASE, emitted by
 // proc_config / boot_config):
 //
-//   value > 0  — modern (v6.8+) high separate-kernel-mapping layout. The image
+//   value > 0  — modern (v6.10+) high separate-kernel-mapping layout. The image
 //     base is placed at >= CONFIG_KERNEL_IMAGE_BASE (the KASLR window minimum;
 //     arch/s390/boot/startup.c). Floor Q_VIRT_IMAGE_BASE at that value. The
 //     value is the LOAD address, not _text; flooring at it without adding
@@ -22,7 +22,7 @@
 //     layout-correct PARSED load address plus the arch's .text offset rather
 //     than an assumed default.
 //
-//   value == 0 — config is an s390 config that LACKS the knob: the pre-v6.8
+//   value == 0 — config is an s390 config that LACKS the knob: the pre-v6.10
 //     identity-mapped layout (__identity_base = 0, no RANDOMIZE_IDENTITY_BASE),
 //     where virt == phys and kernel text lives in low physical RAM. Cap
 //     Q_VIRT_IMAGE_BASE at the top of spanned RAM: max_pfn (host-true zoneinfo)

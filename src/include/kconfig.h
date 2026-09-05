@@ -119,9 +119,9 @@ get_kconfig_physical_align(FILE *fp) {
 }
 
 /* Search for CONFIG_KERNEL_IMAGE_BASE=0x... in the kernel config — the s390
- * image-base relocation floor (introduced ~v6.8 with the high separate kernel
+ * image-base relocation floor (introduced ~v6.10 with the high separate kernel
  * mapping). Its PRESENCE distinguishes the modern high-kernel layout from the
- * pre-v6.8 identity-mapped layout (where kernel text sits in low RAM). s390
+ * pre-v6.10 identity-mapped layout (where kernel text sits in low RAM). s390
  * only. Returns the value, or 0 if not found. */
 static unsigned long __attribute__((unused))
 get_kconfig_kernel_image_base(FILE *fp) {

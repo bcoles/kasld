@@ -284,7 +284,7 @@ int main(void) {
   /* s390 image-base layout discriminator. On an s390 config (CONFIG_S390=y),
    * the presence/absence of CONFIG_KERNEL_IMAGE_BASE distinguishes the modern
    * high separate-kernel-mapping layout (value > 0 → relocation floor) from the
-   * pre-v6.8 identity-mapped layout (knob absent → kernel text in low RAM,
+   * pre-v6.10 identity-mapped layout (knob absent → kernel text in low RAM,
    * emitted as value 0). s390_image_base_from_config consumes this to recover a
    * tight image-base window without trusting version numbers. */
   if (is_kconfig_set(fp, "CONFIG_S390")) {
