@@ -36,6 +36,7 @@
 
 #include "sysroot.h"
 
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -133,8 +134,14 @@ kasld_kaslr_disabled_text_default(void) {
     return 0; /* EFI: seed may be efi_kaslr_seed; absence of FDT prop is moot */
   if (kasld_access("/proc/device-tree", F_OK) != 0)
     return 0; /* no FDT mounted: seed state unknown */
-  if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0)
-    return 0; /* property present: KASLR may be active */
+  if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0 ||
+      errno != ENOENT)
+    return 0; /* present, or unreadable to this vantage (EACCES on an
+                 unprivileged traversal): the node's presence can't be ruled
+                 out, so skip. Only a genuine ENOENT is the no-seed signal — see
+                 the arm64 branch below for why this must not depend on
+                 privilege
+                 */
   if (kasld_cpu_feature_zkr_present())
     return 0; /* Zkr seed CSR may have seeded KASLR despite the absent FDT seed
                */
@@ -145,8 +152,15 @@ kasld_kaslr_disabled_text_default(void) {
                */
   if (kasld_access("/proc/device-tree", F_OK) != 0)
     return 0; /* ACPI boot: no FDT signal */
-  if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0)
-    return 0; /* property present: a seed existed, KASLR may be active */
+  if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0 ||
+      errno != ENOENT)
+    return 0; /* present -> a seed existed, KASLR may be active. Or the node
+                 exists but is unreadable to this vantage: access() returns
+                 EACCES when an unprivileged caller cannot traverse to it (e.g.
+                 SELinux-confined shell on Android), which is NOT evidence of
+                 absence. Treating it as absent would make the KASLR-disabled
+                 verdict depend on the caller's privilege. Only a genuine ENOENT
+                 is the no-seed signal. */
   if (kasld_cpu_feature_rng_present())
     return 0; /* RNDR may have seeded KASLR despite the absent FDT seed */
   return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
