@@ -105,6 +105,8 @@
 #include "include/kasld/cli.h"
 #include "include/sidechannel.h"
 #include <errno.h>
+#include <setjmp.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -426,6 +428,18 @@ static double extent_fraction(const char *flag) {
   return any ? (double)(hi - lo + 1) / (double)NUM_SLOTS : 1.0;
 }
 
+/* The masked loads below all target unmapped pages -- the control hole and
+ * every kernel slot -- which a zero-mask vmaskmovps does not fault on where the
+ * part implements the suppression. Where it does not (an emulator that skips
+ * modelling it, or a part that omits it) the load faults for real; the handler
+ * turns that fault into a clean decline instead of a killed process. */
+static sigjmp_buf avx_jb;
+
+static void avx_on_fault(int sig) {
+  (void)sig;
+  siglongjmp(avx_jb, 1);
+}
+
 int main(int argc, char **argv) {
   static int64_t t[NUM_SLOTS], sorted[NUM_SLOTS];
   static char flag[NUM_SLOTS];
@@ -492,6 +506,16 @@ int main(int argc, char **argv) {
     return kasld_disp_inconclusive("could not allocate the control pages");
   memset(page, 1, 4096);
   munmap(hole, 4096);
+
+  /* Arm the fault guard before the first masked load. savemask is non-zero so
+   * the longjmp out of the handler unblocks the signal it caught; the first
+   * real fault declines the probe. */
+  signal(SIGSEGV, avx_on_fault);
+  signal(SIGBUS, avx_on_fault);
+  if (sigsetjmp(avx_jb, 1) != 0)
+    return kasld_disp_inconclusive(
+        "AVX masked-off load faults here: the mask does not suppress the "
+        "access, so kernel-translation timing cannot be probed");
 
   t_map = maskload_cycles((unsigned long)page);
   t_unmap = maskload_cycles((unsigned long)hole);
