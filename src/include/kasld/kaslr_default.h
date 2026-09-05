@@ -130,8 +130,11 @@ __attribute__((unused)) static int kasld_cpu_feature_rng_present(void) {
 __attribute__((unused)) static unsigned long
 kasld_kaslr_disabled_text_default(void) {
 #if defined(__riscv) && __riscv_xlen == 64
-  if (kasld_access("/sys/firmware/efi", F_OK) == 0)
-    return 0; /* EFI: seed may be efi_kaslr_seed; absence of FDT prop is moot */
+  if (kasld_access("/sys/firmware/efi", F_OK) == 0 || errno != ENOENT)
+    return 0; /* EFI present -> seed may be efi_kaslr_seed, so the FDT prop is
+                 moot; skip. Also skip when presence can't be determined (EACCES
+                 to a confined vantage): only a genuine ENOENT rules EFI out, so
+                 the verdict does not depend on privilege. */
   if (kasld_access("/proc/device-tree", F_OK) != 0)
     return 0; /* no FDT mounted: seed state unknown */
   if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0 ||
@@ -147,9 +150,12 @@ kasld_kaslr_disabled_text_default(void) {
                */
   return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 #elif defined(__aarch64__)
-  if (kasld_access("/sys/firmware/efi", F_OK) == 0)
-    return 0; /* EFI seed path not confirmed visible in FDT: skip (conservative)
-               */
+  if (kasld_access("/sys/firmware/efi", F_OK) == 0 || errno != ENOENT)
+    return 0; /* EFI present -> its seed path is not confirmed visible in the
+                 FDT, so skip (conservative). Also skip when presence can't be
+                 determined (EACCES to a confined vantage): only a genuine
+                 ENOENT rules EFI out, matching the privilege-independent seed
+                 check below. */
   if (kasld_access("/proc/device-tree", F_OK) != 0)
     return 0; /* ACPI boot: no FDT signal */
   if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0 ||

@@ -81,7 +81,7 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
 
   uint64_t seed = 0;
   unsigned long min_text = ULONG_MAX, max_data = 0;
-  int efi_present = 0;
+  int efi_present = 0, have_efi_fact = 0;
   uint32_t src = 0;
   enum kasld_confidence seed_conf = CONF_UNKNOWN;
   enum kasld_confidence size_min_conf = CONF_UNKNOWN,
@@ -100,8 +100,10 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
         seed = o->scalar_value;
         src = o->id;
         seed_conf = o->conf;
-      } else if (o->scalar_fact == SF_EFI_PRESENT)
+      } else if (o->scalar_fact == SF_EFI_PRESENT) {
         efi_present = (o->scalar_value != 0);
+        have_efi_fact = 1;
+      }
       continue;
     }
     if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_VIRT) {
@@ -117,7 +119,12 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
       }
     }
   }
-  if (seed == 0 || efi_present)
+  /* Require a CONFIRMED non-EFI fact. An absent or unreadable SF_EFI_PRESENT
+     (e.g. a confined observer that cannot access /sys/firmware/efi) must not be
+     read as non-EFI: under EFI the kernel mixes in efi_kaslr_seed, so this pure
+     FDT-seed derivation would pin a wrong base at the sound floor. Mirrors
+     riscv64_non_efi_phys_base. */
+  if (seed == 0 || !have_efi_fact || efi_present)
     return 0;
 
   /* Path 1: pin the exact slot the boot code chose — but only when the slot
