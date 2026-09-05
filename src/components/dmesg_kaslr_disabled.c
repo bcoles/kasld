@@ -41,10 +41,12 @@
 //
 //   ARM64 (arch/arm64/kernel/setup.c / kaslr.c — EFI stub):
 //     KASLR disabled due to lack of seed
-//     KASLR disabled due to FDT remapping failure
+//     KASLR disabled due to FDT remapping failure  (older kernels; the
+//       pi/kaslr_early.c rewrite dropped this path)
 //   S390 (arch/s390/boot/kaslr.c — boot stub):
 //     KASLR disabled: CPU has no PRNG
-//     KASLR disabled: not enough memory
+//     KASLR disabled: not enough memory  (older kernels; removed in the
+//       v6.4 decompressor-reservation rework)
 //
 // (3) EFI_RNG_PROTOCOL unavailable — PHYS-ONLY randomization failure.
 //     The EFI stub couldn't get random bytes from EFI_RNG_PROTOCOL,

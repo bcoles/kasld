@@ -93,8 +93,8 @@ system.
 The "default text base" here is the **image base** (`_text`) — the start of
 the kernel image, which is what KASLR aligns and what KASLD reports. The
 familiar `_stext` (start of the code section) sits a fixed *head gap* above
-`_text`: zero on x86 and PowerPC (so `_text == _stext`), but non-zero wherever a
-header precedes the code — arm64's `.head.text` (`0x10000`), and likewise on
+`_text`: zero on most architectures (so `_text == _stext`), but non-zero wherever
+a header precedes the code — arm64's `.head.text` (`0x10000`), and likewise on
 arm32, LoongArch and the MIPS pair. KASLD solves the
 image base and shows `_stext` as a derived line only when the two differ; a
 leaked `_stext` (e.g. from `/proc/kallsyms`) is normalized back to the image
@@ -309,6 +309,9 @@ The four states are entered by different mechanisms:
     rewrite in later kernels dropped this path.
   - s390 boot stub: CPU has no PRNG instruction
     (dmesg: `KASLR disabled: CPU has no PRNG`).
+  - s390 boot stub (older kernels): not enough memory to place the
+    randomized kernel (dmesg: `KASLR disabled: not enough memory`); the
+    v6.4 decompressor-reservation rework dropped this path.
   - riscv64 EFI stub: the same shape as arm64 (`EFI_RNG_PROTOCOL`
     falls back to a deterministic firmware-allocated position when
     no random source is exposed). The riscv64 no-seed dmesg signal

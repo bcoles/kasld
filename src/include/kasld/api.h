@@ -1999,11 +1999,12 @@ enum kasld_scalar_fact {
   /* flag is the KASLR-off signal the SF_*_KASLR_DISABLED */
   /* facts already carry.                                 */
   SF_VIRT_KASLR_RANDOMIZATION_FAILED, /* 1 if the boot stub attempted    */
-  /* virtual KASLR but could not produce a random virt offset (current   */
-  /* emitters: arm64/riscv64 "lack of seed", arm64 "FDT remapping        */
-  /* failure", s390 "CPU has no PRNG" / "not enough memory" — all four   */
-  /* fail BOTH axes, so they emit this and SF_PHYS_KASLR_RANDOMIZATION_  */
-  /* FAILED together). Kernel was still relocated to a firmware- or      */
+  /* virtual KASLR but could not produce a random virt offset. Emitters: */
+  /* arm64/riscv64 "lack of seed" and s390 "CPU has no PRNG" (current);  */
+  /* arm64 "FDT remapping failure" and s390 "not enough memory" (older   */
+  /* kernels). All fail BOTH axes, so they emit this and                 */
+  /* SF_PHYS_KASLR_RANDOMIZATION_FAILED together. Kernel was still       */
+  /* relocated to a firmware- or                                         */
   /* boot-stub-determined virt position — NOT the link-time default —    */
   /* so this signal does NOT pin a value via virt_kaslr_disabled_pin.    */
   /* Consumed by: the orchestrator's s->kaslr.randomization_failed flag  */

@@ -145,10 +145,10 @@ when available (`HAVE_PTHREAD`), matching the normal build.
 
 `make test` finishes by running `make lint` — guards that assert source
 invariants the unit tests can't. Most are pure text over `src/`, so they need no
-build and run in a second; four are not, and it matters when the tree must stay
+build and run in a second; five are not, and it matters when the tree must stay
 frozen: `check-truncation` compiles a translation unit for i686,
-`check-hash-parity` builds `tests/check_hash_parity.c`, and `check-baseline`
-and `check-render-color` execute already-built binaries. Run them
+`check-hash-parity` builds `tests/check_hash_parity.c`, and `check-baseline`,
+`check-render-parity` and `check-render-color` execute already-built binaries. Run them
 alone with `make lint` (fast; no driver build).
 
 The guards are independent, so they run several at a time — `JOBS` sets how many,
