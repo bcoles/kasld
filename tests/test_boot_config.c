@@ -33,9 +33,12 @@ static char cap[8192];
 
 /* KASLR compiled out so the disabled facts fire; CONFIG_PHYSICAL_START gives a
  * second scalar. text_order is emitted unconditionally, so it is the reliable
- * line to check the confidence on. */
+ * line to check the confidence on. The "# ... is not set" form is the real
+ * .config representation of a compiled-out option and is required: the disabled
+ * signal keys on that positive token, not on the mere absence of "=y" (which a
+ * truncated or unreadable config would also show). */
 static const char *CFG =
-    "CONFIG_RANDOMIZE_BASE is not set\nCONFIG_PHYSICAL_START=0x1000000\n";
+    "# CONFIG_RANDOMIZE_BASE is not set\nCONFIG_PHYSICAL_START=0x1000000\n";
 
 static void write_file(const char *rel, const char *content) {
   th_sysroot_write(rel, content);

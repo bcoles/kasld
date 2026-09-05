@@ -149,9 +149,34 @@ get_kconfig_kernel_image_base(FILE *fp) {
  * for purposes of their own (powerpc for kdump, for one), so its state answers
  * a different question.
  *
- * Returns 1 if KASLR is compiled in, 0 otherwise. */
+ * Returns 1 when CONFIG_RANDOMIZE_BASE=y is present (KASLR compiled in), 0 when
+ * "# CONFIG_RANDOMIZE_BASE is not set" is present (compiled out), and -1 when
+ * neither line is seen. Those are the only two forms a generated .config can
+ * carry for this bool -- Kconfig writes an unset bool as the "is not set"
+ * comment, never "=n", and the build re-normalizes .config before compiling, so
+ * /proc/config.gz and /boot/config never show "=n". The -1 case is
+ * load-bearing for soundness: a truncated
+ * decompression (a zcat killed mid-stream leaves a non-empty but partial
+ * prefix), a mid-scan read error, or a config from an arch without the option
+ * all leave neither token — and the KASLR-disabled pin must NOT be asserted
+ * from the mere absence of "=y", which would pin the base to the compile-time
+ * default on an incompletely read config. Keying on the positive "is not set"
+ * token instead means absence-of-evidence never narrows the window. Both
+ * callers treat a non-zero return (1 or -1) as "not off" and assert disabled
+ * only on 0. */
 static int kconfig_has_kaslr(FILE *fp) {
-  return is_kconfig_set(fp, "CONFIG_RANDOMIZE_BASE");
+  static const char yes[] = "CONFIG_RANDOMIZE_BASE=y";
+  static const char no[] = "# CONFIG_RANDOMIZE_BASE is not set";
+  char buf[BUFSIZ];
+  printf("[.] checking for CONFIG_RANDOMIZE_BASE... \n");
+  rewind(fp);
+  while (fgets(buf, sizeof(buf), fp) != NULL) {
+    if (strncmp(buf, yes, sizeof(yes) - 1) == 0)
+      return 1;
+    if (strncmp(buf, no, sizeof(no) - 1) == 0)
+      return 0;
+  }
+  return -1;
 }
 
 #endif /* KASLD_KCONFIG_H */
