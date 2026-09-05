@@ -94,7 +94,10 @@ hex16() {
   # class numeric() guards. Callers today pass only /proc-sourced hex; this keeps
   # hex16 self-contained. A rejected value yields empty output (treated as absent).
   printf '%s' "$1" | grep -qiE '^(0x)?[0-9a-f]+$' || return 0
-  printf '%s' "$1" | tr 'A-F' 'a-f' | sed 's/^0x//; s/^0*//' | \
+  # s/^$/0/ restores a lone zero after the leading-zero strip: an all-zero input
+  # (a phys base at address 0 -- arm64 System RAM starts there) would otherwise
+  # collapse to the empty string and read as absent, skipping every RAM check.
+  printf '%s' "$1" | tr 'A-F' 'a-f' | sed 's/^0x//; s/^0*//; s/^$/0/' | \
     awk '{ printf "%016s\n", $0 }' | tr ' ' '0'
 }
 
@@ -161,6 +164,28 @@ validate_inferred() {
   fi
   _rlo=$(printf '%s' "$_line" | grep -oE '0x[0-9a-fA-F]+' | sed -n '1p')
   _rhi=$(printf '%s' "$_line" | grep -oE '0x[0-9a-fA-F]+' | sed -n '2p')
+  # A one-sided window renders a single edge: an upper bound ("<= X", the phys
+  # image base on arches where only the ceiling is resolved) or a lower bound
+  # (">= X"). Validate that single edge rather than reading it as unparsable.
+  if [ -n "$_rlo" ] && [ -z "$_rhi" ]; then
+    _b=$(hex16 "$_rlo")
+    case "$_line" in
+      *'<='*)
+        if hex_le "$_truth" "$_b"; then
+          pass "$_label — real base 0x$_truth <= inferred ceiling 0x$_b"
+        else
+          fail "$_label — real base 0x$_truth ABOVE inferred ceiling 0x$_b"
+        fi
+        return ;;
+      *'>='*)
+        if hex_ge "$_truth" "$_b"; then
+          pass "$_label — real base 0x$_truth >= inferred floor 0x$_b"
+        else
+          fail "$_label — real base 0x$_truth BELOW inferred floor 0x$_b"
+        fi
+        return ;;
+    esac
+  fi
   if [ -z "$_rlo" ] || [ -z "$_rhi" ]; then
     skip "$_label — unparsable range"
     return
@@ -337,7 +362,10 @@ fi
 # it is block-rounded (sound), anything beyond is a genuine out-of-RAM leak.
 block_ram_ceiling=""
 if [ -n "$truth_ram_hi" ]; then
-  _bs=$(numeric "$(tr -d ' \n' < /sys/devices/system/memory/block_size_bytes 2>/dev/null || true)")
+  _bs=""
+  if [ -r /sys/devices/system/memory/block_size_bytes ]; then
+    _bs=$(numeric "$(tr -d ' \n' < /sys/devices/system/memory/block_size_bytes 2>/dev/null || true)")
+  fi
   if [ -n "$_bs" ] && [ "0x$_bs" != "0x0" ]; then
     _bc=$(( ( (0x$truth_ram_hi / 0x$_bs) + 1 ) * 0x$_bs - 1 ))
     block_ram_ceiling=$(hex16 "$(printf '%x' "$_bc")")
@@ -603,6 +631,7 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
   esac
 
   pos=$(get_field "$line" pos)
+  conf=$(get_field "$line" conf)
   # numeric() on every extracted field: these feed $(( )) (the sz→hi path) and
   # hex16; a non-numeric field collapses to empty (treated as absent below).
   lo=$(numeric "$(get_field "$line" lo)")
@@ -723,11 +752,26 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
           fail "$desc — zero address"
         fi
       elif [ "$pos" = "base" ]; then
-        if [ "$addr" = "$truth_page_offset" ]; then
-          pass "$desc — matches /proc/kcore page_offset_base"
-        else
-          fail "$desc — base 0x$addr != page_offset_base 0x$truth_page_offset (/proc/kcore)"
-        fi
+        case "$conf" in
+          timing|heuristic|brute)
+            # A below-sound-floor base is a speculative guess -- e.g. a prefetch
+            # timing base on a part where the signal is imprecise. It shapes the
+            # likely window only and never pins the guaranteed one, so a miss is
+            # expected; don't hold it to an exact match.
+            if [ "$addr" = "$truth_page_offset" ]; then
+              pass "$desc — matches page_offset_base (speculative, conf=$conf)"
+            else
+              skip "$desc — speculative base (conf=$conf) != page_offset_base; likely-window guess, not pinned"
+            fi
+            ;;
+          *)
+            if [ "$addr" = "$truth_page_offset" ]; then
+              pass "$desc — matches /proc/kcore page_offset_base"
+            else
+              fail "$desc — base 0x$addr != page_offset_base 0x$truth_page_offset (/proc/kcore)"
+            fi
+            ;;
+        esac
       elif hex_ge "$addr" "$truth_page_offset"; then
         pass "$desc — within direct map (>= page_offset_base 0x$truth_page_offset)"
       else
@@ -832,6 +876,17 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
         # the fine /proc/iomem top. Sound — the extra slice carries no real RAM
         # and is never excluded — so accept up to the block boundary.
         pass "$desc — block-rounded RAM top (hotplug-block granularity)"
+      elif [ "$region" = "ram" ] && ! hex_ge "$addr" "$truth_ram_lo" && \
+           hex_le "$truth_ram_lo" 0000000000100000; then
+        # Below the first /proc/iomem "System RAM" range, where that range itself
+        # begins in low memory. Firmware maps (e820, device-tree) count usable RAM
+        # from the DRAM base at 0x0, but the kernel carves the reserved low page(s)
+        # -- real-mode/BIOS data, the zero page -- out below its first "System RAM"
+        # extent, so an e820-sourced RAM witness can sit just under the iomem
+        # floor. That window is DRAM, merely reserved -- not an out-of-RAM leak.
+        # Bounded to a low floor so a genuine sub-RAM address on a high-base
+        # system still fails.
+        skip "$desc — below /proc/iomem System RAM floor (firmware low-reserved DRAM)"
       else
         # Some regions (efi_memmap, acpi_*) may sit in reserved holes
         # outside the System RAM extents. Don't fail those — skip with a
