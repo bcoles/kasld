@@ -1,12 +1,15 @@
 #!/bin/sh
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
-# anonymize-fdt — strip board-identifying properties from a captured flattened
+# anonymize-fdt — strip board-identifying data from a captured flattened
 # device tree before committing it to a shared replay fixture.
 #
 # The blob grabbed by extra/collect (sysroot/sys/firmware/fdt) can carry a board
 # serial number and MAC addresses. These identify the specific device/owner, so
-# they are removed wherever they appear in the tree.
+# the identifying properties are removed wherever they appear, and the Android /
+# Pixel bootloader's /chosen/config identity node (IMEI, board/product serial,
+# Wi-Fi/BT MAC, all under vendor property names a fixed list cannot enumerate)
+# is dropped whole.
 #
 # Deliberately KEPT: chosen/kaslr-seed and chosen/rng-seed. They are random,
 # non-identifying values (the kernel zeroes them after boot anyway), and KASLD
@@ -30,6 +33,13 @@ set -eu
 
 # Property names removed wherever they occur (board/owner-identifying only).
 SCRUB='serial-number local-mac-address mac-address'
+
+# Whole nodes dropped by path. The Android/Pixel bootloader stashes device
+# identity (IMEI, board/product serial, Wi-Fi/BT MAC) under /chosen/config with
+# vendor-specific property names no fixed SCRUB list can enumerate; KASLD never
+# reads that node, so drop it entire. kaslr-seed / rng-seed sit directly under
+# /chosen as siblings, so they are untouched.
+DROP_NODES='/chosen/config'
 
 command -v dtc >/dev/null 2>&1 || {
   echo "anonymize-fdt: dtc not found (install device-tree-compiler)" >&2
@@ -73,25 +83,40 @@ for dtb in "$@"; do
   report=$(mktemp) || { echo "anonymize-fdt: mktemp failed" >&2; exit 1; }
   dtc -I dtb -O dts -o "$dts" "$dtb" 2>/dev/null
 
-  # Drop any property assignment whose name is in SCRUB, handling values that
-  # span multiple lines (keep dropping until the terminating ';'). Names of the
-  # removed properties (and a trailing count) go to the report on stderr.
-  awk -v scrub="$SCRUB" '
-    BEGIN { n = split(scrub, a, " "); for (i = 1; i <= n; i++) deny[a[i]] = 1 }
+  # Two removals over the decompiled tree, each logged to the report on stderr:
+  #  - any whole node whose path is in DROP_NODES (its subtree, brace-balanced);
+  #  - any property assignment whose name is in SCRUB, wherever it occurs (a
+  #    value may span lines, so keep dropping until the terminating ';').
+  # The node path is tracked with a small stack: stack[1] is the root, so a node
+  # contributes the path /stack[2]/.../stack[sp].
+  awk -v scrub="$SCRUB" -v dropnodes="$DROP_NODES" '
+    BEGIN {
+      n = split(scrub, a, " ");      for (i = 1; i <= n; i++)  deny[a[i]] = 1
+      dn = split(dropnodes, b, " "); for (i = 1; i <= dn; i++) dropn[b[i]] = 1
+    }
+    drop { op = gsub(/\{/, "{"); cl = gsub(/\}/, "}"); bal += op - cl; if (bal <= 0) drop = 0; next }
     skip { if ($0 ~ /;[[:space:]]*$/) skip = 0; next }
     {
-      name = $0
-      sub(/^[[:space:]]+/, "", name)
-      sub(/[[:space:]]*=.*/, "", name)
+      t = $0; sub(/^[[:space:]]+/, "", t); sub(/[[:space:]]+$/, "", t)
+      if (t ~ /\{$/ && t !~ /=/) {                        # node open: "name {"
+        nm = t; sub(/[[:space:]]*\{$/, "", nm)
+        sp++; stack[sp] = nm
+        path = ""; for (i = 2; i <= sp; i++) path = path "/" stack[i]
+        if (path in dropn) {
+          print "  removed node: " path > "/dev/stderr"
+          drop = 1; bal = 1; sp--; next                   # opening brace consumed
+        }
+        print; next
+      }
+      if (t == "};" || t == "}") { if (sp > 0) sp--; print; next }   # node close
+      name = t; sub(/[[:space:]]*=.*/, "", name); sub(/;.*$/, "", name)
       if (name in deny) {
         print "  removed: " name > "/dev/stderr"
         if ($0 !~ /;[[:space:]]*$/) skip = 1
-        count++
         next
       }
       print
     }
-    END { print count + 0 > "/dev/stderr" }
   ' "$dts" >"$clean" 2>"$report"
 
   # The rebuild writes over the input, so a failure half-way leaves a truncated
@@ -101,9 +126,9 @@ for dtb in "$@"; do
     echo "anonymize-fdt: $dtb: rebuild failed; original restored" >&2
     exit 1
   fi
-  n=$(tail -n1 "$report")
-  grep '^  removed:' "$report" >&2 || true
-  echo "$dtb: removed ${n} identifying propert$([ "$n" = 1 ] && echo y || echo ies)"
+  hits=$(grep -c '^  removed' "$report" 2>/dev/null || echo 0)
+  grep '^  removed' "$report" >&2 || true
+  echo "$dtb: removed ${hits} identifying item$([ "$hits" = 1 ] && echo '' || echo s)"
   echo "  review: dtc -I dtb -O dts $dtb | less"
   cleanup
   dts=''

@@ -365,14 +365,18 @@ grab_tree /sys/firmware/devicetree/base/rtas
 # files under /proc/device-tree). Feeds the DT components that need the whole
 # tree (sysfs_devicetree_mmio / _memory / _reserved_memory); the replay harness
 # unflattens it into sysroot/sys/firmware/devicetree/base/ at setup time.
-# NOTE: before committing a shared fixture, scrub board-identifying properties
-# (serial-number, local-mac-address) with extra/anonymize-fdt. The kaslr-seed /
-# rng-seed are deliberately kept (random, non-identifying, and read by KASLD).
+# NOTE: before committing a shared fixture, run extra/anonymize-fdt on this blob
+# to strip board-identifying data (serial-number, local-mac-address, and the
+# Android /chosen/config identity node). The blob is authoritative — the replay
+# harness unflattens it over the sysroot copies, so scrubbing only those is undone
+# at replay. kaslr-seed / rng-seed are deliberately kept (random, non-identifying,
+# and read by KASLD).
 grab /sys/firmware/fdt
 if [ -s "$OUT/sysroot/sys/firmware/fdt" ]; then
   w="WARNING: captured /sys/firmware/fdt may contain board-identifying data \
-(serial number, MAC address). Run extra/anonymize-fdt on it before sharing or \
-committing this capture."
+(serial number, MAC, IMEI in /chosen/config) and is unflattened over the sysroot \
+device tree on replay. Run extra/anonymize-fdt on it before sharing or committing \
+this capture."
   echo "$w" >&2
   echo "$w" >> "$NOTES"
 fi
@@ -493,7 +497,15 @@ if [ "$ANON" -eq 1 ]; then
   # root=UUID in bootargs survives the cmdline scrub.
   scrub_secrets "$OUT/sysroot/proc/device-tree/chosen/bootargs"
   scrub_secrets "$OUT/sysroot/sys/firmware/devicetree/base/chosen/bootargs"
-  echo "anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted" >> "$NOTES"
+  # Android/Pixel bootloaders stash device identity (IMEI, board/product serial,
+  # Wi-Fi/BT MAC) in /chosen/config under vendor property names the MAC/secret
+  # regex above cannot enumerate; KASLD never reads that node, so drop it from
+  # both unpacked copies. The flattened blob (sys/firmware/fdt) carries the same
+  # node and is authoritative on replay (it is unflattened over these copies), so
+  # it still needs extra/anonymize-fdt on a host with dtc — see the warning above.
+  rm -rf "$OUT/sysroot/proc/device-tree/chosen/config" \
+         "$OUT/sysroot/sys/firmware/devicetree/base/chosen/config"
+  echo "anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values, /chosen/config device identity redacted" >> "$NOTES"
 fi
 
 # ---------------------------------------------------------------------------
