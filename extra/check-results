@@ -367,8 +367,15 @@ if [ -n "$truth_ram_hi" ]; then
     _bs=$(numeric "$(tr -d ' \n' < /sys/devices/system/memory/block_size_bytes 2>/dev/null || true)")
   fi
   if [ -n "$_bs" ] && [ "0x$_bs" != "0x0" ]; then
-    _bc=$(( ( (0x$truth_ram_hi / 0x$_bs) + 1 ) * 0x$_bs - 1 ))
-    block_ram_ceiling=$(hex16 "$(printf '%x' "$_bc")")
+    # Round truth_ram_hi UP to the next block boundary, minus 1. Done in awk
+    # (exact doubles; hex out via d2h) NOT $(( )): shell arithmetic is 32-bit on
+    # some targets (Android mksh), where a >4 GiB top overflows. Inputs are
+    # hex16/numeric-sanitised, so nothing but hex reaches awk -v.
+    _bc_hex=$(awk -v hi="$truth_ram_hi" -v bs="$_bs" '
+      function h2d(s,  n,i,c){n=0;s=tolower(s);for(i=1;i<=length(s);i++){c=index("0123456789abcdef",substr(s,i,1));if(!c)return -1;n=n*16+(c-1)}return n}
+      function d2h(n,  s,r){if(n<=0)return "0";s="";while(n>0){r=n%16;s=substr("0123456789abcdef",r+1,1) s;n=int(n/16)}return s}
+      BEGIN{H=h2d(hi);B=h2d(bs);if(H<0||B<=0)exit;printf "%s", d2h((int(H/B)+1)*B-1)}')
+    [ -n "$_bc_hex" ] && block_ram_ceiling=$(hex16 "$_bc_hex")
   fi
 fi
 
@@ -549,31 +556,38 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
         fi
         ;;
       phys_max_pfn)
+        _vh=$(hex16 "$value")
         if [ -z "$truth_ram_hi" ]; then
           skip "S phys_max_pfn=$value — no /proc/iomem System RAM"
+        elif [ -z "$_vh" ]; then
+          skip "S phys_max_pfn=$value — unparsable"
         else
-          _pfn_ram=$(( (0x$truth_ram_hi + 1) >> 12 ))
-          if [ "$(( value ))" = "$_pfn_ram" ]; then
-            pass "S phys_max_pfn=$value — matches RAM-top PFN"
-          elif [ "$(( value ))" -ge "$_pfn_ram" ]; then
-            pass "S phys_max_pfn=$value — at/above RAM-top PFN (reserved above RAM)"
-          else
-            fail "S phys_max_pfn=$value — below RAM-top PFN (0x$(printf '%x' "$_pfn_ram")); under-counts RAM"
-          fi
+          # RAM-top PFN = (truth_ram_hi + 1) >> 12, vs the leaked PFN. Compared in
+          # awk (exact doubles) NOT $(( )): a >4 GiB top overflows 32-bit shell
+          # arithmetic (Android mksh). Inputs are hex16-sanitised.
+          _cmp=$(awk -v v="$_vh" -v hi="$truth_ram_hi" '
+            function h2d(s,  n,i,c){n=0;s=tolower(s);for(i=1;i<=length(s);i++){c=index("0123456789abcdef",substr(s,i,1));if(!c)return -1;n=n*16+(c-1)}return n}
+            BEGIN{V=h2d(v);H=h2d(hi);if(V<0||H<0){print "err";exit}P=int((H+1)/4096);print (V==P)?"eq":(V>P)?"gt":"lt"}')
+          case "$_cmp" in
+            eq) pass "S phys_max_pfn=$value — matches RAM-top PFN" ;;
+            gt) pass "S phys_max_pfn=$value — at/above RAM-top PFN (reserved above RAM)" ;;
+            lt) fail "S phys_max_pfn=$value — below RAM-top PFN; under-counts RAM" ;;
+            *)  skip "S phys_max_pfn=$value — could not compute RAM-top PFN" ;;
+          esac
         fi
         ;;
       phys_memtotal)
-        if [ -z "$truth_ram_lo" ]; then
+        if [ -z "$truth_ram_hi" ]; then
           skip "S phys_memtotal=$value — no /proc/iomem System RAM"
+        # Usable RAM cannot exceed the top physical RAM address (bound above
+        # only — a too-LOW value just under-bounds the ceiling, which is
+        # conservative). Compared as zero-padded hex via hex_le, NOT $(( )):
+        # shell arithmetic is 32-bit on some targets (Android mksh), where a
+        # >4 GiB RAM top overflows into a garbage span and fails a valid value.
+        elif hex_le "$(hex16 "$value")" "$truth_ram_hi"; then
+          pass "S phys_memtotal=$value — within physical RAM (top 0x$truth_ram_hi)"
         else
-          # Usable RAM cannot exceed the physical RAM span (a too-LOW value only
-          # under-bounds the ceiling, which is conservative — so bound above only).
-          _ramspan=$(( 0x$truth_ram_hi - 0x$truth_ram_lo + 1 ))
-          if [ "$(( value ))" -le "$_ramspan" ]; then
-            pass "S phys_memtotal=$value — within physical RAM span"
-          else
-            fail "S phys_memtotal=$value — exceeds physical RAM span (0x$(printf '%x' "$_ramspan"))"
-          fi
+          fail "S phys_memtotal=$value — exceeds top of physical RAM (0x$truth_ram_hi)"
         fi
         ;;
       virt_page_offset)
