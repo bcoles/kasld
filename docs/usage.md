@@ -545,7 +545,9 @@ with `groups_truncated` when the process holds more than the report keeps),
 and a `readable_oracles` map of the sources probed for readability — the
 `/proc` oracles, the system logs, debugfs, and the `/boot` `System.map` and
 config, the last two keyed by the path including the running kernel release
-(fields are a `null` or enum when they do not apply). `lsm`, `selinux` and
+(fields are a `null` or enum when they do not apply); and `cap_reachable_leaks`,
+the capability-gated leak sources reachable from the process's current
+capabilities. `lsm`, `selinux` and
 `security_context` are `null` when this vantage cannot read them, which is not
 the same as their being absent — an enforcing policy commonly hides its own
 state. `mac_enforcing` is the only one of the four that asserts anything: it is

@@ -20,7 +20,7 @@ the kernel virtual address space is laid out across architectures.
 Not all architectures support KASLR (`CONFIG_RANDOMIZE_BASE`) or enable it by
 default:
 
-![Timeline of KASLR arriving upstream and later becoming the default. Each architecture is a horizontal line with two events on it. A pale amber segment starting at a hollow marker is the stretch where the support existed but a stock build still shipped it off; a green segment starting at a filled marker is where KASLR became the default. x86_32 and x86_64 gained it in v3.14 (2013) and turned it on in v4.12 (2017), a gap of three and a half years. arm64 gained it in v4.6 (2016) and was enabled in the upstream defconfig in v5.3 (2019). s390 is the only architecture with no amber segment at all: v5.2 (2019) both introduced KASLR and shipped it on. LoongArch gained it in v6.3 and was enabled in v6.6, six months later. Four architectures have never left the amber segment and still ship KASLR off: MIPS32 and MIPS64 since v4.7 (2016), PowerPC32 since v5.5 (2019), and RISC-V64 since v6.6 (2023). Seven architectures have no KASLR in mainline at all](diagrams/kaslr-adoption.svg)
+![Timeline of KASLR arriving upstream and later becoming the default. Each architecture is a horizontal line with two events on it. A pale amber segment starting at a hollow marker is the stretch where the support existed but a stock build still shipped it off; a green segment starting at a filled marker is where KASLR became the default. x86_32 and x86_64 gained it in v3.14 (2013) and turned it on in v4.12 (2017), a gap of three and a half years. arm64 gained it in v4.6 (2016) and was enabled in the upstream defconfig in v5.3 (2019). s390 is the only architecture with no amber segment at all: v5.2 (2019) both introduced KASLR and shipped it on. LoongArch gained it in v6.3 and was enabled in v6.6, six months later. Four architectures have never left the amber segment and still ship KASLR off: MIPS32 and MIPS64 since v4.7 (2016), PowerPC32 since v5.5 (2019), and RISC-V64 since v6.6 (2023). Eight architectures have no KASLR in mainline at all](diagrams/kaslr-adoption.svg)
 
 | Architecture | KASLR Added | Date Added | Enabled by Default | Date Enabled | Notes |
 |---|---|---|---|---|---|
@@ -40,6 +40,7 @@ default:
 | m68k | — | — | — | — | Not supported |
 | MicroBlaze | — | — | — | — | Not supported |
 | OpenRISC | — | — | — | — | Not supported |
+| RISC-V32 | — | — | — | — | Not supported |
 
 Even where KASLR is unsupported, disabled, or failed to randomize, the
 kernel's load address may still vary across boots: a bootloader
@@ -92,8 +93,9 @@ system.
 The "default text base" here is the **image base** (`_text`) — the start of
 the kernel image, which is what KASLR aligns and what KASLD reports. The
 familiar `_stext` (start of the code section) sits a fixed *head gap* above
-`_text`: zero on most architectures (so `_text == _stext`), but non-zero where
-a header precedes the code (arm64's `.head.text`, `0x10000`). KASLD solves the
+`_text`: zero on x86 and PowerPC (so `_text == _stext`), but non-zero wherever a
+header precedes the code — arm64's `.head.text` (`0x10000`), and likewise on
+arm32, LoongArch and the MIPS pair. KASLD solves the
 image base and shows `_stext` as a derived line only when the two differ; a
 leaked `_stext` (e.g. from `/proc/kallsyms`) is normalized back to the image
 base when it is consumed, so the slide is always measured against `_text`.
@@ -302,12 +304,11 @@ The four states are entered by different mechanisms:
   could not produce a random offset:
   - arm64 EFI stub: no `EFI_RNG_PROTOCOL`, no FDT `kaslr-seed`
     (dmesg: `KASLR disabled due to lack of seed`).
-  - arm64: FDT remap failure during early init
-    (dmesg: `KASLR disabled due to FDT remapping failure`).
+  - arm64 (older kernels): FDT remap failure during early init
+    (dmesg: `KASLR disabled due to FDT remapping failure`); the early-init
+    rewrite in later kernels dropped this path.
   - s390 boot stub: CPU has no PRNG instruction
     (dmesg: `KASLR disabled: CPU has no PRNG`).
-  - s390 boot stub: not enough memory to relocate
-    (dmesg: `KASLR disabled: not enough memory`).
   - riscv64 EFI stub: the same shape as arm64 (`EFI_RNG_PROTOCOL`
     falls back to a deterministic firmware-allocated position when
     no random source is exposed). The riscv64 no-seed dmesg signal
@@ -319,12 +320,10 @@ The dmesg line in the third state begins with the same `KASLR
 disabled` prefix as a deliberate opt-out — distinguishing them
 requires inspecting the reason text. The kernel is still relocated by
 the boot stub but lands at a firmware-determined position rather than
-the link-time default, so consumers MUST NOT treat this signal as a
-pin-to-default. KASLD emits a distinct scalar fact
-(`SF_VIRT_KASLR_RANDOMIZATION_FAILED` + `SF_PHYS_KASLR_RANDOMIZATION_FAILED` versus `SF_VIRT_KASLR_DISABLED` +
-`SF_PHYS_KASLR_DISABLED`) and neither sets the summary's
-`kaslr.disabled` flag nor pins `Q_VIRT_IMAGE_BASE` or `Q_PHYS_IMAGE_BASE`
-from this signal.
+the link-time default, so the signal cannot be read as a
+pin-to-default. KASLD records this state as its own fact, distinct from a
+deliberate opt-out: it does not set the summary's KASLR-disabled flag, and it
+does not pin the image base from the signal.
 
 Per-host fingerprintability: in the *randomization failed* state, the
 position is deterministic per (firmware, kernel build, hardware)
@@ -353,7 +352,7 @@ a physical address leak does not directly reveal the virtual address
 | arm64 | Decoupled | v4.6 | EFI stub randomizes physical; `kaslr_early_init` randomizes virtual; linear map has limited entropy |
 | MIPS32/64 | Coupled | v4.7 | Single relocation offset; fixed kseg0 virt-to-phys mapping |
 | x86_64 | Decoupled | v4.8 | Separate `find_random_phys_addr` / `find_random_virt_addr`; also `CONFIG_RANDOMIZE_MEMORY` for memory sections |
-| s390 | Decoupled | v5.2 | Identity-mapped (virt = phys) through v6.7; v6.8+ moves kernel text to a separate high mapping randomized as normal KASLR, so KASLD models it decoupled (`TEXT_TRACKS_DIRECTMAP=0`); the identity/direct-map base can also be randomized via `RANDOMIZE_IDENTITY_BASE`, a debug-oriented option off by default (pinned to 0 on production kernels) |
+| s390 | Decoupled | v6.10 | Identity-mapped (virt = phys) through v6.9; v6.10+ moves kernel text to a separate high mapping randomized as normal KASLR, so KASLD models it decoupled (`TEXT_TRACKS_DIRECTMAP=0`); the identity/direct-map base can also be randomized via `RANDOMIZE_IDENTITY_BASE`, a debug-oriented option off by default (pinned to 0 on production kernels) |
 | PowerPC32 | Coupled | v5.5 | Same offset applied to both addresses |
 | LoongArch | Coupled | v6.3 | Single relocation offset; direct-mapped windows |
 | RISC-V64 | Virtual only | v6.6 | Only virtual address randomized; physical depends on bootloader |
@@ -394,7 +393,7 @@ KASLD quantity (`Q_*`) that resolves each region annotated alongside it:
 | MIPS32/64 | Coupled | Coupled (kseg0) | Fixed module region | Hardware-defined mapping |
 | PowerPC32 | Coupled | Coupled | Platform-dependent | A dedicated window below `PAGE_OFFSET` on 8xx / book3s32; every other platform, 85xx included, allocates from the shared vmalloc window |
 | PowerPC64 | — | Coupled | Shared VAS | No KASLR |
-| LoongArch64 | Coupled | Coupled | Fixed module region | Direct-mapped windows |
+| LoongArch | Coupled | Coupled | Fixed module region | Direct-mapped windows |
 | RISC-V64 | Virtual only | Decoupled | Coupled (shifts with kernel) | Module region anchored to kernel `_end`; text ↔ directmap coupled on legacy pre-v5.10 kernels (no KASLR) |
 | RISC-V32 | — | Coupled | Below PAGE_OFFSET (vmalloc) | No KASLR; modules share the vmalloc window, which on sv32 is the 512 MiB below `PAGE_OFFSET` |
 
@@ -458,7 +457,7 @@ performing validation and analysis.
 | MIPS32 | No | — | `0x80000000` (hardware kseg0) |
 | MIPS64 | No | — | `0xFFFFFFFF80000000` (xkseg) |
 | PowerPC64 | No | — | `0xC000000000000000` |
-| LoongArch64 | No | — | `0x9000000000000000` |
+| LoongArch | No | — | `0x9000000000000000` |
 | RISC-V32 | No | — | `0xC0000000` |
 | RISC-V64 | No | — | `0xFF60000000000000` (SV57) |
 

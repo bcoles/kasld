@@ -319,7 +319,7 @@ The orchestrator already knows whether results were found from the
 tagged output.
 
 The constants are defined in
-[`src/include/kasld/internal.h`](src/include/kasld/internal.h) and
+[`src/include/kasld/api.h`](src/include/kasld/api.h) and
 follow the `<sysexits.h>` convention (`EX_UNAVAILABLE` = 69,
 `EX_NOPERM` = 77).
 
@@ -728,7 +728,7 @@ and [Cross-region derivation](docs/architecture.md#cross-region-derivation).
 A new architecture is one header under `src/include/kasld/arch/`. It answers a
 fixed set of questions about how that architecture lays memory out, and `api.h`
 refuses to compile a header that leaves any of the mandatory ones unanswered —
-the eight listed under [Mandatory axes](#api-reference) below. Nothing here is
+the seven listed under [Mandatory axes](#api-reference) below. Nothing here is
 inferred from a neighbouring header: an answer copied from the closest-looking
 architecture is the failure this section exists to prevent.
 
@@ -842,9 +842,9 @@ makes each restrictive answer sound, in the header, next to the answer.
 ## API reference
 
 The complete component API is in [`src/include/kasld/api.h`](src/include/kasld/api.h)
-(emitter helpers, enums, address-layout constants) and
-[`src/include/kasld/internal.h`](src/include/kasld/internal.h) (exit
-codes — components don't include this directly).
+— emitter helpers, enums, address-layout constants, and the exit codes.
+[`src/include/kasld/internal.h`](src/include/kasld/internal.h) is
+orchestrator-internal; components don't include it.
 
 **Emitter helpers** — pick the one matching what is known:
 
@@ -873,8 +873,7 @@ All return `1` on emit, `0` on rejection (stderr warning is written).
 | `KASLD_EXPLAIN(text)` | Embed a technique explanation (`.kasld_explain` ELF section) |
 | `KASLD_META(text)` | Embed machine-readable metadata (`.kasld_meta` ELF section) |
 
-**Exit codes** (from `kasld/internal.h`, but components reference them
-directly via the constants in `kasld/api.h`'s include chain):
+**Exit codes** (defined in `kasld/api.h`):
 
 | Symbol | Purpose |
 |---|---|

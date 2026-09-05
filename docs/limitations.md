@@ -43,9 +43,9 @@ that value is deliberately held below the sound floor, where it shapes only the
 speculative window. `make test-fixtures-perturb` asserts exactly this across the
 whole fixture corpus: shrinking `MemTotal` must not move the guaranteed window.
 
-A substituted fact source goes further. The no-KASLR base is fixed exactly by
-`CONFIG_PHYSICAL_START` together with a kernel alignment, so a source supplying
-that pair narrows the guaranteed window to a single address:
+A substituted fact source goes further. On x86, the no-KASLR base is fixed
+exactly by `CONFIG_PHYSICAL_START` together with a kernel alignment, so a source
+supplying that pair narrows the guaranteed window to a single address:
 
 - `CONFIG_PHYSICAL_START` is read only from a kernel configuration —
   `/boot/config-<release>`, `/lib/modules/<release>/{build/.config,config}`, or

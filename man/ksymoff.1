@@ -56,16 +56,21 @@ Translate physical and virtual addresses through the direct map, for data-only
 pivots that operate on physical addresses. These need a base rather than a
 symbol source.
 .PP
-The runtime text base is supplied in one of three ways, in priority order:
+The runtime text base is supplied by one of two mutually exclusive options \(em
 .B \-\-from
-.IR NAME = ADDR ;
+.IR NAME = ADDR ,
+or
 .B \-b
-.IR BASE ;
-or a
+.IR BASE
+\(em or, when neither is given, from a
 .B "kasld \-1"
 line piped on standard input (the
 .I text=
-field is read).
+field is read). Giving both
+.B \-\-from
+and
+.B \-b
+is an error.
 .SH OPTIONS
 .TP
 .BR \-b ", " "\-\-base " \fIBASE\fR

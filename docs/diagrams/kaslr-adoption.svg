@@ -94,5 +94,5 @@
   <text class="note" x="372" y="476">on by default from here</text>
   <text class="note" x="24" y="500">s390 is the only architecture that shipped KASLR on from the release that introduced it; x86 waited three and a half</text>
   <text class="note" x="24" y="516">years, arm64 over three, and LoongArch six months. Architectures with no KASLR support in mainline at all: arm32,</text>
-  <text class="note" x="24" y="532">PowerPC64, sparc, SuperH (sh), m68k, MicroBlaze, OpenRISC.</text>
+  <text class="note" x="24" y="532">PowerPC64, sparc, SuperH (sh), m68k, MicroBlaze, OpenRISC, RISC-V32.</text>
 </svg>

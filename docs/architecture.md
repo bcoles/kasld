@@ -13,7 +13,7 @@ Where that diagram shows the stages, this one shows what travels between them �
 the struct each layer owns, its fields, and the call that converts one into the
 next:
 
-![Data structures by layer: six structs cross a layer boundary. A component emits text on stdout, so no struct crosses the process boundary; the orchestrator parses each address record into struct result (type, region, name, lo, hi, sample, base_align, set_mask, pos, conf, origins, method_set); engine_build_evidence() gathers those into struct evidence_set (obs, verdicts, coverings), whose struct observation carries value_kind, type, region, name, pos, conf and origin, with value_kind selecting whether lo/hi/sample, scalar_fact, or c_quantity and c_op are live; rules read evidence and estimates and emit struct constraint (q, op, value, value2, conf, origin) or a verdict invalidating an observation; meet and narrow apply those to struct estimate (kind, lo, hi, stride, stride_offset, lo_binding, hi_binding, lo_conf, hi_conf), one per quantity, which only ever narrows; and engine_sync_authoritative() projects the resolved estimates into struct summary.kaslr_info (vtext, vstext, vslide, vslots, vbits, ptext, pstext, disabled, unsupported, randomization_failed) for the renderer. Confidence travels the whole way, and estimate's lo_conf and hi_conf record which trust level set each edge](diagrams/struct-layers.svg)
+![Data structures by layer: six structs cross a layer boundary. A component emits text on stdout, so no struct crosses the process boundary; the orchestrator parses each address record into struct result (type, region, name, lo, hi, sample, base_align, set_mask, pos, conf, origins, method_set); engine_build_evidence() gathers those into struct evidence_set (obs, verdicts, coverings), whose struct observation carries value_kind, type, region, name, pos, conf and origin, with value_kind selecting whether lo/hi/sample, scalar_fact, or c_quantity and c_op are live; rules read evidence and estimates and emit struct constraint (q, op, value, value2, conf, origin) or a verdict invalidating an observation; meet and narrow apply those to struct estimate (kind, lo, hi, stride, stride_offset, lo_binding, hi_binding, lo_conf, hi_conf), one per quantity, which only ever narrows; and engine_sync_authoritative() projects the resolved estimates into the summary's kaslr field, a struct kaslr_info (vtext, vstext, vslide, vbits, ptext, pstext, disabled, unsupported, randomization_failed) for the renderer. Confidence travels the whole way, and estimate's lo_conf and hi_conf record which trust level set each edge](diagrams/struct-layers.svg)
 
 This document is the conceptual reference for how KASLD works. For the actionable
 mechanics of adding a component or rule, see
@@ -204,7 +204,7 @@ loop.
   address in the text region. Because a constraint is not an address, the anchor
   rules — which gate on the address kind — never read one, so a sub-`_text`
   bound cannot be misread as a text anchor.
-- **Rules** (`../src/rules/*.c`) — roughly 90 pure functions that read the evidence and
+- **Rules** (`../src/rules/*.c`) — roughly 95 pure functions that read the evidence and
   the current estimates and emit *constraints* (`>=`, `<=`, `=`, alignment,
   membership, exclusion) or *verdicts* (invalidate a result) on the quantities.
   A rule does no I/O and has no side effects, so soundness is provable in
@@ -358,7 +358,7 @@ lesser of the rule's own grade and the input edge's `lo_conf` / `hi_conf`), so a
 chain of derivations rooted in a guess stays sub-floor and cannot surface in the
 guaranteed window. The renderer owns the vocabulary — `inferred` / "Guaranteed
 range" for the sound window, `likely` / "speculative" for the other (see
-[Output formats](usage.md)).
+[Output modes](usage.md#output-modes)).
 
 The same guarantee holds across the caller's vantage. A richer vantage — extra
 capabilities, a relaxed sysctl, an unmasked `/proc` — adds observations and can
@@ -481,10 +481,11 @@ derived records during the fixpoint loop after collecting all leaked results.
 
 Components that leak a physical address can convert it to a direct-map virtual
 address using `phys_to_directmap_virt(p)`, guarded by
-`#ifdef phys_to_directmap_virt` so the derivation is compiled out on arches where
-the projection is unsound (x86_64 `CONFIG_RANDOMIZE_MEMORY` randomizes the
-direct-map base; arm64 / riscv64 / s390 keep text and direct map at independent
-runtime offsets). The component emits two records — one `PHYS`, one `VIRT` — both
+`#ifdef phys_to_directmap_virt` so the derivation is compiled out wherever
+`PAGE_OFFSET` is not fixed at build (`PAGE_OFFSET_KNOWN_AT_BUILD`): the 64-bit
+arches that randomize or independently offset the direct-map base (x86_64 under
+`CONFIG_RANDOMIZE_MEMORY`, arm64, riscv64, s390), and the 32-bit arches whose
+`PAGE_OFFSET` follows a configurable VMSPLIT (arm32, ppc32, x86_32). The component emits two records — one `PHYS`, one `VIRT` — both
 with the same `(region, name)`. The merge pass keeps them as separate records
 (different `type`) while engine rules use the pair to derive `PAGE_OFFSET`.
 
@@ -506,17 +507,19 @@ Key rules for cross-region derivation:
   `PHYS/REGION_RAM` base record, with a 1 GiB alignment check.
 - **`directmap_page_offset_bounds`** — bounds `PAGE_OFFSET` from a
   `VIRT/REGION_DIRECTMAP` leak: `PAGE_OFFSET <= V_min`, and
-  `PAGE_OFFSET > V_min - phys_span`.
+  `PAGE_OFFSET >= V_min - phys_span`.
 - **`kernel_image_phys_bound`** — uses `PHYS/REGION_KERNEL_BSS` witnesses (which
-  sit past `_sdata`) to tighten `phys_base_max`.
+  sit past `_sdata`) to tighten the upper bound on `Q_PHYS_IMAGE_BASE`.
 - **`dram_floor_bound`** / **`dram_ceiling`** — use the minimum and maximum
   observed physical addresses in DRAM regions to bound the KASLR text window
   from both sides.
 - **`text_cluster_filter`** — drops outlier `VIRT/REGION_KERNEL_TEXT` candidates
   that disagree with the cluster median by more than a slot threshold.
-- **`initrd_phys_exclude`** / **`firmware_memmap_holes`** — emit `C_EXCLUDE`
-  verdicts against `PHYS` kernel-image candidates that fall inside reserved
-  intervals or outside any System RAM range.
+- **`initrd_phys_exclude`** — emits a `C_EXCLUDE` constraint carving `PHYS`
+  kernel-image candidates that fall inside a reserved interval (e.g. the initrd)
+  out of `Q_PHYS_IMAGE_BASE`.
+- **`firmware_memmap_holes`** — emits a `V_INVALID` verdict against `PHYS`
+  kernel-image candidates that fall outside any System RAM range.
 - **`page_offset_from_landmark`** / **`page_offset_from_config`** — pin
   `Q_PAGE_OFFSET` from a `pageoffset` landmark or `CONFIG_PAGE_OFFSET`; this is
   how a runtime vmsplit propagates on coupled architectures.
@@ -615,9 +618,9 @@ That flag also answers in the positive, which nothing else does. Set, it is
 emitted as `SF_KASLR_RANDOMIZED` — and because the code that sets it is compiled
 in only under `CONFIG_RANDOMIZE_BASE`, it carries that option with it, and
 therefore `KERNEL_IMAGE_SIZE` and the placement of `MODULES_VADDR`. That is what
-licenses `module_base_execmem_window` on a run that has resolved no base at all,
-where previously only a base observed away from its compile-time default could
-establish the same premise. Read from `/sys/kernel/boot_params/data` alone: the
+licenses `module_base_execmem_window` on a run that has resolved no base at all;
+a base observed away from its compile-time default establishes the same premise
+independently. Read from `/sys/kernel/boot_params/data` alone: the
 bit is written at runtime, and the copy in the `/boot` image carries the
 build-time value, which is clear on every kernel. The orchestrator reads
 `SF_VIRT_KASLR_DISABLED` to set the summary's `kaslr.disabled` flag (driving the
@@ -632,9 +635,10 @@ there: `arm64_text_base`, `riscv64_text_base`, and `s390_image_base_from_config`
 that set `KASLR_DISABLED_PINS_PHYS` (currently x86_64 and loongarch64).
 
 **Unsupported.** "KASLR not supported" (compile-time `KASLR_SUPPORTED=0` — arm32,
-ppc64, riscv32, sparc) is synthesized by the orchestrator as both facts with
-origin `arch-no-kaslr`, inert for inference, but lights the renderer's "KASLR not
-supported" banner.
+ppc64, riscv32) is synthesized by the orchestrator as both facts with origin
+`arch-no-kaslr`, inert for inference, but lights the renderer's "KASLR not
+supported" banner. (Arches KASLD refuses to build at all — sparc, sh, m68k,
+microblaze, openrisc — `#error` in their arch header instead.)
 
 **Randomization failed.** Distinct from disabled: the KASLR machinery was enabled
 and ran in the boot stub, but could not produce a random offset because the

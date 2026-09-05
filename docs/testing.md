@@ -53,15 +53,16 @@ KASLD_NATIVE=1 tests/replay tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
 ```sh
 make check          # runs `make test` then prints "OK: host test suite passed."
-make test           # build + run all test drivers (~30), then the lint guards
+make test           # build + run all test drivers (~46), then the lint guards
 make lint           # just the static guards (no test-binary build)
 ```
 
 Each driver is a standalone binary in `build/tests/`. Test binaries (this
 layer) and fuzz harnesses (layer 6 below) live in `build/tests/` and
 `build/fuzz/` respectively — both are siblings of the per-arch deploy tree
-`build/<arch>/`, so neither is reachable by `make install` (which copies
-only the orchestrator binary and the `components/` subdirectory).
+`build/<arch>/`, so neither is reachable by `make install` (which installs the
+`kasld` binary, its component binaries, `ksymoff`, the man pages and the docs —
+never the sibling test or fuzz trees).
 
 The table below is a representative subset; the authoritative list of drivers
 that `make test` builds and runs is `TEST_ALL_BINS` in the Makefile.
@@ -73,7 +74,7 @@ that `make test` builds and runs is `TEST_ALL_BINS` in the Makefile.
 | `test_engine` | every rule in `src/rules/` over synthetic evidence | engine core + all rules |
 | `test_engine_integration` | the full production rule registry against leak-bearing evidence | engine core + `engine_rules.c` + all rules |
 | `test_kasld` | orchestrator internals (parse, merge, anchor select), the engine→layout projection, the environment gatherer, region_info | `orchestrator.c` / `capture.c` / `discard.c` / `meta.c` / `environment.c` / `region_info.c` under `-DKASLD_TESTING` |
-| `test_render` | the renderers (text / json / markdown / oneline / hardening) — split out of `test_kasld` | `render.c` / `render/*.c` under `-DKASLD_TESTING` |
+| `test_render` | the renderers (text / json / markdown / oneline / hardening) | `render.c` / `render/*.c` under `-DKASLD_TESTING` |
 | `test_align` | the text-base floor helpers (`kasld_floor_aligned_suboffset` / `kasld_floor_text_base`) | `api.h` (header-only) |
 | `test_text_order` | the kernel-text ordering classifier (`classify_text_order`) | `text_order.h` (header-only) |
 | `test_dmesg_layout` | the riscv `print_vm_layout` dump parser | `components/dmesg_mem_init_kernel_layout.c` (`#include`d, `main` renamed) |
@@ -146,8 +147,8 @@ when available (`HAVE_PTHREAD`), matching the normal build.
 invariants the unit tests can't. Most are pure text over `src/`, so they need no
 build and run in a second; four are not, and it matters when the tree must stay
 frozen: `check-truncation` compiles a translation unit for i686,
-`check-hash-parity` builds `tests/check_hash_parity.c`, and `check-render-width`,
-`check-baseline` and `check-render-color` execute already-built binaries. Run them
+`check-hash-parity` builds `tests/check_hash_parity.c`, and `check-baseline`
+and `check-render-color` execute already-built binaries. Run them
 alone with `make lint` (fast; no driver build).
 
 The guards are independent, so they run several at a time — `JOBS` sets how many,
@@ -182,7 +183,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-component-meta` | every component declares `KASLD_META` with the mandatory `method:`, `discloses:` and `source:` keys, each carrying a value from its closed vocabulary, and both `api.h` and `CONTRIBUTING.md` document exactly that vocabulary |
 | `check-component-tests` | every `method:parsed` component is `#include`d by a test translation unit, or carries a reviewed entry on the guard's own allowlist — so the component layer cannot grow a parser no test exercises |
 | `check-component-sections` | every built component binary carries `.kasld_meta` and `.kasld_explain`, present and non-empty. `KASLD_META`/`KASLD_EXPLAIN` place their text in ELF sections via `__attribute__((used, section(...)))`, and the orchestrator reads them back out of the binary to assign phases, print `--explain`, and build the hardening report. `check-component-meta` holds the declaration side — that every source declares one, with a vocabulary agreeing across the tree — but it reads source and cannot see whether the declaration reached the binary. Renaming the section in the attribute leaves every source declaring metadata, every other guard passing, and `--explain` producing nothing; a link flag discarding unreferenced sections does the same without touching a line of source. Every triple built is checked, not only the host's: the attribute is architecture-independent but the link is not, and `readelf` reads a foreign ELF as readily as a native one. That also makes a stripped build checkable, which is what lets a release claim stripping is safe — the sections either survived or this fails. A zero-size section counts as absent, reading identically at runtime |
-| `check-components-built` | every component source produced a build artefact. The component recipe exits 0 whatever the compiler said, deliberately: with 118 independent leaf targets, one that will not compile must not stop the other 117 being built and tested. It removes the target instead, so a broken component becomes absent rather than stale and is never silently exercised as the last binary that happened to compile. That left the failure for something else to notice, and nothing did — the orchestrator finds components by scanning the directory, so an absent one is simply a smaller set reported as success, and no guard compared the build against the source. A component could stop compiling with `make`, `make test` and `make cross` all staying green. The recipe already writes the distinction to disk, so this reads it rather than tracking its own: a non-empty file compiled, an empty file is the architecture-gated skip path writing a deliberate empty target, and an absent file is a compiler failure. No expected count is used, and none may be — a fixed number rots the moment a component is added, which is this same failure one level up |
+| `check-components-built` | every component source produced a build artefact. The component recipe exits 0 whatever the compiler said, deliberately: with 120 independent leaf targets, one that will not compile must not stop the other 119 being built and tested. It removes the target instead, so a broken component becomes absent rather than stale and is never silently exercised as the last binary that happened to compile. That left the failure for something else to notice, and nothing did — the orchestrator finds components by scanning the directory, so an absent one is simply a smaller set reported as success, and no guard compared the build against the source. A component could stop compiling with `make`, `make test` and `make cross` all staying green. The recipe already writes the distinction to disk, so this reads it rather than tracking its own: a non-empty file compiled, an empty file is the architecture-gated skip path writing a deliberate empty target, and an absent file is a compiler failure. No expected count is used, and none may be — a fixed number rots the moment a component is added, which is this same failure one level up |
 | `check-component-cap` | `MAX_COMPONENTS` keeps a margin above the in-tree component count — a component directory that overruns it silently drops the excess |
 | `check-log-prefixes` | no diagnostic message begins with a `[.]`/`[-]`/`[+]` marker (the `kasld_info`/`kasld_err`/`kasld_found` helper already prepends one — an embedded marker doubles it) |
 | `check-live-probes` | every component's declarations agree with its code. `source:` — a `files` component contains no live primitive, and a `live` or `hybrid` one carries the self-guard that keeps it from running offline against the analysis host. `status:experimental` — it pairs with `kasld_skip_experimental()`, in both directions, so a component the orchestrator holds back cannot run freely when invoked directly |
@@ -194,8 +195,8 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-fuzz-harnesses` | every libFuzzer harness under `tests/fuzz/` still builds and links against the tree, and has a seed corpus † |
 | `check-render-model-only` | no renderer reads a resolved quantity — a base, count, slide or entropy figure — from the summary struct; the report model is the only source, so a format cannot present a value the model withheld or a figure the engine did not compute |
 | `check-render-no-acquire` | no renderer acquires a fact about the target — no file probe, no `sysconf()`, no `uname()`; every fact reaches the render layer through the summary, the report model or the environment snapshot, so all formats answer from one moment and a replayed tree is described rather than the machine replaying it |
-| `check-make-deps` | every test and fuzz binary declares as a make prerequisite each source it reaches by `#include`, so an edit to one of them relinks rather than leaving a stale binary that passes against code no longer in the tree † |
-| `check-suite-registry` | every unit-test binary the Makefile builds is also executed by `tests/run-all`, so a suite cannot be added, compiled on every build and never run while `make test` reports a clean pass † |
+| `check-make-deps` | every test and fuzz binary declares as a make prerequisite each source it reaches by `#include`, so an edit to one of them relinks rather than leaving a stale binary that passes against code no longer in the tree |
+| `check-suite-registry` | every unit-test binary the Makefile builds is also executed by `tests/run-all`, so a suite cannot be added, compiled on every build and never run while `make test` reports a clean pass |
 | `check-property-arches` | every supported architecture has BOTH whole-engine property tests — `test_full_engine_property_<arch>` and `..._floor` — defined and wired into the `RUN()` list † |
 | `check-stext-gap` | the three statements of an architecture's `_text`→`_stext` head gap agree: `STEXT_OFFSET`, `STEXT_OFFSET_MIN`/`_MAX`, and `STEXT_GAP_CANDIDATES` † |
 | `check-confidence-floor` | every engine rule that emits a *collapsing* constraint — `C_EQUALS`, `C_STRIDE`, `C_AT_LEAST_ALIGN`, or `C_EXCLUDE` — is on a reviewed allowlist, each entry recording what the value rests on † |
@@ -244,8 +245,8 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 `python3` and a `make` that prints its rule database (`-p`), and
 `check-diagram-data` uses `xmllint` for its
 well-formedness pass; all six **skip cleanly** (exit 0) when their tool is
-absent, so `make lint` works with just a host compiler. CI installs all but
-the fuzzer toolchain, so there they run for real. `check-diagram-data` skips
+absent, so `make lint` works with just a host compiler. CI installs the full
+toolchain, so there all six run for real. `check-diagram-data` skips
 only that one pass — its table-parity and structural checks need nothing
 beyond POSIX utilities.
 
@@ -659,10 +660,10 @@ the generator's output and in every regeneration of it.
 
 What is asserted is membership, not the plotted values: residual bit counts are
 a sample that moves with each harness run, so pinning them would fail on every
-honest re-run, while the set of things plotted does not move. The other twelve
+honest re-run, while the set of things plotted does not move. The other thirteen
 diagrams illustrate a mechanism rather than plot a table, so they have no source
 to check against; the structural half -- referenced, well-formed, no arrow or
-box-drawing glyphs -- covers all fifteen.
+box-drawing glyphs -- covers all sixteen.
 
 **`check-doc-identifiers`** — The same parity `check-manpages` applies to flags,
 applied to names. A document naming a constant that does not exist reads exactly
@@ -720,8 +721,11 @@ Reconstructs a scratch sysroot from each fixture under
 `tests/fixtures/<arch>/<host>/` and runs the real `kasld` over it in every output
 mode — verbose text (`-v`), oneline (`-1`), and the hardening report in
 text / markdown / json (`-H`, `-H -m`, `-H -j`) — checking each parses, resolves,
-and renders without crashing. There is no golden master — a crash (signal) is the
-only failure; "no results" is informational. The multi-mode sweep is per-arch
+and renders without crashing. There is no golden master: a run fails on a crash
+(death by signal) in any mode, or on an output-mode assertion — a mode that emits
+no marker, or a document mode (`-m` / `-j`) that leaks the plain-text run
+narration. A run that simply yields "no results" is informational, not a
+failure. The multi-mode sweep is per-arch
 crash coverage of every renderer, which the host-only render unit tests cannot
 reach.
 
@@ -897,7 +901,7 @@ It serves two roles:
   the *window-excludes-truth* soundness class in CI without a live boot. Native
   arches validate directly; foreign arches replay under qemu-user (`QEMU_DIR` or
   PATH). Truth-bearing fixtures come from `extra/collect --kallsyms` captures or
-  from `tests/vm/run capture <arch>` (a live boot that frames the fact-set back
+  from `tests/vm/run <arch> capture` (a live boot that frames the fact-set back
   over the serial console). It is `jq`-gated and skips arches whose binary or
   qemu-user is absent, so it degrades cleanly.
 
@@ -1000,8 +1004,10 @@ libFuzzer harnesses (with AddressSanitizer + UndefinedBehaviorSanitizer)
 for the five pure string→struct parsers the orchestrator runs against
 attacker-influenced input — `parse_hex`, `capture_result`, `capture_scalar`,
 `parse_meta`, `parse_disposition` — plus `fuzz_btf`, which walks the binary BTF
-type info in `btf_struct_page_size.c`: kernel-provided input rather than an
-attacker surface, but the most intricate binary parser in the tree. The Makefile
+type info in `btf_struct_page_size.c` (kernel-provided input rather than an
+attacker surface, but the most intricate binary parser in the tree), and
+`fuzz_render`, which drives the report model built from a resolved engine state
+the way a format reads it. The Makefile
 globs `tests/fuzz/fuzz_*.c`, so a new harness needs no target. See
 `tests/fuzz/README.md` for the contract details and crash-reproduction workflow.
 
@@ -1091,27 +1097,33 @@ Per-push, `.github/workflows/build.yml`:
 - **build** job: `make` → `make check` (layer 1, including the `make lint`
   guards) → build i686 → native replay over the x86_64 + x86_32 fixtures
   (layer 2, no qemu) → native fixture soundness over the same (`make test-fixtures`
-  equivalent, x86). The job installs `gcc-i686-linux-gnu`, `shellcheck` and `jq`,
-  so `check-truncation`, `check-shellcheck` and `validate-fixtures` run for real
-  rather than skipping. Steps bail on the first failure — fastest checks first.
+  equivalent, x86) → a fixture-perturbation negative control
+  (`validate-fixtures --perturb`, which must *reject* a corrupted fixture). The
+  job installs the full guard toolchain — `gcc-i686-linux-gnu`, `shellcheck`,
+  `jq`, `libxml2-utils`, `python3` and a `-fsanitize=fuzzer` `clang` — so all six
+  tool-gated guards run for real rather than skipping. Steps bail on the first
+  failure — fastest checks first.
 - **cross-compile** job (`needs: build`, so the slow emulation only runs once the
   fast host job passes): calls the reusable `_cross-build.yml` — one job per arch,
   fetching the cross-tools/musl-cross toolchain, running `make build` with a
   static-linkage check, then under `qemu-user`: the engine tests for that arch
-  (`run_test_cross` → `tests/test-cross <triple>`, layer 3) and the fixture
-  soundness gate (`run_validate_fixtures` → `tests/validate-fixtures`) over that
-  arch's truth-bearing fixtures. So every push *verifies* arch-gated rule bodies
+  (`run_test_cross` → `tests/test-cross <triple>`, layer 3), an end-to-end
+  crash-smoke replay of that arch's fixtures (`run_replay` → `tests/replay`,
+  layer 2), and the fixture soundness gate (`run_validate_fixtures` →
+  `tests/validate-fixtures`) over that arch's truth-bearing fixtures. So every
+  push *replays* every arch under emulation, *verifies* arch-gated rule bodies,
   and *asserts the resolved window contains the real base*, not just that they
   compile. `clang-format.yml` runs independently and ungated (style, not
   correctness).
 
-Manual, `.github/workflows/replay.yml`:
+On-demand, `.github/workflows/replay.yml`:
 
-- Reuses `_cross-build.yml` with `run_replay: true`, so each per-arch job
-  installs `qemu-user` and runs `tests/replay` right after building — extending
-  the native x86 replay to every foreign arch under emulation (layer 2, full).
-  Manual because cross-compiling every arch and emulating it is minutes, not a
-  per-push cost.
+- Reuses `_cross-build.yml` with `run_replay: true` against a chosen
+  `toolchain_version`, so each per-arch job runs `tests/replay` under
+  `qemu-user` right after building. The per-push `cross-compile` job already
+  replays every arch on the pinned toolchain; this workflow re-runs the full
+  matrix from the Actions tab against a different cross-toolchain release, to
+  validate a newer toolchain before bumping the pin.
 
 `.github/workflows/clang-format.yml` runs the style check.
 
@@ -1120,7 +1132,7 @@ Every layer's CI status, for completeness:
 | layer | in CI? | where / why not |
 |-------|--------|-----------------|
 | 1 — host unit + integration + lint | ✅ per-push | `build` job (`make check`) |
-| 2 — end-to-end replay | ✅ partial | native x86 per-push (`build` job); full qemu-user is manual (`replay.yml`) |
+| 2 — end-to-end replay | ✅ per-push | native x86 in the `build` job; every foreign arch under qemu-user in the `cross-compile` matrix (`run_replay`) |
 | 3 — cross-arch engine tests | ✅ per-push | `cross-compile` matrix runs `tests/test-cross` per arch under qemu-user |
 | fixture soundness (`make test-fixtures`) | ✅ per-push | native x86 in the `build` job; foreign arches in the `cross-compile` matrix under qemu-user |
 | 4 — coverage | ❌ | local, on-demand (`make coverage`); a report, not a gate |

@@ -54,7 +54,7 @@ cluster**, not any single primitive:
   - `/sys/firmware/*` (memmap, EFI), `/sys/.../resource`, and device files;
   - device and driver `ioctl`s (GPU, sound, filesystem, and others);
   - tight `rdtsc` / `rdtscp` timing loops in the x86 side-channel components
-    (`databounce`, `echoload`, `entrybleed`, `mincore`, `prefetch`,
+    (`avx_maskload`, `databounce`, `echoload`, `entrybleed`, `prefetch`,
     `prefetch_directmap`, `zombieload` — compiled `-O0` to preserve the timing);
   - **a sustained storm of handled `SIGSEGV`s** from `arm64_tlb_fault_timing`,
     which times the kernel's fault path and so must take the fault it is
