@@ -65,7 +65,14 @@ WORK=$(mktemp -d) || exit 1
 trap 'rm -rf "$WORK"' EXIT INT TERM
 
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
+# -Werror, because that is what CI compiles with and this guard exists to say
+# what CI will find. Without it the guard built the same sources with the same
+# clang and reported OK while the build CI runs failed: two files had no newline
+# at the end, which -pedantic warns about and only -Werror makes fatal. The
+# Makefile deliberately leaves -Werror out so an ordinary build is not stopped
+# by a warning; a guard predicting CI has to put it back.
 if ! make -j"$JOBS" -C "$ROOT" CC="$CC_CLANG" BUILD_DIR="$WORK" \
+     EXTRA_CFLAGS="${EXTRA_CFLAGS:--Werror}" \
      >"$WORK/build.log" 2>&1; then
   printf '%scheck-clang-build: FAIL%s (%s: %s)\n' "$RED" "$RESET" "$CC_CLANG" \
     "$($CC_CLANG --version 2>/dev/null | head -1)" >&2
