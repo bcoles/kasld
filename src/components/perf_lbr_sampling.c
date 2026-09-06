@@ -127,9 +127,8 @@ int main(int argc, char *argv[]) {
     kill(child, SIGKILL);
     waitpid(child, NULL, 0);
     if (e == EACCES || e == EPERM) {
-      fprintf(stderr,
-              "[-] perf_event_open EACCES - needs perf_event_paranoid<=1 or "
-              "CAP_PERFMON\n");
+      kasld_err("perf_event_open denied - perf_event_paranoid, seccomp, or LSM "
+                "policy");
       return KASLD_EXIT_NOPERM;
     }
     if (e == ENOENT || e == EOPNOTSUPP) {

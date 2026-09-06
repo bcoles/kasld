@@ -146,8 +146,14 @@ int main(int argc, char *argv[]) {
     kill(child, SIGKILL);
     waitpid(child, NULL, 0);
     if (e == EACCES || e == EPERM) {
-      /* paranoid>=3 (own-process sampling blocked) or a hardened LSM. */
-      fprintf(stderr, "[-] perf_event_open EACCES - perf_event_paranoid>=3?\n");
+      /* This technique needs no perfmon privilege -- it reads USER branch
+       * records at the default perf_event_paranoid=2 -- so a denial here is not
+       * the ordinary paranoid gate, and naming that one would point at a knob
+       * already low enough. What remains is paranoid raised to 3, which blocks
+       * own-process sampling outright, or a seccomp filter or LSM policy. */
+      kasld_err(
+          "perf_event_open denied - perf_event_paranoid >= 3, seccomp, or "
+          "LSM policy");
       return KASLD_EXIT_NOPERM;
     }
     if (e == ENOENT || e == EOPNOTSUPP) {
