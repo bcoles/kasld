@@ -18,6 +18,7 @@
 
 #include "sysroot.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -34,6 +35,28 @@ kasld_dt_read_blob(const char *path, unsigned char *buf, size_t len) {
   int n = (int)fread(buf, 1, len, f);
   fclose(f);
   return n;
+}
+
+/* 1 if the device-tree root exists (the caller could open the directory) but a
+ * representative property (#address-cells) is unreadable to this vantage
+ * (EACCES/EPERM): the "denied, not absent" signal. A confined observer — an
+ * SELinux-enforcing Android shell/app that can list the DT directory but not
+ * read its 0444 property files — hits this. It lets a DT component report a
+ * denial rather than default #address-cells to 1 and call the region absent.
+ * 0 when the property is readable OR genuinely missing (not a permission
+ * problem). Only meaningful for a component whose target could exist on this
+ * platform; a structurally-absent node (e.g. a PowerPC-only property on arm64)
+ * is absent regardless, so those callers must not consult this. */
+__attribute__((unused)) static int kasld_dt_root_denied(const char *root) {
+  char p[512];
+  snprintf(p, sizeof(p), "%s/#address-cells", root);
+  errno = 0;
+  int fd = kasld_open(p, O_RDONLY);
+  if (fd >= 0) {
+    close(fd);
+    return 0;
+  }
+  return (errno == EACCES || errno == EPERM);
 }
 
 /* Decode a big-endian 32-bit cell from a property blob at p. */

@@ -209,6 +209,12 @@ int main(void) {
   }
 
   if (!count) {
+    if (kasld_dt_root_denied(root)) {
+      kasld_err(
+          "device tree present but its property files are unreadable from "
+          "this vantage (EACCES); nothing emitted");
+      return KASLD_EXIT_NOPERM;
+    }
     kasld_err("no memory nodes found in device tree");
     return 0;
   }

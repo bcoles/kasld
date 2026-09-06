@@ -83,11 +83,17 @@ int main(int argc, char **argv) {
       path = PATHS[i];
       break;
     }
-    if (errno == EACCES || errno == EPERM)
+    if (errno == EACCES || errno == EPERM) {
+      kasld_err("%s: permission denied", PATHS[i]);
       return KASLD_EXIT_NOPERM;
+    }
   }
-  if (!f)
+  if (!f) {
+    kasld_err(
+        "available_filter_functions_addrs not present (kernel without the "
+        "ftrace addrs table, or tracefs unavailable)");
     return KASLD_EXIT_UNAVAILABLE;
+  }
 
   kasld_info("reading %s ...", path);
 

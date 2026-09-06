@@ -267,7 +267,14 @@ int main(int argc, char **argv) {
                g_dram_lo, g_dram_hi);
   walk(root, "", 0, 0, 0, 0);
 
-  if (!g_count)
+  if (!g_count) {
+    if (kasld_dt_root_denied(root)) {
+      kasld_err(
+          "device tree present but its property files are unreadable from "
+          "this vantage (EACCES); nothing emitted");
+      return KASLD_EXIT_NOPERM;
+    }
     kasld_info("no CPU-addressable MMIO reg nodes found in %s", root);
+  }
   return 0;
 }

@@ -201,6 +201,12 @@ int main(void) {
   closedir(d);
 
   if (!count) {
+    if (kasld_dt_root_denied(root)) {
+      kasld_err(
+          "device tree present but its property files are unreadable from "
+          "this vantage (EACCES); nothing emitted");
+      return KASLD_EXIT_NOPERM;
+    }
     kasld_err("no reserved-memory regions with reg properties found");
     return 0;
   }
