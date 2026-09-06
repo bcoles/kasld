@@ -14,5 +14,5 @@ license: MIT
 # Cite the latest release, not the in-development VERSION (master is x.y.z-dev).
 # `make bump-version` updates these two lines on release; `tests/check-version`
 # requires the cited version to be a real release (never a -dev string).
-version: "0.3.0"
-date-released: "2026-06-19"
+version: "0.4.0"
+date-released: "2026-09-06"

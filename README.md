@@ -72,7 +72,7 @@ can temporarily relax these settings (requires root).
 The default text mode prints an answer-first overview:
 
 ```
-KASLD 0.3.1-dev  --  Kernel Address Space Layout Derandomization
+KASLD 0.4.0  --  Kernel Address Space Layout Derandomization
 Target: x86_64 / 7.0.0
 
 Running 117 of 120 components (3 experimental skipped; use -x to enable)...
@@ -241,7 +241,7 @@ BibTeX:
   title   = {KASLD: Kernel Address Space Layout Derandomization},
   author  = {Coles, Brendan},
   url     = {https://github.com/bcoles/kasld},
-  version = {0.3.0},
+  version = {0.4.0},
   year    = {2026}
 }
 ```

@@ -204,7 +204,7 @@ the costume of a 64-bit kernel pointer. They are right-aligned instead, so the
 endpoints still form columns.
 
 ```
-KASLD 0.3.1-dev  --  Kernel Address Space Layout Derandomization
+KASLD 0.4.0  --  Kernel Address Space Layout Derandomization
 Target: x86_64 / 7.0.0
 
 Running 117 of 120 components (3 experimental skipped; use -x to enable)...
@@ -308,7 +308,7 @@ extra/prepare-bundle $F /tmp/r && KASLD_SYSROOT=/tmp/r ./build/<arch>/kasld -v
     ███▐██▄     ███    ███          ███ ███       ███    ███
     ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███
     ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀
-    ▀                                   ▀ v0.3.1-dev
+    ▀                                   ▀ v0.4.0
 
 Kernel release:               5.15.119-android13-8-00034-gd34029c8258b-ab10871489
 Kernel version:               #1 SMP PREEMPT Wed Sep 27 18:42:24 UTC 2023
