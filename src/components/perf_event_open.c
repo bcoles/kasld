@@ -249,7 +249,8 @@ int main(void) {
   unsigned long addr = get_kernel_addr_perf(&exit_hint);
   if (!addr) {
     if (exit_hint == KASLD_EXIT_NOPERM)
-      kasld_err("perf_event_open denied - perf_event_paranoid or seccomp");
+      kasld_err("perf_event_open denied - perf_event_paranoid, seccomp, or LSM "
+                "policy");
     else
       kasld_err("no kernel address found via perf_event_open");
     return exit_hint; /* 0 = no_result; else NOPERM/UNAVAILABLE */
