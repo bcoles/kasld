@@ -25,6 +25,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
 cd "$ROOT" || exit 1
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
@@ -52,7 +54,7 @@ make -pn 2>/dev/null > "$DB" || :
   exit 0
 }
 
-python3 - "$DB" <<'PY'
+if detail=$(python3 - "$DB" <<'PY'
 import glob, os, re, sys
 
 db = open(sys.argv[1]).read().splitlines()
@@ -126,6 +128,14 @@ if n_fuzz == 0 or n_test == 0:
           "at zero means the rule shape was not recognised, not that it is "
           "clean" % (n_test, n_fuzz), file=sys.stderr)
     sys.exit(1)
-print("check-make-deps: OK (%d test + %d fuzz targets; every #included source "
-      "is a prerequisite)" % (n_test, n_fuzz))
+print("%d test + %d fuzz targets; every #included source "
+      "is a prerequisite" % (n_test, n_fuzz))
 PY
+)
+then
+  guard_ok "$detail"
+else
+  guard_fail "a test target does not declare a source it includes"
+  printf '%s\n' "$detail" >&2
+  exit 1
+fi

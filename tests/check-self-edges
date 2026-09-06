@@ -78,7 +78,7 @@ fail=0
 for d in $detected; do
   if ! contains "$d" "$ALLOW"; then
     if [ "$fail" = 0 ]; then
-      printf '%sself-edge guard: new unreviewed self-edge rule(s):%s\n' "$RED" "$RESET" >&2
+      printf '%scheck-self-edges: new unreviewed self-edge rule(s):%s\n' "$RED" "$RESET" >&2
     fi
     printf '  %s\n' "$d" >&2
     fail=1
@@ -94,7 +94,7 @@ stalehdr=0
 for a in $ALLOW; do
   if ! contains "$a" "$detected"; then
     if [ "$stalehdr" = 0 ]; then
-      printf '%sself-edge guard: allowlisted rule(s) no longer self-edges (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
+      printf '%scheck-self-edges: allowlisted rule(s) no longer self-edges (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
       stalehdr=1
     fi
     printf '  %s\n' "$a" >&2
@@ -115,4 +115,4 @@ for _f in "$RULES"/*.c; do
 done
 guard_scope "check-self-edges" "$_scanned" 50
 
-printf '%sself-edge guard: OK%s (%s reviewed self-edges, none new)\n' "$GREEN" "$RESET" "$#"
+printf '%scheck-self-edges: OK%s (%s reviewed self-edges, none new)\n' "$GREEN" "$RESET" "$#"

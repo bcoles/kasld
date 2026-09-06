@@ -290,7 +290,7 @@ fail=0
 for d in $detected; do
   if ! contains "$d" "$ALLOW"; then
     if [ "$fail" = 0 ]; then
-      printf '%sconfidence-floor guard: new unreviewed collapsing constraint(s):%s\n' "$RED" "$RESET" >&2
+      printf '%scheck-confidence-floor: new unreviewed collapsing constraint(s):%s\n' "$RED" "$RESET" >&2
     fi
     printf '  %s\n' "$d" >&2
     fail=1
@@ -311,7 +311,7 @@ stalehdr=0
 for a in $ALLOW; do
   if ! contains "$a" "$detected"; then
     if [ "$stalehdr" = 0 ]; then
-      printf '%sconfidence-floor guard: allowlisted rule(s) no longer constrain (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
+      printf '%scheck-confidence-floor: allowlisted rule(s) no longer constrain (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
       stalehdr=1
     fi
     printf '  %s\n' "$a" >&2
@@ -332,4 +332,4 @@ for _f in "$RULES"/*.c; do
 done
 guard_scope "check-confidence-floor" "$_scanned" 50
 
-printf '%sconfidence-floor guard: OK%s (%s reviewed constraints, none new)\n' "$GREEN" "$RESET" "$#"
+printf '%scheck-confidence-floor: OK%s (%s reviewed constraints, none new)\n' "$GREEN" "$RESET" "$#"

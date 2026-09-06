@@ -45,7 +45,7 @@ else
 fi
 
 [ -f "$ROOT/$OWNER" ] || {
-  printf '%shost-build guard: FAIL%s — %s is missing\n' "$RED" "$RESET" "$OWNER" >&2
+  printf '%scheck-host-build: FAIL%s — %s is missing\n' "$RED" "$RESET" "$OWNER" >&2
   exit 1
 }
 
@@ -67,7 +67,7 @@ $(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
 done
 
 if [ -n "$bad" ]; then
-  printf '%shost-build guard: FAIL%s — the host build is resolved outside %s:\n' \
+  printf '%scheck-host-build: FAIL%s — the host build is resolved outside %s:\n' \
     "$RED" "$RESET" "$OWNER" >&2
   printf '%s\n' "$bad" | grep -v '^$' >&2
   printf 'Source %s and call host_kasld (a runnable binary),\n' "$OWNER" >&2
@@ -80,5 +80,5 @@ fi
 
 guard_scope "check-host-build" "$n" 60
 
-printf '%shost-build guard: OK%s (%d scripts; the host build is resolved only through %s)\n' \
+printf '%scheck-host-build: OK%s (%d scripts; the host build is resolved only through %s)\n' \
   "$GREEN" "$RESET" "$n" "$OWNER"

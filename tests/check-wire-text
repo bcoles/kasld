@@ -47,7 +47,7 @@ CR=$(printf '\r')
 
 BIN=$(host_kasld)
 if [ -z "$BIN" ]; then
-  printf '%swire-text guard: SKIP%s (no native kasld build under %s; run make first)\n' \
+  printf '%scheck-wire-text: SKIP%s (no native kasld build under %s; run make first)\n' \
     "$YELLOW" "$RESET" "$ROOT/build"
   exit 0
 fi
@@ -159,9 +159,9 @@ for mode in "-q" "-q -v" "-q -H"; do
 done
 
 if [ "$fail" -eq 0 ]; then
-  printf '%swire-text guard: OK%s (%d modes, 4 hostile records, none rendered)\n' \
+  printf '%scheck-wire-text: OK%s (%d modes, 4 hostile records, none rendered)\n' \
     "$GREEN" "$RESET" "$checked"
 else
-  printf '%swire-text guard: FAIL%s\n' "$RED" "$RESET"
+  printf '%scheck-wire-text: FAIL%s\n' "$RED" "$RESET"
 fi
 exit "$fail"

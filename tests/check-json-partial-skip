@@ -38,12 +38,12 @@ fi
 
 BIN=$(host_kasld)
 if [ -z "$BIN" ]; then
-  printf '%sjson-partial-skip guard: SKIP%s (no native kasld build under %s; run make first)\n' \
+  printf '%scheck-json-partial-skip: SKIP%s (no native kasld build under %s; run make first)\n' \
     "$YELLOW" "$RESET" "$ROOT/build"
   exit 0
 fi
 if ! command -v python3 >/dev/null 2>&1; then
-  printf '%sjson-partial-skip guard: SKIP%s (python3 not installed)\n' \
+  printf '%scheck-json-partial-skip: SKIP%s (python3 not installed)\n' \
     "$YELLOW" "$RESET"
   exit 0
 fi
@@ -61,7 +61,7 @@ names += [e["name"] for e in d["excluded_components"]]
 print(min(names) if names else "")
 ')
 if [ -z "$first" ]; then
-  printf '%sjson-partial-skip guard: SKIP%s (the run discovered no components)\n' \
+  printf '%scheck-json-partial-skip: SKIP%s (the run discovered no components)\n' \
     "$YELLOW" "$RESET"
   exit 0
 fi
@@ -81,7 +81,7 @@ if exc.get(skipped) != "skip_pattern":
 if ran & set(exc):
     sys.exit("a component is in both arrays: %r" % (ran & set(exc)))
 ' "$first" || {
-  printf '%sjson-partial-skip guard: FAIL%s (kasld -j -s %s)\n' \
+  printf '%scheck-json-partial-skip: FAIL%s (kasld -j -s %s)\n' \
     "$RED" "$RESET" "$first" >&2
   printf 'The document must parse, and a held-back component must leave\n' >&2
   printf '"components" for "excluded_components" with its reason. Separate the\n' >&2
@@ -89,5 +89,5 @@ if ran & set(exc):
   exit 1
 }
 
-printf '%sjson-partial-skip guard: OK%s (-j parses with %s held back, and says why)\n' \
+printf '%scheck-json-partial-skip: OK%s (-j parses with %s held back, and says why)\n' \
   "$GREEN" "$RESET" "$first"

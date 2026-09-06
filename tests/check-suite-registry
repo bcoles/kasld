@@ -18,19 +18,16 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
 cd "$ROOT" || exit 1
 
-if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
-  RED=$(printf '\033[31m'); YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
-else
-  RED=; YELLOW=; RESET=
-fi
 
 DB=$(mktemp) || exit 1
 trap 'rm -f "$DB"' EXIT INT TERM
 
 command -v python3 >/dev/null 2>&1 || {
-  printf '%scheck-suite-registry: SKIP%s (needs python3)\n' "$YELLOW" "$RESET"
+  guard_skip "needs python3"
   exit 0
 }
 
@@ -42,10 +39,10 @@ make -pn 2>/dev/null > "$DB" || :
   exit 0
 }
 
-python3 - "$DB" "$RED" "$RESET" <<'PY'
+if detail=$(python3 - "$DB" <<'PY'
 import re, sys
 
-db, RED, RESET = open(sys.argv[1]).read(), sys.argv[2], sys.argv[3]
+db = open(sys.argv[1]).read()
 
 # make prints TEST_ALL_BINS already expanded, so this is the exact set of
 # binaries the build produces -- not a re-derivation of it.
@@ -76,13 +73,19 @@ if not run:
 unrun = sorted(built - run)
 unbuilt = sorted(run - built)
 if unrun or unbuilt:
-    print('%scheck-suite-registry: FAIL%s' % (RED, RESET))
     for s in unrun:
         print('  built but never run:  %s (add it to SUITES in tests/run-all)' % s)
     for s in unbuilt:
         print('  run but never built:  %s (no Makefile target)' % s)
     sys.exit(1)
 
-print('check-suite-registry: OK (%d unit-test suites, all built and all run)'
-      % len(built))
+print('%d unit-test suites, all built and all run' % len(built))
 PY
+)
+then
+  guard_ok "$detail"
+else
+  guard_fail "a built suite is never run, or a run suite is never built"
+  printf '%s\n' "$detail" >&2
+  exit 1
+fi

@@ -41,7 +41,7 @@ else
 fi
 
 [ -x "$ROOT/$OWNER" ] || {
-  printf '%sbundle-prepare guard: FAIL%s — %s is missing or not executable\n' \
+  printf '%scheck-bundle-prepare: FAIL%s — %s is missing or not executable\n' \
     "$RED" "$RESET" "$OWNER" >&2
   exit 1
 }
@@ -63,7 +63,7 @@ $(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
 done
 
 if [ -n "$bad" ]; then
-  printf '%sbundle-prepare guard: FAIL%s — a bundle is restored outside %s:\n' \
+  printf '%scheck-bundle-prepare: FAIL%s — a bundle is restored outside %s:\n' \
     "$RED" "$RESET" "$OWNER" >&2
   printf '%s\n' "$bad" | grep -v '^$' >&2
   printf 'Call %s <bundle> <dest> instead. A second copy of the\n' "$OWNER" >&2
@@ -74,5 +74,5 @@ fi
 
 guard_scope "check-bundle-prepare" "$n" 20
 
-printf '%sbundle-prepare guard: OK%s (%d scripts; only %s restores a bundle)\n' \
+printf '%scheck-bundle-prepare: OK%s (%d scripts; only %s restores a bundle)\n' \
   "$GREEN" "$RESET" "$n" "$OWNER"

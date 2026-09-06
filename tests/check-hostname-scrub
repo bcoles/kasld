@@ -31,6 +31,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
 COLLECT=$ROOT/extra/collect
 
 [ -r "$COLLECT" ] || { echo "check-hostname-scrub: no extra/collect" >&2; exit 1; }
@@ -96,5 +98,5 @@ expect "mac still redacted" irrelevanthost \
   'link 00:11:22:33:44:55 up' \
   'link [mac] up'
 
-[ "$rc" -eq 0 ] && echo "check-hostname-scrub: OK (7 cases; whole-name match, embedded names kept)"
+[ "$rc" -eq 0 ] && guard_ok "7 cases; whole-name match, embedded names kept"
 exit $rc

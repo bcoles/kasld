@@ -134,7 +134,7 @@ contains() { # $1=needle $2=list
 
 fail=0
 emit_fail() { # $1 = message header (printed once per kind)
-  printf '%slive-probe guard: %s%s\n' "$RED" "$1" "$RESET" >&2
+  printf '%scheck-live-probes: %s%s\n' "$RED" "$1" "$RESET" >&2
   fail=1
 }
 
@@ -226,5 +226,5 @@ fi
 
 guard_scope "check-live-probes" "$n" 80
 
-printf '%slive-probe guard: OK%s (%d components: %d live, %d hybrid, %d files, %d experimental; every declaration agrees with its code)\n' \
+printf '%scheck-live-probes: OK%s (%d components: %d live, %d hybrid, %d files, %d experimental; every declaration agrees with its code)\n' \
   "$GREEN" "$RESET" "$n" "$nlive" "$nhybrid" "$((n - nlive - nhybrid))" "$nexp"

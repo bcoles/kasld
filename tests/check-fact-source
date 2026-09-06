@@ -82,7 +82,7 @@ $(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
 done
 
 if [ "$fail" = 1 ]; then
-  printf '%sfact-source guard: FAIL%s — the run mode is asked outside %s:\n' \
+  printf '%scheck-fact-source: FAIL%s — the run mode is asked outside %s:\n' \
     "$RED" "$RESET" "$OWNER" >&2
   printf '%s\n' "$bad" | grep -v '^$' >&2
   printf 'Ask kasld_fact_source() and compare against KASLD_FACTS_LIVE or\n' >&2
@@ -95,5 +95,5 @@ fi
 
 guard_scope "check-fact-source" "$n" 60
 
-printf '%sfact-source guard: OK%s (%d files; the mode is read only through kasld_fact_source())\n' \
+printf '%scheck-fact-source: OK%s (%d files; the mode is read only through kasld_fact_source())\n' \
   "$GREEN" "$RESET" "$n"

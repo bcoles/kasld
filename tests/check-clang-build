@@ -57,7 +57,7 @@ for c in clang clang-20 clang-19 clang-18 clang-17 clang-16 clang-15; do
   command -v "$c" >/dev/null 2>&1 && { CC_CLANG=$c; break; }
 done
 if [ -z "$CC_CLANG" ]; then
-  printf '%sclang-build guard: SKIP%s (no clang installed)\n' "$YELLOW" "$RESET"
+  printf '%scheck-clang-build: SKIP%s (no clang installed)\n' "$YELLOW" "$RESET"
   exit 0
 fi
 
@@ -67,7 +67,7 @@ trap 'rm -rf "$WORK"' EXIT INT TERM
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 if ! make -j"$JOBS" -C "$ROOT" CC="$CC_CLANG" BUILD_DIR="$WORK" \
      >"$WORK/build.log" 2>&1; then
-  printf '%sclang-build guard: FAIL%s (%s: %s)\n' "$RED" "$RESET" "$CC_CLANG" \
+  printf '%scheck-clang-build: FAIL%s (%s: %s)\n' "$RED" "$RESET" "$CC_CLANG" \
     "$($CC_CLANG --version 2>/dev/null | head -1)" >&2
   printf 'The build itself failed, before any component was inspected:\n' >&2
   grep -m5 -E 'error:' "$WORK/build.log" | sed 's/^/  /' >&2
@@ -80,7 +80,7 @@ for d in "$WORK"/*/components; do
   [ -d "$d" ] && { COMP=$d; break; }
 done
 if [ -z "$COMP" ]; then
-  printf '%sclang-build guard: FAIL%s (the build produced no components directory)\n' \
+  printf '%scheck-clang-build: FAIL%s (the build produced no components directory)\n' \
     "$RED" "$RESET" >&2
   exit 1
 fi
@@ -93,7 +93,7 @@ shift 3
 missing=$*
 
 if [ -n "$missing" ]; then
-  printf '%sclang-build guard: FAIL%s (component source with no artefact under %s)\n' \
+  printf '%scheck-clang-build: FAIL%s (component source with no artefact under %s)\n' \
     "$RED" "$RESET" "$CC_CLANG" >&2
   for m in $missing; do
     printf '  %s\n' "$m" >&2
@@ -109,5 +109,5 @@ fi
 
 guard_scope "check-clang-build" "$nsrc" 50
 
-printf '%sclang-build guard: OK%s (%s: %s built, %s architecture-gated, %s sources)\n' \
+printf '%scheck-clang-build: OK%s (%s: %s built, %s architecture-gated, %s sources)\n' \
   "$GREEN" "$RESET" "$CC_CLANG" "$nbuilt" "$ngated" "$nsrc"

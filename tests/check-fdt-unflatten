@@ -24,7 +24,7 @@ else
 fi
 
 if ! command -v dtc >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
-  printf '%sfdt-unflatten guard: SKIP%s (dtc/python3 not installed)\n' \
+  printf '%scheck-fdt-unflatten: SKIP%s (dtc/python3 not installed)\n' \
     "$YELLOW" "$RESET"
   exit 0
 fi
@@ -78,9 +78,9 @@ case "$(cat "$tmp/base/compatible" 2>/dev/null)" in
 esac
 
 if [ "$fail" = 0 ]; then
-  printf '%sfdt-unflatten guard: OK%s (round-trip: nodes, reg value, string preserved)\n' \
+  printf '%scheck-fdt-unflatten: OK%s (round-trip: nodes, reg value, string preserved)\n' \
     "$GREEN" "$RESET"
 else
-  printf '%sfdt-unflatten guard: FAILED%s\n' "$RED" "$RESET" >&2
+  printf '%scheck-fdt-unflatten: FAILED%s\n' "$RED" "$RESET" >&2
 fi
 exit "$fail"

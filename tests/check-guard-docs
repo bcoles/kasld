@@ -63,9 +63,52 @@ fi
 nrun=$(grep -c . "$run_f")
 missing=$(comm -13 "$doc_f" "$run_f")
 extra=$(comm -23 "$doc_f" "$run_f")
+fail=0
+# A guard must also ANNOUNCE itself by the name the table and the lint list use.
+# Seventeen of them did not: the table documented check-self-edges while the run
+# printed "self-edge guard", so a reader who had one name could not find the
+# other, and neither comparison above could notice — both read the filename.
+# Guards that take their line from tests/lib/guard-output.sh cannot drift, since
+# it takes the name from $0; this catches one that prints its own.
+while read -r g; do
+  [ -f "$ROOT/tests/$g" ] || continue
+  lbl=$(grep -ohE '%s[a-z0-9 -]+: (OK|FAIL|SKIP)' "$ROOT/tests/$g" 2>/dev/null |
+        head -1 | sed 's/%s//; s/: \(OK\|FAIL\|SKIP\)//')
+  [ -n "$lbl" ] || continue
+  [ "$lbl" = "$g" ] && continue
+  if [ "$fail" -eq 0 ]; then
+    printf '%scheck-guard-docs: FAIL%s (a guard announces a name the docs do not use)\n' \
+      "$RED" "$RESET" >&2
+  fi
+  printf '  %s prints "%s" — say %s, or take the line from guard-output.sh\n' \
+    "$g" "$lbl" "$g" >&2
+  fail=1
+done <"$run_f"
+
+# And it must SAY it in green. Three guards printed a plain OK on a terminal
+# while every other one coloured: two defined no GREEN at all despite reading
+# KASLD_COLOR, and one still used the bare `[ -t 1 ]` that predates it. Nothing
+# noticed, because a guard's own output is the one thing the guard set does not
+# check. The colour is carried either by guard_ok or by a GREEN the printf
+# emitting the OK line refers to; the two-line window is because that printf
+# usually wraps its arguments onto the next line.
+while read -r g; do
+  f=$ROOT/tests/$g
+  [ -f "$f" ] || continue
+  grep -q 'guard_ok' "$f" && continue
+  grep -q ': OK' "$f" || continue
+  grep -A1 ': OK' "$f" | grep -q 'GREEN' && continue
+  if [ "$fail" -eq 0 ]; then
+    printf '%scheck-guard-docs: FAIL%s (a guard reports success without colour)\n' \
+      "$RED" "$RESET" >&2
+  fi
+  printf '  %s prints OK with no GREEN — use guard_ok from guard-output.sh\n' \
+    "$g" >&2
+  fail=1
+done <"$run_f"
+
 rm -f "$run_f" "$doc_f"
 
-fail=0
 if [ -n "$missing" ]; then
   printf '%scheck-guard-docs: FAIL%s (run by lint, absent from docs/testing.md)\n' \
     "$RED" "$RESET"

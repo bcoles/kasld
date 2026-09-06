@@ -57,7 +57,7 @@ $(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
 done
 
 if [ -n "$bad" ]; then
-  printf '%sasm-syntax guard: FAIL%s — inline asm sets the assembler syntax:\n' \
+  printf '%scheck-asm-syntax: FAIL%s — inline asm sets the assembler syntax:\n' \
     "$RED" "$RESET" >&2
   printf '%s\n' "$bad" | grep -v '^$' >&2
   printf 'Write the block in AT&T, the syntax the compiler substitutes operands\n' >&2
@@ -69,5 +69,5 @@ fi
 
 guard_scope "check-asm-syntax" "$n" 40
 
-printf '%sasm-syntax guard: OK%s (%d sources; no inline asm switches assembler syntax)\n' \
+printf '%scheck-asm-syntax: OK%s (%d sources; no inline asm switches assembler syntax)\n' \
   "$GREEN" "$RESET" "$n"

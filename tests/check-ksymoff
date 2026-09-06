@@ -27,7 +27,7 @@ else
 fi
 
 if ! command -v bash >/dev/null 2>&1; then
-  printf '%sksymoff guard: SKIP%s (bash not installed)\n' "$YELLOW" "$RESET"
+  printf '%scheck-ksymoff: SKIP%s (bash not installed)\n' "$YELLOW" "$RESET"
   exit 0
 fi
 
@@ -141,9 +141,9 @@ noesc 'no escape: dump-all name field' \
 
 total=$((pass + fail))
 if [ "$fail" -eq 0 ]; then
-  printf '%sksymoff guard: OK%s (%s known-answer cases)\n' "$GREEN" "$RESET" "$total"
+  printf '%scheck-ksymoff: OK%s (%s known-answer cases)\n' "$GREEN" "$RESET" "$total"
   exit 0
 else
-  printf '%sksymoff guard: %s/%s FAILED%s\n' "$RED" "$fail" "$total" "$RESET" >&2
+  printf '%scheck-ksymoff: %s/%s FAILED%s\n' "$RED" "$fail" "$total" "$RESET" >&2
   exit 1
 fi

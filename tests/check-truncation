@@ -75,7 +75,7 @@ else
 fi
 
 if [ -z "$CC" ]; then
-  printf '%struncation guard: SKIP%s (no 32-bit cross toolchain)\n' "$GREEN" "$RESET"
+  printf '%scheck-truncation: SKIP%s (no 32-bit cross toolchain)\n' "$GREEN" "$RESET"
   exit 0
 fi
 
@@ -101,7 +101,7 @@ narrowings() {
 # shellcheck disable=SC2086  # $CC + $CFLAGS are a command and flag list, split intentionally
 if ! printf 'unsigned long f(void){unsigned long n=1ull<<50;return n;}\n' |
   $CC $CFLAGS -x c - 2>&1 | narrowings >/dev/null; then
-  printf '%struncation guard: SELF-CHECK FAILED%s — %s did not flag a known\n' \
+  printf '%scheck-truncation: SELF-CHECK FAILED%s — %s did not flag a known\n' \
     "$RED" "$RESET" "$CC" >&2
   printf '64-bit -> word narrowing, so detection is broken (a diagnostic-format\n' >&2
   printf 'or locale change, or a non-32-bit compiler). Refusing to report OK\n' >&2
@@ -150,7 +150,7 @@ i=1
 while [ "$i" -le "$n" ]; do
   if [ -s "$RESDIR/$i.res" ]; then
     if [ "$fail" = 0 ]; then
-      printf '%struncation guard: 64-bit -> word narrowing on 32-bit (%s):%s\n' \
+      printf '%scheck-truncation: 64-bit -> word narrowing on 32-bit (%s):%s\n' \
         "$RED" "$CC" "$RESET" >&2
     fi
     cat "$RESDIR/$i.res" >&2
@@ -177,5 +177,5 @@ for _f in "$ROOT"/src/rules/*.c "$ROOT"/src/components/*.c; do
 done
 guard_scope "check-truncation" "$_scanned" 100
 
-printf '%struncation guard: OK%s (compiled for 32-bit via %s; no silent narrowing)\n' \
+printf '%scheck-truncation: OK%s (compiled for 32-bit via %s; no silent narrowing)\n' \
   "$GREEN" "$RESET" "$CC"

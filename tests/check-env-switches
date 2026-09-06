@@ -68,7 +68,7 @@ $(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
 done
 
 if [ -n "$bad" ]; then
-  printf '%senv-switch guard: FAIL%s — a KASLD_ variable is read without being bound:\n' \
+  printf '%scheck-env-switches: FAIL%s — a KASLD_ variable is read without being bound:\n' \
     "$RED" "$RESET" >&2
   printf '%s\n' "$bad" | grep -v '^$' >&2
   printf 'A switch is read with kasld_env_enabled(NAME), which treats NAME=0 as\n' >&2
@@ -80,5 +80,5 @@ fi
 
 guard_scope "check-env-switches" "$n" 40
 
-printf '%senv-switch guard: OK%s (%d sources; every KASLD_ read is bound or goes through kasld_env_enabled)\n' \
+printf '%scheck-env-switches: OK%s (%d sources; every KASLD_ read is bound or goes through kasld_env_enabled)\n' \
   "$GREEN" "$RESET" "$n"

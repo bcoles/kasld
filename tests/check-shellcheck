@@ -29,7 +29,7 @@ else
 fi
 
 if ! command -v shellcheck >/dev/null 2>&1; then
-  printf '%sshellcheck guard: SKIP%s (shellcheck not installed)\n' "$YELLOW" "$RESET"
+  printf '%scheck-shellcheck: SKIP%s (shellcheck not installed)\n' "$YELLOW" "$RESET"
   exit 0
 fi
 
@@ -61,7 +61,7 @@ for d in "$EXTRA/" "$ROOT/tests/" "$ROOT"/tests/*/; do
 done
 
 if [ -z "$scripts" ]; then
-  printf '%sshellcheck guard: SKIP%s (no shell scripts found)\n' "$YELLOW" "$RESET"
+  printf '%scheck-shellcheck: SKIP%s (no shell scripts found)\n' "$YELLOW" "$RESET"
   exit 0
 fi
 
@@ -70,8 +70,8 @@ fi
 # shellcheck disable=SC2086
 if shellcheck $scripts; then
   set -- $scripts
-  printf '%sshellcheck guard: OK%s (%s shell scripts clean)\n' "$GREEN" "$RESET" "$#"
+  printf '%scheck-shellcheck: OK%s (%s shell scripts clean)\n' "$GREEN" "$RESET" "$#"
 else
-  printf '%sshellcheck guard: shellcheck reported issues above%s\n' "$RED" "$RESET" >&2
+  printf '%scheck-shellcheck: shellcheck reported issues above%s\n' "$RED" "$RESET" >&2
   exit 1
 fi

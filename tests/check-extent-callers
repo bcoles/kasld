@@ -62,7 +62,7 @@ fail=0
 for d in $detected; do
   if ! contains "$d" "$ALLOW"; then
     if [ "$fail" = 0 ]; then
-      printf '%sextent-caller guard: new unreviewed covering source(s):%s\n' "$RED" "$RESET" >&2
+      printf '%scheck-extent-callers: new unreviewed covering source(s):%s\n' "$RED" "$RESET" >&2
     fi
     printf '  %s\n' "$d" >&2
     fail=1
@@ -79,7 +79,7 @@ stalehdr=0
 for a in $ALLOW; do
   if ! contains "$a" "$detected"; then
     if [ "$stalehdr" = 0 ]; then
-      printf '%sextent-caller guard: allowlisted source(s) no longer call kasld_result_extent (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
+      printf '%scheck-extent-callers: allowlisted source(s) no longer call kasld_result_extent (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
       stalehdr=1
     fi
     printf '  %s\n' "$a" >&2
@@ -100,4 +100,4 @@ for _f in "$COMPONENTS"/*.c; do
 done
 guard_scope "check-extent-callers" "$_scanned" 80
 
-printf '%sextent-caller guard: OK%s (%s reviewed covering sources, none new)\n' "$GREEN" "$RESET" "$#"
+printf '%scheck-extent-callers: OK%s (%s reviewed covering sources, none new)\n' "$GREEN" "$RESET" "$#"
