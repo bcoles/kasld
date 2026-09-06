@@ -73,7 +73,7 @@ can temporarily relax these settings (requires root).
 The default text mode prints an answer-first overview:
 
 ```
-KASLD 0.4.0  --  Kernel Address Space Layout Derandomization
+KASLD 0.4.1-dev  --  Kernel Address Space Layout Derandomization
 Target: x86_64 / 7.0.0
 
 Running 117 of 120 components (3 experimental skipped; use -x to enable)...

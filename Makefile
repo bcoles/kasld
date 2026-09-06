@@ -426,7 +426,13 @@ build : check-headers $(BIN_FILES) $(KASLD_BIN)
 # -I$(SRC_DIR) so the orchestrator can include the component-side fact headers
 # (task_size.h and target_width.h use the same "include/kasld/..." form the
 # components do).
-$(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) $(HDRS) | $(OBJ_DIR)
+# These three bake the version in through -DVERSION. make does not track a
+# change of FLAGS, only of files, so a bump left the objects standing and the
+# binary went on reporting the old number -- while a clean build, which is what
+# CI does, reported the new one. The documented output samples then matched
+# locally and not there. Depending on the file the version is read from is what
+# ties the flag to something make can see.
+$(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) $(HDRS) VERSION | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -DVERSION='"$(VERSION)"' -c $< -o $@
 
@@ -446,13 +452,13 @@ $(OBJ_DIR)/environment.o: $(ENV_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(OBJ_DIR)/render.o: $(RENDER_SRC) $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/render.o: $(RENDER_SRC) $(HDRS) VERSION | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
 
 # Per-mode render translation units (src/render/<mode>.c). Each gets its own
 # object so editing one mode does not force the others to recompile.
-$(OBJ_DIR)/render_%.o: $(SRC_DIR)/render/%.c $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/render_%.o: $(SRC_DIR)/render/%.c $(HDRS) VERSION | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
 
@@ -1497,6 +1503,7 @@ print-deps:
 #   make bump-version NEW=0.3.1        # cut a release
 #   make bump-version NEW=0.3.2-dev    # open the next dev cycle
 .PHONY: bump-version
+# The version reaches the VERSION file, man pages, and documented output samples.
 bump-version :
 	@[ -n "$(NEW)" ] || { echo 'usage: make bump-version NEW=x.y.z  (append -dev for a dev cycle)' >&2; exit 2; }
 	@new='$(NEW)'; d=$$(date +%F); old=$$(cat VERSION 2>/dev/null); \
@@ -1509,7 +1516,12 @@ bump-version :
 	*) sed -i -E "s/^version: .*/version: \"$$new\"/; s/^date-released: .*/date-released: \"$$d\"/" CITATION.cff; \
 	   echo "  CITATION.cff -> version $$new, date-released $$d" ;; \
 	esac; \
+	for f in docs/usage.md README.md; do \
+	  [ -f "$$f" ] || continue; \
+	  sed -i -E "s/▀ v[0-9][^[:space:]]*/▀ v$$new/; s/^KASLD [0-9][^[:space:]]*  --/KASLD $$new  --/" "$$f"; \
+	done; \
 	echo "  VERSION: $${old:-?} -> $$new   (man pages dated $$d)"; \
+	echo "  rendered banners in docs/usage.md, README.md -> $$new"; \
 	echo "  next: review the diff, commit, and 'git tag v$$new' for a release"
 
 .PHONY: help
