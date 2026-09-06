@@ -189,6 +189,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-live-probes` | every component's declarations agree with its code. `source:` — a `files` component contains no live primitive, and a `live` or `hybrid` one carries the self-guard that keeps it from running offline against the analysis host. `status:experimental` — it pairs with `kasld_skip_experimental()`, in both directions, so a component the orchestrator holds back cannot run freely when invoked directly |
 | `check-fact-source` | "where do this run's facts come from" is asked only through `kasld_fact_source()`; `kasld_sysroot()` and the environment variable belong to `sysroot.h` |
 | `check-host-build` | "which build directory is this host's" is asked only through `tests/lib/host-build.sh`. The build system keeps two triples apart — a native compiler's, and `$(CC)`'s, which names the directory — and a harness that resolves it by hand finds nothing when a build was made with a non-default `CC`, then skips while reporting success |
+| `check-clang-build` | a compiler whose assembler is not GNU as builds every component too. The tree is built with gcc everywhere, so `check-components-built` attests gcc alone; this builds the whole tree with clang into a scratch directory and asks the same question of the result. Skips when no clang is installed † |
 | `check-asm-syntax` | no inline asm switches the assembler's syntax. An Intel-syntax region receives the compiler's operands `%`-prefixed, which only GNU as accepts; elsewhere the component fails to compile and its target is removed, so the build reports success with the component absent |
 | `check-json-partial-skip` | `-j` stays well-formed when SOME components are held back, and says which and why. The guards that pair `-j` with a skip all use `-s '*'`, where an empty array is well-formed either way; the partial case is the one an index-keyed array separator breaks |
 | `check-env-switches` | a `KASLD_` environment variable is bound to a pointer, never tested directly. A switch is read with `kasld_env_enabled()`, which treats `NAME=0` as off; a value (a path, a release) is bound and checked by its caller, since `0` is legitimate there. Testing `getenv()` asks only whether the name is set, which turns `NAME=0` into ON |
@@ -314,6 +315,25 @@ nobody, which also means nothing else would ever notice. It drives the real
 the target fails, and it asserts a binary exists for every harness in the tree,
 so one the build never reached cannot pass as one that built cleanly. Needs a
 compiler that links `-fsanitize=fuzzer`; skips loudly otherwise.
+
+**`check-clang-build`** — A compiler whose assembler is not GNU as builds every
+component. The tree is built with gcc everywhere — the host, the seventeen musl
+cross targets, CI — so `check-components-built` can only ask its question of a
+gcc build, and nothing asked it of any other.
+
+Three inline-asm blocks switched the assembler to Intel syntax and then referred
+to operands, which the compiler substitutes in *its* syntax: `%0` arrives
+`%`-prefixed inside a region declaring no prefix. GNU as tolerates that and
+clang's integrated assembler does not, so four leak components failed to compile
+under clang — silently, because the component recipe removes a target whose
+compile failed so the rest still build. `check-asm-syntax` now forbids that
+construct; this forbids the class it belongs to.
+
+It builds through `make` rather than assembling its own command line, so it
+cannot pass while the real build fails, and into a scratch `BUILD_DIR` rather
+than `./build`, so the guards that sweep `build/*/` do not silently gain a
+target as a side effect of this one running. Roughly ten seconds; skips when no
+clang is installed, and CI installs one for `check-fuzz-harnesses` already.
 
 **`check-property-arches`** — Every supported architecture has BOTH
 whole-engine property tests — `test_full_engine_property_<arch>` and

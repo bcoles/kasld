@@ -1,0 +1,113 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-clang-build — a second compiler builds every component too.
+#
+# The tree is built with gcc everywhere: the host, the seventeen musl cross
+# targets, CI. check-components-built asks whether every component source
+# produced an artefact, but it can only ask that of the build that exists, so it
+# attests gcc and nothing attests anything else.
+#
+# That mattered. Three inline-asm blocks switched the assembler to Intel syntax
+# and then referred to operands, which the compiler substitutes in ITS syntax --
+# %-prefixed, inside a region declaring no prefix. GNU as tolerates it; clang's
+# integrated assembler does not, and four leak components failed to compile
+# under it. Silently: the component recipe removes a target whose compile failed
+# so the rest still build, so the build reported success with four components
+# simply absent. check-asm-syntax now forbids that particular construct; this
+# forbids the class, by building the whole tree with a compiler whose assembler
+# is not GNU as and asking check-components-built's question of the result.
+#
+# The build goes to a scratch BUILD_DIR rather than ./build. A second directory
+# under ./build would be swept by every guard that globs build/*/ --
+# check-render-color, check-fail-closed, check-render-width -- changing what
+# those measure as a side effect of this one running.
+#
+# It builds through `make` rather than compiling translation units itself: the
+# property under test is that the REAL build works, so it has to use the real
+# flags and the real component recipe. A flag list copied into this file would
+# drift from the Makefile, which is the failure it exists to catch.
+#
+# Skips when no clang is installed, the way check-fuzz-harnesses and
+# check-shellcheck do. CI installs one, and `make check` runs `make test` runs
+# lint, so this is enforced there without a workflow of its own.
+#
+# Usage: tests/check-clang-build   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/component-artifacts.sh
+. "$ROOT/tests/lib/component-artifacts.sh"
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+# Versioned names as well as the bare one: a distro that ships only clang-NN is
+# still a distro with clang. Same shape as check-truncation's candidate list.
+CC_CLANG=
+for c in clang clang-20 clang-19 clang-18 clang-17 clang-16 clang-15; do
+  command -v "$c" >/dev/null 2>&1 && { CC_CLANG=$c; break; }
+done
+if [ -z "$CC_CLANG" ]; then
+  printf '%sclang-build guard: SKIP%s (no clang installed)\n' "$YELLOW" "$RESET"
+  exit 0
+fi
+
+WORK=$(mktemp -d) || exit 1
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
+if ! make -j"$JOBS" -C "$ROOT" CC="$CC_CLANG" BUILD_DIR="$WORK" \
+     >"$WORK/build.log" 2>&1; then
+  printf '%sclang-build guard: FAIL%s (%s: %s)\n' "$RED" "$RESET" "$CC_CLANG" \
+    "$($CC_CLANG --version 2>/dev/null | head -1)" >&2
+  printf 'The build itself failed, before any component was inspected:\n' >&2
+  grep -m5 -E 'error:' "$WORK/build.log" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+# One triple, whatever this clang calls itself.
+COMP=
+for d in "$WORK"/*/components; do
+  [ -d "$d" ] && { COMP=$d; break; }
+done
+if [ -z "$COMP" ]; then
+  printf '%sclang-build guard: FAIL%s (the build produced no components directory)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+
+# Word splitting is the interface; see the helper.
+# shellcheck disable=SC2046
+set -- $(component_artifacts "$ROOT/src/components" "$COMP")
+nbuilt=$1; ngated=$2; nsrc=$3
+shift 3
+missing=$*
+
+if [ -n "$missing" ]; then
+  printf '%sclang-build guard: FAIL%s (component source with no artefact under %s)\n' \
+    "$RED" "$RESET" "$CC_CLANG" >&2
+  for m in $missing; do
+    printf '  %s\n' "$m" >&2
+    grep -m2 -E "components/$m\.c.*error:|error:.*components/$m" "$WORK/build.log" |
+      sed 's/^/      /' >&2
+  done
+  printf 'The compile failed and the recipe removed the target, so the build\n' >&2
+  printf 'reported success with the component absent. gcc accepting the same\n' >&2
+  printf 'source does not make it portable -- see check-asm-syntax for the\n' >&2
+  printf 'construct that did this last.\n' >&2
+  exit 1
+fi
+
+guard_scope "check-clang-build" "$nsrc" 50
+
+printf '%sclang-build guard: OK%s (%s: %s built, %s architecture-gated, %s sources)\n' \
+  "$GREEN" "$RESET" "$CC_CLANG" "$nbuilt" "$ngated" "$nsrc"

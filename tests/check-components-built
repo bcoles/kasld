@@ -37,6 +37,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/tests/lib/guard-scope.sh"
 # shellcheck source=tests/lib/host-build.sh
 . "$ROOT/tests/lib/host-build.sh"
+# shellcheck source=tests/lib/component-artifacts.sh
+. "$ROOT/tests/lib/component-artifacts.sh"
 
 if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
@@ -61,19 +63,13 @@ done
   exit 0
 }
 
-missing=; nsrc=0; nbuilt=0; nskipped=0
-for src in "$ROOT"/src/components/*.c; do
-  [ -f "$src" ] || continue
-  nsrc=$((nsrc + 1))
-  name=$(basename "$src" .c)
-  if [ ! -e "$COMP/$name" ]; then
-    missing="$missing $name"
-  elif [ -s "$COMP/$name" ]; then
-    nbuilt=$((nbuilt + 1))
-  else
-    nskipped=$((nskipped + 1))
-  fi
-done
+# Word splitting is the interface: the helper returns three counts followed by
+# the names of any component with no artefact.
+# shellcheck disable=SC2046
+set -- $(component_artifacts "$ROOT/src/components" "$COMP")
+nbuilt=$1; nskipped=$2; nsrc=$3
+shift 3
+missing=$*
 
 if [ -n "$missing" ]; then
   printf '%scheck-components-built: FAIL%s (component source with no build artefact)\n' \
