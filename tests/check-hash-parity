@@ -21,7 +21,12 @@ cc=${CC:-cc}
 bin=$(mktemp) || exit 1
 trap 'rm -f "$bin"' EXIT INT TERM
 
-if ! "$cc" -O2 -Wall -Wextra -I"$src" "$root/tests/check_hash_parity.c" -o "$bin"; then
+# Link the harness static so it runs on the build host whatever $CC is. The
+# release build runs `make test CC=<triple>-musl-gcc`; a dynamically-linked
+# cross binary cannot exec on the runner because its loader (e.g. the musl
+# ld-musl-*.so) is absent, and exec fails as "not found". The kasld release
+# binaries link -static for the same reason.
+if ! "$cc" -O2 -Wall -Wextra -static -I"$src" "$root/tests/check_hash_parity.c" -o "$bin"; then
   echo "check-hash-parity: failed to compile harness" >&2
   exit 1
 fi
