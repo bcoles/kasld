@@ -1,0 +1,73 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-asm-syntax — inline asm is written in the compiler's own syntax.
+#
+# A block that switches the assembler to Intel syntax and then refers to an
+# operand does not do what it appears to. The compiler substitutes an operand in
+# ITS syntax, which is AT&T unless -masm says otherwise, so `%0` arrives as
+# `%rsi` -- inside a region declared `noprefix`, where a register carries no `%`
+# at all. GNU as tolerates the stray prefix. No other assembler need, and
+# clang's does not: it reports "unknown token in expression" and the component
+# fails to compile.
+#
+# That failure is silent. A component whose compile fails has its target removed
+# so the other 119 still build, so `make` reports success with the component
+# simply absent, and only check-components-built names it. Four leak components
+# were missing from every clang build that way.
+#
+# The same block is also where an assembler-mode directive can be left wrong on
+# the way out: a `.att_syntax noprefix` tail is not a valid combination at all,
+# since AT&T requires the prefix it disclaims.
+#
+# So: no inline asm sets the assembler's syntax. Write AT&T, which needs no
+# directive, which is what the rest of this tree does.
+#
+# Usage: tests/check-asm-syntax   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+SELF=tests/check-asm-syntax
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+n=0
+bad=""
+for f in "$ROOT"/src/*.c "$ROOT"/src/*/*.c "$ROOT"/src/include/*.h \
+         "$ROOT"/src/include/kasld/*.h "$ROOT"/src/include/kasld/arch/*.h; do
+  [ -f "$f" ] || continue
+  rel=${f#"$ROOT"/}
+  [ "$rel" = "$SELF" ] && continue
+  n=$((n + 1))
+  # The directive appears inside a string literal, which is where an asm
+  # template lives; a comment discussing it is not a violation, so the match
+  # requires the surrounding quote.
+  hits=$(grep -nE '"[^"]*\.(intel|att)_syntax' "$f")
+  [ -n "$hits" ] && bad="$bad
+$(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
+done
+
+if [ -n "$bad" ]; then
+  printf '%sasm-syntax guard: FAIL%s — inline asm sets the assembler syntax:\n' \
+    "$RED" "$RESET" >&2
+  printf '%s\n' "$bad" | grep -v '^$' >&2
+  printf 'Write the block in AT&T, the syntax the compiler substitutes operands\n' >&2
+  printf 'in. An Intel region receives those operands %%-prefixed, which only GNU\n' >&2
+  printf 'as accepts -- elsewhere the component fails to compile and is dropped\n' >&2
+  printf 'without the build saying so.\n' >&2
+  exit 1
+fi
+
+guard_scope "check-asm-syntax" "$n" 40
+
+printf '%sasm-syntax guard: OK%s (%d sources; no inline asm switches assembler syntax)\n' \
+  "$GREEN" "$RESET" "$n"

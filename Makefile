@@ -972,6 +972,7 @@ lint :
 	    $(TEST_DIR)/check-host-build \
 	    $(TEST_DIR)/check-env-switches \
 	    $(TEST_DIR)/check-json-partial-skip \
+	    $(TEST_DIR)/check-asm-syntax \
 	    $(TEST_DIR)/check-hash-parity \
 	    $(TEST_DIR)/check-text-floor \
 	    $(TEST_DIR)/check-text-region \

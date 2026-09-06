@@ -153,22 +153,25 @@ __attribute__((unused)) static int rtm_is_functional(void) {
 __attribute__((unused)) static uint64_t time_prefetch(uint64_t addr) {
   uint64_t t0_lo, t0_hi, t1_lo, t1_hi;
 
-  __asm__ volatile(".intel_syntax noprefix;"
-                   "mfence;"
-                   "rdtscp;"
-                   "mov %0, rax;"
-                   "mov %1, rdx;"
-                   "xor rax, rax;"
-                   "lfence;"
-                   "prefetchnta qword ptr [%4];"
-                   "prefetcht2 qword ptr [%4];"
-                   "xor rax, rax;"
-                   "lfence;"
-                   "rdtscp;"
-                   "mov %2, rax;"
-                   "mov %3, rdx;"
-                   "mfence;"
-                   ".att_syntax;"
+  /* AT&T, like every other asm block here, and not Intel with a syntax
+   * directive around it: the compiler substitutes an operand in ITS syntax, so
+   * %0 arrives as %rsi inside a `.intel_syntax noprefix` region that says a
+   * register carries no % at all. GNU as tolerates the stray prefix and no
+   * other assembler need. */
+  __asm__ volatile("mfence\n\t"
+                   "rdtscp\n\t"
+                   "movq %%rax, %0\n\t"
+                   "movq %%rdx, %1\n\t"
+                   "xorq %%rax, %%rax\n\t"
+                   "lfence\n\t"
+                   "prefetchnta (%4)\n\t"
+                   "prefetcht2 (%4)\n\t"
+                   "xorq %%rax, %%rax\n\t"
+                   "lfence\n\t"
+                   "rdtscp\n\t"
+                   "movq %%rax, %2\n\t"
+                   "movq %%rdx, %3\n\t"
+                   "mfence"
                    : "=r"(t0_lo), "=r"(t0_hi), "=r"(t1_lo), "=r"(t1_hi)
                    : "r"(addr)
                    : "rax", "rbx", "rcx", "rdx");

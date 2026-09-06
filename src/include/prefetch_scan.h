@@ -91,23 +91,21 @@ __attribute__((unused)) static uint64_t
 prefetch_scan_time_batch(uint64_t addr, unsigned long batch) {
   uint64_t t0_lo, t0_hi, t1_lo, t1_hi;
 
-  __asm__ volatile(".intel_syntax noprefix;"
-                   "mfence;"
-                   "rdtscp;"
-                   "mov %0, rax;"
-                   "mov %1, rdx;"
-                   "lfence;"
-                   "2:;"
-                   "prefetchnta qword ptr [%5];"
-                   "prefetcht2 qword ptr [%5];"
-                   "dec %4;"
-                   "jnz 2b;"
-                   "lfence;"
-                   "rdtscp;"
-                   "mov %2, rax;"
-                   "mov %3, rdx;"
-                   "mfence;"
-                   ".att_syntax;"
+  __asm__ volatile("mfence\n\t"
+                   "rdtscp\n\t"
+                   "movq %%rax, %0\n\t"
+                   "movq %%rdx, %1\n\t"
+                   "lfence\n\t"
+                   "2:\n\t"
+                   "prefetchnta (%5)\n\t"
+                   "prefetcht2 (%5)\n\t"
+                   "decq %4\n\t"
+                   "jnz 2b\n\t"
+                   "lfence\n\t"
+                   "rdtscp\n\t"
+                   "movq %%rax, %2\n\t"
+                   "movq %%rdx, %3\n\t"
+                   "mfence"
                    : "=&r"(t0_lo), "=&r"(t0_hi), "=&r"(t1_lo), "=&r"(t1_hi),
                      "+r"(batch)
                    : "r"(addr)

