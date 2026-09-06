@@ -3095,19 +3095,34 @@ static void engine_sync_authoritative(const struct engine *e) {
  * printed in registration order, grouped by `section` headings.
  * -------------------------------------------------------------------------
  */
+/* Section id and heading in one list, so the two cannot disagree: usage()
+ * walks 0..OPT_SECT__COUNT-1 and prints the heading the moment a section holds
+ * an option, and a section carrying no heading would reach printf as a NULL.
+ * Generating both from here makes that unreachable rather than merely
+ * unobserved -- the enum and the table grow together or not at all. */
+#define KASLD_OPT_SECTION_LIST(X)                                              \
+  /* mutually-exclusive output formats */                                      \
+  X(OPT_SECT_FORMAT, "Output format (mutually exclusive)")                     \
+  /* output detail toggles */                                                  \
+  X(OPT_SECT_DETAIL, "Output detail")                                          \
+  /* component selection / scheduling */                                       \
+  X(OPT_SECT_COMPONENT, "Component control")                                   \
+  /* version, help */                                                          \
+  X(OPT_SECT_MISC, "Misc")
+
 enum opt_section {
-  OPT_SECT_FORMAT = 0, /* mutually-exclusive output formats */
-  OPT_SECT_DETAIL,     /* output detail toggles */
-  OPT_SECT_COMPONENT,  /* component selection / scheduling */
-  OPT_SECT_MISC,       /* version, help */
+#define X(name, title) name,
+  KASLD_OPT_SECTION_LIST(X)
+#undef X
+  /* Sentinel. Must be last so iteration over 0..OPT_SECT__COUNT-1 covers every
+   * section exactly once. */
   OPT_SECT__COUNT,
 };
 
 static const char *const opt_section_titles[OPT_SECT__COUNT] = {
-    [OPT_SECT_FORMAT] = "Output format (mutually exclusive)",
-    [OPT_SECT_DETAIL] = "Output detail",
-    [OPT_SECT_COMPONENT] = "Component control",
-    [OPT_SECT_MISC] = "Misc",
+#define X(name, title) [name] = title,
+    KASLD_OPT_SECTION_LIST(X)
+#undef X
 };
 
 /* Handlers. Each sets one or more globals, optionally consuming `val`. */

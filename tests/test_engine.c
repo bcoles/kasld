@@ -2711,8 +2711,7 @@ static void test_wire_tables_complete(void) {
     assert(kasld_constraint_op_from_wire(w, &back) &&
            back == (enum constraint_op)op);
   }
-  /* Backstops the pre-existing scalar wire table (same tautological typedef).
-   */
+  /* The scalar-fact table in api.h, on the same terms. */
   for (int f = SF_NONE + 1; f < SF__COUNT; f++) {
     const char *w = kasld_scalar_fact_wire((enum kasld_scalar_fact)f);
     assert(w != NULL);

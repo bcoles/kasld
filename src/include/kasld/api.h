@@ -2094,10 +2094,12 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_KMSAN_ENABLED] = "kmsan_enabled",
     [SF_KASLR_RANDOMIZED] = "kaslr_randomized",
 };
-/* Adding an SF_* without a wire token shrinks this below SF__COUNT -> error. */
-typedef char kasld_sf_wire_table_complete
-    [(sizeof(kasld_scalar_fact_wire_table) / sizeof(char *)) == SF__COUNT ? 1
-                                                                          : -1];
+/* The [SF__COUNT] dimension keeps the table indexable for every SF_* (a missing
+ * entry is a NULL hole, not out of bounds); it does NOT make the table
+ * complete. Completeness -- every SF_* has a non-NULL token, and tokens
+ * round-trip -- is enforced at runtime by test_wire_tables_complete
+ * (tests/test_engine.c), since a sizeof check over a dimensioned array cannot
+ * see a NULL interior initialiser. */
 
 static inline const char *kasld_scalar_fact_wire(enum kasld_scalar_fact f) {
   if ((unsigned)f >= SF__COUNT)
