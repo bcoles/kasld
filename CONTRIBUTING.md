@@ -767,7 +767,8 @@ too narrow excludes a legitimate kernel from its own window.
 the architecture admits, taken from the `HAVE_PAGE_SIZE_*` selectors in the
 kernel's own `arch/<arch>/Kconfig` rather than from what a distro ships. Six of
 the twelve supported architectures fix one size and six do not: arm64,
-loongarch64 and mips reach 64 KiB, and 32-bit powerpc reaches 256 KiB. Equal
+loongarch64, mips and 64-bit powerpc reach 64 KiB, and 32-bit powerpc
+reaches 256 KiB. Equal
 values mean the analysing binary knows the target's page size, which is what
 gates `pfn_to_phys()` — a page-frame number counts the *target* kernel's pages,
 so converting one to a byte address with this build's constant is wrong by up to

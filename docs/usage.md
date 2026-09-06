@@ -716,7 +716,9 @@ In JSON, the assessment is the top-level `hardening` object, with fields
 `active` / `disabled` / `unsupported` / `randomization_failed`),
 `active_defenses`, `lockdown`, `available_hardening`,
 `patched_vulnerabilities`, `compile_time_surface`,
-`hardware_side_channels`, and `no_mitigation`.
+`hardware_side_channels`, `no_mitigation`, and `text_order` — the last present
+when the kernel-text order is determined, carrying `class` and
+`symbol_resolution` (the JSON form of the Function-layout block above).
 
 Each `active_defenses` and `available_hardening` entry carries a
 `surface` — the enforcement lever the change lives on (`sysctl`,
@@ -782,6 +784,10 @@ The fields a gate keys on:
   that could not reports `true`.
 - `.kaslr.disabled` / `.kaslr.unsupported` — booleans: KASLR opted out, or not
   applicable to the arch/config.
+- `.hardening.patched_vulnerabilities.possibly_unpatched` — CVE-class components
+  that *succeeded*. A behavioural signal, not a version check: KASLD never trusts
+  `uname`, so this is "a CVE-class leak worked here", never "the kernel is
+  version X". Empty means none did.
 
 To ask which placement the kernel actually chose — for a distribution across
 boots, say — divide `.kaslr.virtual.slide_bytes` by the quantity's alignment.
@@ -789,10 +795,6 @@ That counts from the un-randomized base, so it describes the target. A position
 counted from `.kaslr.inferred.range_min` instead describes how far KASLD
 narrowed the window and from which direction: for a leak that bounds from
 above, the base sits at that window's last slot by construction.
-- `.hardening.patched_vulnerabilities.possibly_unpatched` — CVE-class components
-  that *succeeded*. A behavioural signal, not a version check: KASLD never trusts
-  `uname`, so this is "a CVE-class leak worked here", never "the kernel is
-  version X". Empty means none did.
 
 The exit status reports whether the scan *ran*, not whether the host passed:
 

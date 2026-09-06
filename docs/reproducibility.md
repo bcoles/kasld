@@ -45,7 +45,7 @@ is identical — a component that resolves a symbol by name reads a truncated
 table as an absence rather than an omission. The offline checks are cheap and
 continuous; the VM check is slower and run periodically.
 
-## Contents
+## Table of Contents
 
 - [1. On the local kernel](#1-on-the-local-kernel)
 - [2. Live, across architectures](#2-live-across-architectures)
@@ -199,7 +199,7 @@ different quantities to measure.
 | riscv64 | decoupled | randomized | yes | no † |
 | s390x | decoupled | randomized | yes | no † |
 | i686 | coupled | static | coupled | no |
-| armv7 | coupled | static | coupled | no |
+| armv7, armeb | coupled | static | coupled | no |
 | mips, mipsel | coupled | static | coupled | no |
 | mips64el | coupled | static | coupled | no |
 | ppc32 | coupled | static | coupled | no |

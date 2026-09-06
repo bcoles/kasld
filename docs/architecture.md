@@ -590,7 +590,8 @@ which region it belongs to.
 
 ## KASLR runtime states
 
-KASLD distinguishes three distinct "KASLR is not adding entropy" states because
+KASLD distinguishes three distinct "KASLR is not adding entropy" states — plus
+a partial "direct map unrandomized" case (x86_64 `CONFIG_KASAN`) — because
 they have different implications for the inference engine:
 
 | State | Scalar fact(s) | Kernel position | Engine action |

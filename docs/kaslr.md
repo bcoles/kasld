@@ -298,7 +298,8 @@ The four states are entered by different mechanisms:
     through the *randomization failed* state instead).
 
 - **Unsupported** applies to architectures where the kernel build
-  has no KASLR machinery: arm32, PowerPC64, RISC-V32, SPARC.
+  has no KASLR machinery: arm32, PowerPC64, RISC-V32. (SPARC has no KASLR
+  either, but KASLD does not build on it, so it never reports this state.)
 
 - **Randomization failed** applies when the KASLR machinery ran but
   could not produce a random offset:

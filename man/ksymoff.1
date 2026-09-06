@@ -6,7 +6,7 @@ ksymoff \- apply a KASLR slide to kernel symbols and translate addresses
 .RB [ \-b
 .IR BASE " | " \-\-from
 .IR NAME = ADDR ]
-.BI \-s " SOURCE"
+.BI \-s " FILE"
 .RB [ \-\-slide ]
 .RI [ SYMBOL " ...]"
 .br
@@ -122,7 +122,7 @@ array), for
 .TP
 .BI \-\-page\-shift " N"
 Page shift,
-.IR log2 (page\ size)
+.IR log2 (memory\ page\ size)
 (default: 12, i.e. 4 KiB).
 .TP
 .BI \-\-phys2page " ADDR"

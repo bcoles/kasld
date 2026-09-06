@@ -1089,9 +1089,10 @@ capture that cannot be named is unit-tested in `test_render`. See
 
 - **Layer 1** (`make check`): a C compiler (`cc` / gcc / clang) and `make`.
   Nothing else for the unit tests. The `make lint` guards optionally use
-  `i686-linux-gnu-gcc` (`check-truncation`), `shellcheck` (`check-shellcheck`)
-  and a libFuzzer-capable clang (`check-fuzz-harnesses`); all skip cleanly when
-  absent.
+  `i686-linux-gnu-gcc` (`check-truncation`), `shellcheck` (`check-shellcheck`),
+  `python3` (`check-make-deps`, `check-suite-registry`), `xmllint`
+  (`check-diagram-data`) and a libFuzzer-capable clang (`check-fuzz-harnesses`);
+  all skip cleanly when absent.
 - **Layers 2–3** (qemu paths): musl-cross toolchains on `PATH` (any source —
   [musl.cc](https://musl.cc/) prebuilt sets, distribution packages, or a local
   build all work; KASLD targets the standard `<arch>-linux-musl-gcc` triples),
