@@ -214,6 +214,28 @@ jobs:
           cp -a "${{ steps.builddir.outputs.dir }}/." "${DIR}/"
           rm -rf "${DIR}/obj"
           find "${DIR}/components" -type f ! -perm -u+x -delete
+          # Strip the shipped binaries with THIS arch's toolchain strip (never
+          # the host's, which rejects a foreign ELF). Debug info is ~70% of the
+          # build, so stripping is what keeps the release small — kasld alone
+          # drops from ~1.4M to ~350K. A component's metadata lives in the
+          # allocated .kasld_meta / .kasld_explain sections, which strip
+          # preserves; the assertion holds that against a strip that removes
+          # sections rather than only symbols. The orchestrator carries no such
+          # section, so only components are checked. ksymoff (a shell script) is
+          # copied in afterwards and is never stripped.
+          strip_tool="${{ matrix.musl_triple }}-strip"
+          readelf_tool="${{ matrix.musl_triple }}-readelf"
+          "$strip_tool" "${DIR}/kasld"
+          for f in "${DIR}"/components/*; do
+            [ -f "$f" ] || continue
+            "$strip_tool" "$f"
+            for sec in .kasld_meta .kasld_explain; do
+              "$readelf_tool" -S "$f" | grep -q "$sec" || {
+                echo "package: $sec lost from $(basename "$f") during strip" >&2
+                exit 1
+              }
+            done
+          done
           cp README.md LICENSE THIRD-PARTY-NOTICES.md "${DIR}/"
           # Companion symbol-offset tool (arch-independent) + the docs, so the
           # tarball matches `make install` and the README's doc links resolve.
