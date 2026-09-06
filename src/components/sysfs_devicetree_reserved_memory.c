@@ -82,17 +82,28 @@ int main(void) {
   int count = 0;
   int addr_cells = 1, size_cells = 1;
 
-  /* Try sysfs first, then /proc/device-tree symlink */
+  /* Try sysfs first, then /proc/device-tree symlink. A tree that exists but is
+   * hidden is a different fact from one that is absent; keep that across both
+   * candidates, since errno alone would describe only the last one tried. */
+  int dt_denied = 0;
   d = kasld_opendir(base);
   if (d) {
     root = base;
     closedir(d);
   } else {
+    if (errno == EACCES || errno == EPERM)
+      dt_denied = 1;
     d = kasld_opendir(alt);
     if (d) {
       root = alt;
       closedir(d);
     } else {
+      if (errno == EACCES || errno == EPERM)
+        dt_denied = 1;
+      if (dt_denied) {
+        kasld_err("device tree present but not readable");
+        return KASLD_EXIT_NOPERM;
+      }
       kasld_err("device tree not available (not a DT platform?)");
       return KASLD_EXIT_UNAVAILABLE;
     }
