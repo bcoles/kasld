@@ -40,6 +40,12 @@ static char cap[8192];
 static const char *CFG =
     "# CONFIG_RANDOMIZE_BASE is not set\nCONFIG_PHYSICAL_START=0x1000000\n";
 
+/* The same config truncated before the RANDOMIZE_BASE line, which is what a
+ * decompression killed mid-stream or a read error part-way through leaves:
+ * neither "=y" nor the "is not set" comment. CONFIG_PHYSICAL_START stays so the
+ * run still emits a fact the assertions can key a positive on. */
+static const char *PARTIAL_CFG = "CONFIG_PHYSICAL_START=0x1000000\n";
+
 static void write_file(const char *rel, const char *content) {
   th_sysroot_write(rel, content);
 }
@@ -139,6 +145,26 @@ static void test_keyed_beats_unkeyed(void) {
   assert(strstr(cap, "conf=heuristic") == NULL);
 }
 
+/* A config carrying NEITHER token states nothing about the option, so the
+ * disabled facts must not fire: asserting them from the mere absence of "=y"
+ * would pin the base to the compile-time default on a file that was never fully
+ * read. Staged on the KEYED path, where a fact that did fire would carry
+ * CONF_PARSED and reach the guaranteed window. */
+static void test_partial_config_asserts_nothing(void) {
+  char keyed[300];
+  stage_identity();
+  snprintf(keyed, sizeof(keyed), "/boot/config-%s", STAGED_RELEASE);
+  write_file(keyed, PARTIAL_CFG);
+  run_capture();
+  rm_file(keyed);
+
+  /* The file was found and parsed. Without this the absences below would hold
+   * just as well for a run that never read a config at all. */
+  assert(strstr(cap, "physical_start") != NULL);
+  assert(strstr(cap, "virt_kaslr_disabled") == NULL);
+  assert(strstr(cap, "phys_kaslr_disabled") == NULL);
+}
+
 int main(void) {
   th_sysroot_init("boot_config");
 
@@ -147,5 +173,6 @@ int main(void) {
   RUN(test_unkeyed_config_is_heuristic);
   RUN(test_keyed_config_is_parsed);
   RUN(test_keyed_beats_unkeyed);
+  RUN(test_partial_config_asserts_nothing);
   return TEST_DONE();
 }

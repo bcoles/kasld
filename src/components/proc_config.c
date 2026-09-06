@@ -199,7 +199,11 @@ static FILE *open_proc_config(void) {
 }
 
 static int kaslr_disabled_from_config(FILE *fp) {
-  if (kconfig_has_kaslr(fp))
+  /* Non-zero is "not compiled out": 1 for the CONFIG_RANDOMIZE_BASE=y line,
+   * and -1 where the config carried neither that nor the "is not set" comment
+   * -- a truncated or partly read file, which is no evidence the option is
+   * unset. Only an explicit 0 asserts disabled. */
+  if (kconfig_has_kaslr(fp) != 0)
     return 0;
 
   kasld_info(
