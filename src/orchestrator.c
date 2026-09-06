@@ -715,6 +715,25 @@ static const char *exclusion_reason(enum component_exclusion e) {
   return "";
 }
 
+/* The clause naming one cause in the run banner's parenthetical. A switch and
+ * not a table indexed by the enum: a table has to be filled in the enumerator's
+ * own order and says nothing when a new value arrives short, where -Wswitch
+ * names every mapping that has not been extended. */
+static const char *exclusion_phrase(enum component_exclusion e) {
+  switch (e) {
+  case CEX_SKIP_PATTERN:
+    return "skipped by --skip";
+  case CEX_LIVE_UNDER_CAPTURE:
+    return "not replayable from a capture";
+  case CEX_EXPERIMENTAL:
+    return "experimental skipped";
+  case CEX_NONE:
+  case CEX__COUNT:
+    break;
+  }
+  return "";
+}
+
 /* The run banner's parenthetical: one clause per cause present, in the order
  * the filters apply, or empty when everything runs. Built rather than selected
  * from a fixed set of sentences because the causes combine freely, and a
@@ -723,9 +742,6 @@ static const char *exclusion_reason(enum component_exclusion e) {
  * tell two of them apart. The hint that lifts the gate is attached to the
  * experimental clause, that being the cause an operator can undo. */
 static void exclusion_summary(char *buf, size_t n) {
-  static const char *const phrase[CEX__COUNT] = {
-      NULL, "skipped by --skip", "not replayable from a capture",
-      "experimental skipped"};
   int count[CEX__COUNT] = {0};
   size_t used = 0;
   int gated = 0;
@@ -738,7 +754,7 @@ static void exclusion_summary(char *buf, size_t n) {
     if (count[e] == 0)
       continue;
     w = snprintf(buf + used, n - used, "%s%d %s", used ? ", " : "", count[e],
-                 phrase[e]);
+                 exclusion_phrase((enum component_exclusion)e));
     if (w < 0 || (size_t)w >= n - used)
       return; /* buf holds what fit, NUL-terminated by snprintf */
     used += (size_t)w;

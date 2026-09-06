@@ -212,11 +212,14 @@ static void dump_histograms(int run) {
   fprintf(stderr, "[debug] run %d: per-offset peaks (signal = >=%d hits):\n",
           run + 1, MDS_MIN_HITS);
   for (int off = 0; off < 64; off++) {
-    int pv = 0, pc = 0;
+    /* The peak byte value is what %02x prints, so it is held in the type that
+     * conversion takes; the count beside it is a plain int. */
+    unsigned pv = 0;
+    int pc = 0;
     for (int v = 1; v < 256; v++) {
       if (histograms[off][v] > pc) {
         pc = histograms[off][v];
-        pv = v;
+        pv = (unsigned)v;
       }
     }
     if (off % 8 == 0)

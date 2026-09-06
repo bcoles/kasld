@@ -25,17 +25,23 @@ jobs:
       #   groff                 check-manpages (roff lint of the man pages)
       run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck jq libxml2-utils device-tree-compiler python3 clang groff
 
+    # -Werror here and not in the Makefile: the repository gets a warning
+    # regression failing the pull request, in front of whoever introduced it,
+    # while someone building a release tarball on a compiler this project
+    # cannot test keeps a warning that prints rather than a build that stops.
+    # The cost is that a runner image bump can break the pipeline; that is the
+    # right way round, since it fails here rather than in a stranger's build.
     - name: Build
-      run: make
+      run: make EXTRA_CFLAGS=-Werror
 
     - name: Run unit + integration tests
-      run: make check
+      run: make check EXTRA_CFLAGS=-Werror
 
     # Build the 32-bit x86 binary too (auto-static when cross-compiling), so the
     # end-to-end step also covers the x86_32 fixture. If the static link is
     # unavailable the i686 fixture just skips below — never fatal.
     - name: Build i686
-      run: make build CC=i686-linux-gnu-gcc || true
+      run: make build CC=i686-linux-gnu-gcc EXTRA_CFLAGS=-Werror || true
 
     # End-to-end over the REAL binary on the x86 fixtures, run NATIVELY (no
     # qemu): the only CI coverage of main() + the engine bridge + the renderers,

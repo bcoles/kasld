@@ -43,7 +43,27 @@ CFLAGS = -g -O2 -Wall -Wextra -pedantic
 #
 # Promoted-to-error: catches real bugs that are easy to ignore as warnings
 # (missing #include, mismatched pointer types, missing return, non-literal
-# format with no args).
+# format with no args, an enumerator no switch over its type handles -- the
+# last so that adding a value to a closed vocabulary names every mapping that
+# has not been extended, rather than leaving one to return nothing at runtime).
+#
+# Every flag here is probed by cc-option, so one a toolchain does not know is
+# dropped rather than fatal -- which is what lets the list carry gcc-only checks
+# (-Wshift-overflow, -Wsuggest-attribute=format, the =N levels, -Wtrampolines)
+# and one that needs gcc 12 (-Wuse-after-free) while the same list is handed to
+# clang and to an 11.x cross toolchain.
+#
+# -Wformat-signedness is not free-standing: -Werror=format below promotes it, so
+# a conversion taking the wrong signedness is an error rather than a warning.
+# That is deliberate -- a wrong specifier is undefined behaviour, and a
+# component whose compile fails is REMOVED by its recipe and reported by
+# check-components-built rather than silently shipped.
+#
+# Two more were measured and rejected. -Wswitch-enum fires on every switch
+# carrying a default (5128 diagnostics) and -Wswitch-default demands the default
+# that -Werror=switch relies on being absent, so it argues against the rule
+# above it. -Wunused-macros and -Wjump-misses-init flag the arch headers'
+# conditionally-consumed macros and an idiom used throughout.
 #
 # Hardening: -fstack-protector-strong + -D_FORTIFY_SOURCE=2 add stack
 # canaries and libc-side str/mem/printf runtime checks. _FORTIFY_SOURCE
@@ -67,6 +87,12 @@ KASLD_WARN_FLAGS_WANTED := \
     -Wnull-dereference -Wlogical-op -Wduplicated-cond \
     -Wduplicated-branches -Wrestrict -Wvla -Walloca \
     -Wstack-protector \
+    -Wimplicit-fallthrough -Wcast-function-type -Wshift-overflow=2 \
+    -Wstrict-overflow=2 -Wdouble-promotion -Wmissing-include-dirs \
+    -Wsuggest-attribute=format -Warray-bounds=2 \
+    -Wstringop-overflow=4 -Wuse-after-free=3 -Wtrampolines \
+    -Wformat-signedness \
+    -Werror=switch \
     -Werror=implicit-function-declaration \
     -Werror=incompatible-pointer-types \
     -Werror=return-type \

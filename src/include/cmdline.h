@@ -116,24 +116,33 @@ static int __attribute__((unused)) kasld_memparse(const char **pp,
   }
   if (p == start)
     return 0; /* no digits */
-  /* Suffix multipliers; one shift each at the higher end. */
+  /* Suffix multipliers; one shift each at the higher end. The ladder falls
+   * through on purpose, so each step is marked with the attribute rather than a
+   * comment: a comment is recognised only by some compilers and only at some
+   * -Wimplicit-fallthrough levels, where the attribute is checked by every
+   * compiler this builds with. */
   unsigned int shift = 0;
   switch (*p) {
   case 'E':
   case 'e':
-    shift += 10; /* fallthrough */
+    shift += 10;
+    __attribute__((fallthrough));
   case 'P':
   case 'p':
-    shift += 10; /* fallthrough */
+    shift += 10;
+    __attribute__((fallthrough));
   case 'T':
   case 't':
-    shift += 10; /* fallthrough */
+    shift += 10;
+    __attribute__((fallthrough));
   case 'G':
   case 'g':
-    shift += 10; /* fallthrough */
+    shift += 10;
+    __attribute__((fallthrough));
   case 'M':
   case 'm':
-    shift += 10; /* fallthrough */
+    shift += 10;
+    __attribute__((fallthrough));
   case 'K':
   case 'k':
     shift += 10;

@@ -124,7 +124,7 @@ jobs:
         run: |
           set -euo pipefail
           xf="$(make --no-print-directory cross-extra-flags TRIPLE=${{ matrix.musl_triple }})"
-          make build CC=${{ matrix.musl_triple }}-gcc EXTRA_CFLAGS="$xf" EXTRA_LDFLAGS="$xf"
+          make build CC=${{ matrix.musl_triple }}-gcc EXTRA_CFLAGS="$xf -Werror" EXTRA_LDFLAGS="$xf"
 
       # A release binary that still shells out to zcat is the failure this whole
       # step exists to prevent, and it is invisible in a build log.
@@ -197,7 +197,7 @@ jobs:
       # tests x86_64 via build.yml's host job, so this would be redundant there.)
       - name: Run tests (native, x86_64)
         if: inputs.package && matrix.native_test
-        run: make test CC=${{ matrix.musl_triple }}-gcc
+        run: make test CC=${{ matrix.musl_triple }}-gcc EXTRA_CFLAGS=-Werror
 
       - name: Package release tarball
         if: inputs.package
