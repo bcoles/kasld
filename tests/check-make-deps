@@ -46,8 +46,13 @@ command -v python3 >/dev/null 2>&1 || {
   exit 0
 }
 
-# -p prints the rule database; -n keeps it from running any recipe.
-make -pn 2>/dev/null > "$DB" || :
+# -p prints the rule database; -n keeps it from running any recipe. MAKEFLAGS
+# is cleared so this nested make reads the rules the tree defines: a
+# command-line variable travels through MAKEFLAGS, so under
+# `make BUILD_DIR=<dir> lint` the database names targets under <dir>, which
+# none of the patterns below match -- an empty result describing the
+# invocation rather than the tree.
+MAKEFLAGS='' make -pn 2>/dev/null > "$DB" || :
 [ -s "$DB" ] || {
   printf '%scheck-make-deps: SKIP%s (make -pn produced no database)\n' \
     "$YELLOW" "$RESET"
