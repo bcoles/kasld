@@ -79,6 +79,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/perf_ring.h"
 #include <errno.h>
 #include <linux/perf_event.h>
 #include <poll.h>
@@ -119,11 +120,6 @@ KASLD_META("method:parsed\n"
  * NUL-padded name; KSYM_NAME_LEN is 512 upstream, plus header (8) + addr (8)
  * + len (4) + type (2) + flags (2) + sample_id padding. 1024 covers it. */
 #define MAX_RECORD 1024
-
-static int perf_event_open_(struct perf_event_attr *attr, pid_t pid, int cpu,
-                            int group_fd, unsigned long flags) {
-  return syscall(SYS_perf_event_open, attr, pid, cpu, group_fd, flags);
-}
 
 /* PERF_RECORD_KSYMBOL wire layout (after the 8-byte perf_event_header):
  *   u64 addr
@@ -167,19 +163,6 @@ static void sanitise_name(char *s, size_t max) {
   s[max - 1] = 0;
 }
 
-/* Copy `n` bytes out of the ring at byte offset `off`, handling wrap. */
-static void ring_copy(const char *ring, size_t ring_size, uint64_t off,
-                      void *dst, size_t n) {
-  size_t off_in = (size_t)(off % ring_size);
-  size_t first = ring_size - off_in;
-  if (first >= n) {
-    memcpy(dst, ring + off_in, n);
-  } else {
-    memcpy(dst, ring + off_in, first);
-    memcpy((char *)dst + first, ring, n - first);
-  }
-}
-
 /* Drain one ring buffer; emit observations; return count of new emissions. */
 static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
                       size_t ring_size) {
@@ -196,7 +179,7 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
     struct perf_event_header header;
     if (head - tail < sizeof(header))
       break;
-    ring_copy(ring, ring_size, tail, &header, sizeof(header));
+    kasld_ring_copy(ring, ring_size, tail, &header, sizeof(header));
     if (header.size < sizeof(header) || header.size > MAX_RECORD)
       break;
     if (head - tail < header.size)
@@ -204,7 +187,7 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
 
     if (header.type == PERF_RECORD_KSYMBOL) {
       char buf[MAX_RECORD];
-      ring_copy(ring, ring_size, tail, buf, header.size);
+      kasld_ring_copy(ring, ring_size, tail, buf, header.size);
 
       const struct ksymbol_payload *k = (const void *)(buf + sizeof(header));
       size_t name_off = sizeof(header) + sizeof(*k);
@@ -299,7 +282,7 @@ int main(int argc, char *argv[]) {
   int opened = 0;
   int first_err = 0;
   for (int cpu = 0; cpu < ncpus; cpu++) {
-    int fd = perf_event_open_(&attr, -1, cpu, -1, 0);
+    int fd = kasld_perf_event_open(&attr, -1, cpu, -1, 0);
     if (fd < 0) {
       if (!first_err)
         first_err = errno;

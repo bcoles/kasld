@@ -21,6 +21,7 @@
 
 #include "api.h"
 #include "cli.h"
+#include "perf_ring.h" /* the syscall wrapper and the wrap-around ring read */
 
 #include <linux/perf_event.h>
 #include <poll.h>
@@ -42,12 +43,6 @@
 /* Maximum on-stack record buffer: header + IP + bnr + depth × 24. */
 #define KASLD_PERF_MAX_RECORD (32 + (size_t)KASLD_PERF_MAX_LBR_DEPTH * 24)
 
-static inline long kasld_perf_event_open(struct perf_event_attr *attr,
-                                         pid_t pid, int cpu, int group_fd,
-                                         unsigned long flags) {
-  return syscall(SYS_perf_event_open, attr, pid, cpu, group_fd, flags);
-}
-
 /* Which endpoint of a sampled branch record an address came from. */
 enum kasld_perf_br { KASLD_PERF_IP, KASLD_PERF_FROM, KASLD_PERF_TO };
 
@@ -61,19 +56,6 @@ struct __attribute__((packed)) kasld_lbr_entry {
   uint64_t to;
   uint64_t flags;
 };
-
-/* Copy `n` bytes out of the ring at byte offset `off`, handling wrap. */
-static inline void kasld_ring_copy(const char *ring, size_t ring_size,
-                                   uint64_t off, void *dst, size_t n) {
-  size_t off_in = (size_t)(off % ring_size);
-  size_t first = ring_size - off_in;
-  if (first >= n) {
-    memcpy(dst, ring + off_in, n);
-  } else {
-    memcpy(dst, ring + off_in, first);
-    memcpy((char *)dst + first, ring, n - first);
-  }
-}
 
 /* Drain the perf ring on `fd`, delivering the sample IP and every branch-stack
  * from/to to `cb`. mmaps and enables the event, polls until `target_samples`

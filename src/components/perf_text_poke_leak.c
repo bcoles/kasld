@@ -69,6 +69,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/perf_ring.h"
 #include <errno.h>
 #include <linux/perf_event.h>
 #include <linux/version.h>
@@ -154,11 +155,6 @@ KASLD_META("method:parsed\n"
 #define PERF_RECORD_TEXT_POKE 20
 #endif
 
-static int perf_event_open_(struct perf_event_attr *attr, pid_t pid, int cpu,
-                            int group_fd, unsigned long flags) {
-  return syscall(SYS_perf_event_open, attr, pid, cpu, group_fd, flags);
-}
-
 /* Force a burst of text-poke events, unprivileged. Several net static keys are
  * refcounted: when the global count crosses 0<->1 the kernel runs
  * jump_label_update() -> text_poke on every static-branch site of that key,
@@ -200,18 +196,6 @@ static void trigger_text_pokes(int cycles) {
  *   ... padding + sample_id
  * See kernel/events/core.c:perf_event_text_poke_output. */
 
-static void ring_copy(const char *ring, size_t ring_size, uint64_t off,
-                      void *dst, size_t n) {
-  size_t off_in = (size_t)(off % ring_size);
-  size_t first = ring_size - off_in;
-  if (first >= n) {
-    memcpy(dst, ring + off_in, n);
-  } else {
-    memcpy(dst, ring + off_in, first);
-    memcpy((char *)dst + first, ring, n - first);
-  }
-}
-
 /* Per-region extremes across all rings. Each poked address is an interior
  * point of its region, so the LOWEST bounds the region base from above (the
  * tightest ceiling — for .text, the closest approach to _stext) and the HIGHEST
@@ -235,7 +219,7 @@ static void drain_ring(struct perf_event_mmap_page *meta, const char *ring,
     struct perf_event_header header;
     if (head - tail < sizeof(header))
       break;
-    ring_copy(ring, ring_size, tail, &header, sizeof(header));
+    kasld_ring_copy(ring, ring_size, tail, &header, sizeof(header));
     if (header.size < sizeof(header) || header.size > MAX_RECORD)
       break;
     if (head - tail < header.size)
@@ -244,7 +228,7 @@ static void drain_ring(struct perf_event_mmap_page *meta, const char *ring,
     if (header.type == PERF_RECORD_TEXT_POKE &&
         header.size >= sizeof(header) + sizeof(uint64_t)) {
       char buf[MAX_RECORD];
-      ring_copy(ring, ring_size, tail, buf, header.size);
+      kasld_ring_copy(ring, ring_size, tail, buf, header.size);
       uint64_t addr64;
       memcpy(&addr64, buf + sizeof(header), sizeof(addr64));
       unsigned long addr = (unsigned long)addr64;
@@ -317,7 +301,7 @@ int main(int argc, char *argv[]) {
   int opened = 0;
   int first_err = 0;
   for (int cpu = 0; cpu < ncpus; cpu++) {
-    int fd = perf_event_open_(&attr, -1, cpu, -1, 0);
+    int fd = kasld_perf_event_open(&attr, -1, cpu, -1, 0);
     if (fd < 0) {
       if (!first_err)
         first_err = errno;

@@ -32,6 +32,7 @@
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
 #include "include/kasld/constraint.h"
+#include "include/kasld/perf_ring.h"
 #include <errno.h>
 #include <linux/perf_event.h>
 #include <poll.h>
@@ -70,13 +71,8 @@ KASLD_META("method:parsed\n"
            "bypass:CAP_PERFMON\n"
            "bypass:CAP_SYS_ADMIN\n");
 
-static int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu,
-                           int group_fd, unsigned long flags) {
-  return syscall(SYS_perf_event_open, attr, pid, cpu, group_fd, flags);
-}
-
-/* Multi-page data ring: must be (1 + 2^n) pages. ring_copy() below handles
- * records that straddle the buffer end. */
+/* Multi-page data ring: must be (1 + 2^n) pages. kasld_ring_copy() below
+ * handles records that straddle the buffer end. */
 #define DATA_PAGES 16
 
 /* Target sample count and outer timeout. sample_period below is chosen so a
@@ -85,19 +81,6 @@ static int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu,
 #define TARGET_SAMPLES 100
 #define POLL_MS_PER_ROUND 200
 #define MAX_ROUNDS 50
-
-/* Copy `n` bytes out of the ring at byte offset `off`, handling wrap. */
-static void ring_copy(const char *ring, size_t ring_size, uint64_t off,
-                      void *dst, size_t n) {
-  size_t off_in = (size_t)(off % ring_size);
-  size_t first = ring_size - off_in;
-  if (first >= n) {
-    memcpy(dst, ring + off_in, n);
-  } else {
-    memcpy(dst, ring + off_in, first);
-    memcpy((char *)dst + first, ring, n - first);
-  }
-}
 
 static unsigned long get_kernel_addr_perf(int *exit_hint) {
   *exit_hint = 0;
@@ -135,7 +118,7 @@ static unsigned long get_kernel_addr_perf(int *exit_hint) {
   event.sample_period = 10000;
   event.wakeup_events = 1;
 
-  int fd = perf_event_open(&event, child, -1, -1, 0);
+  int fd = kasld_perf_event_open(&event, child, -1, -1, 0);
   if (fd < 0) {
     int e = errno;
     kill(child, SIGKILL);
@@ -205,7 +188,7 @@ static unsigned long get_kernel_addr_perf(int *exit_hint) {
       struct perf_event_header header;
       if (head - tail < sizeof(header))
         break;
-      ring_copy(ring, ring_size, tail, &header, sizeof(header));
+      kasld_ring_copy(ring, ring_size, tail, &header, sizeof(header));
       if (header.size < sizeof(header) || header.size > 1024)
         break;
       if (head - tail < header.size)
@@ -216,7 +199,7 @@ static unsigned long get_kernel_addr_perf(int *exit_hint) {
          *   { struct perf_event_header header; u64 ip; } */
         if (header.size >= sizeof(header) + 8) {
           uint64_t ip;
-          ring_copy(ring, ring_size, tail + sizeof(header), &ip, 8);
+          kasld_ring_copy(ring, ring_size, tail + sizeof(header), &ip, 8);
           if (ip < min_addr)
             min_addr = (unsigned long)ip;
           num_samples++;
