@@ -939,12 +939,14 @@ void render_json(const struct summary *s) {
   {
     printf(",\n");
     printf("  \"components\": [\n");
+    int first = 1;
     for (int i = 0; i < num_components; i++) {
       if (!comp_logs[i].ran)
         continue;
       struct component_log *cl = &comp_logs[i];
-      if (i > 0)
+      if (!first)
         printf(",\n");
+      first = 0;
       printf("    {\n");
       printf("      \"name\": ");
       json_print_escaped(cl->name);
@@ -1029,6 +1031,26 @@ void render_json(const struct summary *s) {
       printf("\n    }");
     }
     printf("\n  ],\n");
+  }
+
+  /* excluded_components — what the run held back, and why. A separate array
+   * rather than entries in "components": every entry there carries an exit code
+   * and an outcome, and a reason-only entry would change what a consumer of
+   * that array may assume. Always present, empty when everything ran, so
+   * "which components would -x add" is answerable from one document. */
+  {
+    printf("  \"excluded_components\": [");
+    int first = 1;
+    for (int i = 0; i < num_components; i++) {
+      if (comp_logs[i].ran || comp_logs[i].exclusion == CEX_NONE)
+        continue;
+      printf("%s\n    {\"name\": ", first ? "" : ",");
+      json_print_escaped(comp_logs[i].name);
+      printf(", \"reason\": \"%s\"}",
+             component_exclusion_name(comp_logs[i].exclusion));
+      first = 0;
+    }
+    printf("%s],\n", first ? "" : "\n  ");
   }
 
   render_hardening_json();

@@ -1,0 +1,93 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-json-partial-skip — `-j` stays well-formed when SOME components are
+# held back.
+#
+# The components array is built by walking every discovered component and
+# emitting the ones that ran. Separating those entries on the LOOP INDEX rather
+# than on whether anything has been emitted yet puts a comma before the first
+# object whenever the component at index 0 is not among them -- a document no
+# parser accepts, from a flag combination that is otherwise unremarkable.
+#
+# It went unnoticed because the guards that pair `-j` with a skip all use
+# `-s '*'`: skipping everything leaves an empty array, which is well-formed
+# either way. The partial case is the one that breaks, so this is the case to
+# test -- skipping the FIRST component in discovery order, which is the only
+# one whose absence moves the first emitted entry off index 0.
+#
+# Also asserts what the array pair means: a held-back component leaves
+# "components" and appears in "excluded_components" with a reason, so the two
+# together account for every component discovered.
+#
+# Usage: tests/check-json-partial-skip   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+BIN=$(host_kasld)
+if [ -z "$BIN" ]; then
+  printf '%sjson-partial-skip guard: SKIP%s (no native kasld build under %s; run make first)\n' \
+    "$YELLOW" "$RESET" "$ROOT/build"
+  exit 0
+fi
+if ! command -v python3 >/dev/null 2>&1; then
+  printf '%sjson-partial-skip guard: SKIP%s (python3 not installed)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+fi
+
+# The component at index 0 of the discovery order, asked of the binary rather
+# than of the directory: discovery sorts by name and skips what it cannot run,
+# so the first entry it reports is the one whose absence moves every remaining
+# entry off index 0. Reading the directory instead would name a file the run
+# never discovered.
+first=$("$BIN" -q -j 2>/dev/null | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+names = [c["name"] for c in d["components"]]
+names += [e["name"] for e in d["excluded_components"]]
+print(min(names) if names else "")
+')
+if [ -z "$first" ]; then
+  printf '%sjson-partial-skip guard: SKIP%s (the run discovered no components)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+fi
+
+out=$("$BIN" -q -j -s "$first" 2>/dev/null)
+printf '%s' "$out" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+ran = {c["name"] for c in d["components"]}
+exc = {e["name"]: e["reason"] for e in d["excluded_components"]}
+skipped = sys.argv[1]
+if skipped in ran:
+    sys.exit("the skipped component is still in components[]")
+if exc.get(skipped) != "skip_pattern":
+    sys.exit("the skipped component is not recorded as skip_pattern: %r"
+             % exc.get(skipped))
+if ran & set(exc):
+    sys.exit("a component is in both arrays: %r" % (ran & set(exc)))
+' "$first" || {
+  printf '%sjson-partial-skip guard: FAIL%s (kasld -j -s %s)\n' \
+    "$RED" "$RESET" "$first" >&2
+  printf 'The document must parse, and a held-back component must leave\n' >&2
+  printf '"components" for "excluded_components" with its reason. Separate the\n' >&2
+  printf 'array on what has been emitted, never on the loop index.\n' >&2
+  exit 1
+}
+
+printf '%sjson-partial-skip guard: OK%s (-j parses with %s held back, and says why)\n' \
+  "$GREEN" "$RESET" "$first"

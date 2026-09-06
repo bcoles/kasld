@@ -572,6 +572,14 @@ tagged result: `category` — `mitigation` / `absent` / `disabled` /
 `message`), and the parsed `meta` from `KASLD_META` (including `cve` / `patch` /
 `config` / `sysctl` keys). The `hardening` object is described under
 [Hardening assessment](#hardening-assessment).
+The `excluded_components` array names what the run held back and why —
+`{name, reason}`, with `reason` one of `skip_pattern` (a `--skip` pattern named
+it), `live_under_capture` (its result comes from live runtime state, and the
+facts came from a captured tree) or `experimental` (opt-in, `-x` enables it). It
+is always present and empty when everything ran, so a reader can tell a
+component this build does not have from one this run chose not to run — and can
+answer what `-x` would add without running it.
+
 A per-component patch worklist — `{component, cve, fixed_in, leaked_here}`
 — is a direct projection of the `components` array:
 

@@ -371,9 +371,10 @@ struct component {
                         * method-based inference when "phase:" is absent. */
   int is_experimental; /* set from status:experimental in .kasld_meta */
   enum component_source source; /* from "source:" in .kasld_meta */
-  int is_filtered; /* set by apply_skip_filter() from --skip patterns, or by
-                    * apply_sysroot_filter() for live-sourced components
-                    * against a capture */
+  /* Why it will not run, or CEX_NONE. Set by the apply_*_filter() passes in
+   * the order they run; read by the scheduler and by every site that reports
+   * the run, so no reader has to work the reason out again. */
+  enum component_exclusion exclusion;
 };
 
 /* Every component lives in the one directory discovery settled on, so a full
@@ -627,15 +628,17 @@ static void classify_components(void) {
   }
 }
 
-/* Mark components matching any --skip pattern as filtered.
- * No-op when num_skip_patterns == 0. Called after classify_components(). */
+/* Mark components matching any --skip pattern. First of the three filters, so
+ * a component the operator named keeps that as its reason even where a later
+ * one would have held it back anyway. No-op when num_skip_patterns == 0.
+ * Called after classify_components(). */
 static void apply_skip_filter(void) {
   if (num_skip_patterns == 0)
     return;
   for (int i = 0; i < num_components; i++) {
     for (int j = 0; j < num_skip_patterns; j++) {
       if (fnmatch(skip_patterns[j], components[i].name, 0) == 0) {
-        components[i].is_filtered = 1;
+        components[i].exclusion = CEX_SKIP_PATTERN;
         break;
       }
     }
@@ -649,15 +652,101 @@ static void apply_skip_filter(void) {
  * cannot be produced at all. A CSRC_HYBRID component keeps running: its live
  * step is one it suppresses itself, and what remains is a captured-file read.
  *
- * Reusing is_filtered excludes them from scheduling and accounting exactly as
- * --skip does. No-op on a live run. Called after apply_skip_filter(). */
+ * No-op on a live run. Called after apply_skip_filter(), whose reason stands
+ * where both apply. */
 static void apply_sysroot_filter(void) {
   if (kasld_fact_source() != KASLD_FACTS_CAPTURE)
     return;
   for (int i = 0; i < num_components; i++) {
-    if (components[i].source == CSRC_LIVE)
-      components[i].is_filtered = 1;
+    if (components[i].source == CSRC_LIVE &&
+        components[i].exclusion == CEX_NONE)
+      components[i].exclusion = CEX_LIVE_UNDER_CAPTURE;
   }
+}
+
+/* Hold back the opt-in components unless -x or KASLD_EXPERIMENTAL asked for
+ * them. Last of the three filters, so the two explicit reasons above stand
+ * where they also apply. Called after apply_sysroot_filter().
+ *
+ * A filter pass rather than a condition in the scheduler: it is the same kind
+ * of decision the other two make, and holding it here leaves the scheduler one
+ * question to ask and every reporting site one field to read. */
+static void apply_experimental_filter(void) {
+  if (experimental_mode || kasld_env_enabled("KASLD_EXPERIMENTAL"))
+    return;
+  for (int i = 0; i < num_components; i++) {
+    if (components[i].is_experimental && components[i].exclusion == CEX_NONE)
+      components[i].exclusion = CEX_EXPERIMENTAL;
+  }
+}
+
+/* Give every held-back component a slot in the shared log, so a format can say
+ * what did not run and why without reaching into the scheduler's own state.
+ * `ran` stays 0, so every reader that skips a slot with no run keeps skipping
+ * these. Called once, after the last filter. */
+/* The two name fields are the same fixed width, so the copy below is exact
+ * rather than truncating -- and stays so if either width changes. */
+__extension__ _Static_assert(sizeof(comp_logs[0].name) ==
+                                 sizeof(components[0].name),
+                             "component name fields must match in width");
+
+static void record_exclusions(void) {
+  for (int i = 0; i < num_components; i++) {
+    if (components[i].exclusion == CEX_NONE)
+      continue;
+    memcpy(comp_logs[i].name, components[i].name, sizeof(comp_logs[i].name));
+    comp_logs[i].exclusion = components[i].exclusion;
+  }
+}
+
+/* Why one component was held back, for the per-component verbose line. */
+static const char *exclusion_reason(enum component_exclusion e) {
+  switch (e) {
+  case CEX_SKIP_PATTERN:
+    return "matched --skip filter";
+  case CEX_LIVE_UNDER_CAPTURE:
+    return "live probe, not replayable under KASLD_SYSROOT";
+  case CEX_EXPERIMENTAL:
+    return "experimental; use -x to enable";
+  case CEX_NONE:
+  case CEX__COUNT:
+    break;
+  }
+  return "";
+}
+
+/* The run banner's parenthetical: one clause per cause present, in the order
+ * the filters apply, or empty when everything runs. Built rather than selected
+ * from a fixed set of sentences because the causes combine freely, and a
+ * sentence per combination is where the wording drifted -- the count used to
+ * be worded neutrally under a capture precisely because one field could not
+ * tell two of them apart. The hint that lifts the gate is attached to the
+ * experimental clause, that being the cause an operator can undo. */
+static void exclusion_summary(char *buf, size_t n) {
+  static const char *const phrase[CEX__COUNT] = {
+      NULL, "skipped by --skip", "not replayable from a capture",
+      "experimental skipped"};
+  int count[CEX__COUNT] = {0};
+  size_t used = 0;
+  int gated = 0;
+
+  buf[0] = '\0';
+  for (int i = 0; i < num_components; i++)
+    count[components[i].exclusion]++;
+  for (int e = CEX_NONE + 1; e < CEX__COUNT; e++) {
+    int w;
+    if (count[e] == 0)
+      continue;
+    w = snprintf(buf + used, n - used, "%s%d %s", used ? ", " : "", count[e],
+                 phrase[e]);
+    if (w < 0 || (size_t)w >= n - used)
+      return; /* buf holds what fit, NUL-terminated by snprintf */
+    used += (size_t)w;
+    if (e == CEX_EXPERIMENTAL)
+      gated = 1;
+  }
+  if (gated)
+    snprintf(buf + used, n - used, "; use -x to enable");
 }
 #endif /* !KASLD_TESTING */
 
@@ -1207,12 +1296,10 @@ static void *inference_worker(void *arg) {
  * Sequential phases (!p->parallel): always a single-threaded loop. */
 #ifndef KASLD_TESTING
 static void run_phase(const struct phase *p) {
-  int exp_active = experimental_mode || kasld_env_enabled("KASLD_EXPERIMENTAL");
   pool_inf_n = 0;
   for (int i = 0; i < num_components; i++) {
     if (strcmp(components[i].phase, p->key) == 0 &&
-        (!components[i].is_experimental || exp_active) &&
-        !components[i].is_filtered)
+        components[i].exclusion == CEX_NONE)
       pool_inf[pool_inf_n++] = i;
   }
   if (pool_inf_n == 0)
@@ -3649,37 +3736,29 @@ int main(int argc, char *argv[]) {
   validate_component_phases();
   apply_skip_filter();
   apply_sysroot_filter();
+  /* -x reaches the components it forks through the environment, so the
+   * decision is published before the filter reads it and before any child
+   * inherits it. */
+  if (experimental_mode)
+    setenv("KASLD_EXPERIMENTAL", "1", 1);
+  apply_experimental_filter();
+  record_exclusions();
 
-  /* Verbose: list components excluded by --skip or, under KASLD_SYSROOT, by the
-   * offline live-probe filter (apply_sysroot_filter). */
+  /* Verbose: name every component that will not run, and why. */
   if (verbose && plain_output()) {
-    int offline = kasld_fact_source() == KASLD_FACTS_CAPTURE;
     for (int i = 0; i < num_components; i++) {
-      if (!components[i].is_filtered)
+      if (components[i].exclusion == CEX_NONE)
         continue;
-      if (offline && components[i].source == CSRC_LIVE)
-        printf("[.] skipping %s (live probe, not replayable under "
-               "KASLD_SYSROOT)\n",
-               components[i].name);
-      else
-        printf("[.] skipping %s (matched --skip filter)\n", components[i].name);
+      printf("[.] skipping %s (%s)\n", components[i].name,
+             exclusion_reason(components[i].exclusion));
     }
   }
 
   /* Component accounting: determine how many will run */
-  {
-    int exp_env = kasld_env_enabled("KASLD_EXPERIMENTAL");
-    if (experimental_mode)
-      setenv("KASLD_EXPERIMENTAL", "1", 1);
-    int exp_active = experimental_mode || exp_env;
-    num_active_components = 0;
-    for (int i = 0; i < num_components; i++) {
-      if (components[i].is_filtered)
-        continue;
-      if (components[i].is_experimental && !exp_active)
-        continue;
+  num_active_components = 0;
+  for (int i = 0; i < num_components; i++) {
+    if (components[i].exclusion == CEX_NONE)
       num_active_components++;
-    }
   }
 
   /* --fast: tighten per-component timeout unless user set an explicit -t */
@@ -3704,53 +3783,22 @@ int main(int argc, char *argv[]) {
     clock_gettime(CLOCK_MONOTONIC, &progress_start);
     progress_total =
         num_active_components > 0 ? num_active_components : num_components;
-    int exp_active =
-        experimental_mode || kasld_env_enabled("KASLD_EXPERIMENTAL");
-    int nf = 0, ne = 0;
-    for (int i = 0; i < num_components; i++) {
-      if (components[i].is_filtered)
-        nf++;
-      else if (components[i].is_experimental && !exp_active)
-        ne++;
-    }
-    /* Under KASLD_SYSROOT the filtered set also includes live probes skipped
-     * for offline analysis (not just --skip), so word the count neutrally. */
-    const char *skipped_by = kasld_fact_source() == KASLD_FACTS_CAPTURE
-                                 ? "skipped"
-                                 : "skipped by --skip";
-    /* "N of M" rather than a bare N: the skipped counts that follow are
+    char why[160];
+    exclusion_summary(why, sizeof(why));
+    /* "N of M" rather than a bare N: the counts in the parenthetical are
      * excluded from N, so a bare count reads either way. */
-    if (num_active_components == 0) {
-      /* Every discovered component was filtered out, so the result below is
-       * the engine's leak-free structural inference rather than a scan. Name
-       * which filter emptied the set: the three causes (--skip, experimental
-       * gating, KASLD_SYSROOT dropping live probes) need different responses.
-       * A component directory that is missing or empty cannot reach here --
-       * discover_components() fails the run before any output. */
-      if (nf > 0 && ne > 0)
-        printf("Structural baseline: no components ran (%d %s, %d experimental;"
-               " use -x to enable)\n",
-               nf, skipped_by, ne);
-      else if (nf > 0)
-        printf("Structural baseline: no components ran (all %d %s)\n", nf,
-               skipped_by);
-      else if (ne > 0)
-        printf("Structural baseline: no components ran (all %d experimental;"
-               " use -x to enable)\n",
-               ne);
-      else
-        printf("Structural baseline: no components ran\n");
-    } else if (nf > 0 && ne > 0)
-      printf("Running %d of %d components (%d %s, %d experimental "
-             "skipped; use -x to enable)...\n",
-             num_active_components, num_components, nf, skipped_by, ne);
-    else if (nf > 0)
-      printf("Running %d of %d components (%d %s)...\n", num_active_components,
-             num_components, nf, skipped_by);
-    else if (ne > 0)
-      printf("Running %d of %d components (%d experimental skipped; "
-             "use -x to enable)...\n",
-             num_active_components, num_components, ne);
+    if (num_active_components == 0)
+      /* Every discovered component was held back, so the result below is the
+       * engine's leak-free structural inference rather than a scan. The
+       * parenthetical names which filters emptied the set: the three causes
+       * need different responses. A component directory that is missing or
+       * empty cannot reach here -- discover_components() fails the run before
+       * any output. */
+      printf("Structural baseline: no components ran%s%s%s\n",
+             why[0] ? " (" : "", why, why[0] ? ")" : "");
+    else if (why[0])
+      printf("Running %d of %d components (%s)...\n", num_active_components,
+             num_components, why);
     else
       printf("Running %d components...\n", num_active_components);
     fflush(stdout);

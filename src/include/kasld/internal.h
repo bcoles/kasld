@@ -444,8 +444,49 @@ struct component_disposition {
  * component that was filtered out, or that belongs to a phase that did not run,
  * leaves its slot untouched. `ran` marks a populated slot; consumers iterate
  * 0..num_components and skip the rest. */
+/* Why a component did not run.
+ *
+ * The three filters are alternatives -- a component is held back for one
+ * reason -- so the reason is a value set where each decision is made, not a
+ * flag per filter re-read afterwards. A reporting site that re-derives it from
+ * the inputs answers wrongly whenever two causes apply at once, and the one
+ * that loses is the operator's own --skip, which is the only cause a reader
+ * cannot work out for themselves.
+ *
+ * CEX_NONE is the zero value, so a slot no filter touched carries no claim.
+ * The order below is the order the filters apply, and the first cause to
+ * claim a component keeps it: an explicit --skip outranks a policy the tool
+ * would have applied anyway. */
+enum component_exclusion {
+  CEX_NONE,               /* scheduled */
+  CEX_SKIP_PATTERN,       /* a --skip pattern named it */
+  CEX_LIVE_UNDER_CAPTURE, /* source:live, and the facts come from a capture */
+  CEX_EXPERIMENTAL,       /* status:experimental without -x */
+  CEX__COUNT
+};
+
+/* The machine-readable name, for the formats that publish it. */
+static inline const char *component_exclusion_name(enum component_exclusion e) {
+  switch (e) {
+  case CEX_SKIP_PATTERN:
+    return "skip_pattern";
+  case CEX_LIVE_UNDER_CAPTURE:
+    return "live_under_capture";
+  case CEX_EXPERIMENTAL:
+    return "experimental";
+  case CEX_NONE:
+  case CEX__COUNT:
+    break;
+  }
+  return "none";
+}
+
 struct component_log {
   int ran; /* 0 for a slot no component wrote to */
+  /* Why it did not run, for a slot with ran == 0. Recorded for every discovered
+   * component, so a format can report what was held back and why without
+   * reaching into the orchestrator's own scheduling state. */
+  enum component_exclusion exclusion;
   char name[256];
   int exit_code;
   enum component_outcome outcome;
