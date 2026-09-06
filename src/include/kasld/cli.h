@@ -33,17 +33,6 @@
 static int kasld_verbose; /* set by -v / --verbose (or $KASLD_VERBOSE)        */
 static long kasld_time_s; /* -t SECS; 0 = unset -> component's own default    */
 
-/* True when an environment switch is set to a non-empty, non-"0" value.
- *
- * One definition of the rule, so every switch answers to "=0" the same way. A
- * bare getenv() != NULL reads as "is it set", which makes NAME=0 turn the thing
- * ON -- the opposite of what someone writing 0 to disable it expects, and the
- * opposite of what the sibling switch beside it does. */
-static inline int kasld_env_enabled(const char *name) {
-  const char *e = getenv(name);
-  return e && *e && *e != '0';
-}
-
 /* True under -v / --verbose, or $KASLD_VERBOSE set to a non-empty, non-"0"
  * value (the latter lets a no-arg `main(void)` component be debugged without an
  * argv conversion). Env is read once and cached. */
@@ -116,7 +105,7 @@ static inline int kasld_skip_live_probe(const char *what) {
  *       return gated;
  */
 static inline int kasld_skip_experimental(const char *what) {
-  if (getenv("KASLD_EXPERIMENTAL") != NULL)
+  if (kasld_env_enabled("KASLD_EXPERIMENTAL"))
     return 0;
   kasld_err("%s: experimental component; set KASLD_EXPERIMENTAL=1 (or run "
             "kasld -x) to enable",

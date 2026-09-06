@@ -2473,6 +2473,28 @@ __attribute__((constructor)) static void kasld_init_buffering(void) {
   setvbuf(stdout, NULL, _IOLBF, 0);
 }
 
+/* True when an environment SWITCH is set to a non-empty value not beginning
+ * with '0'.
+ *
+ * One definition of the rule, so every switch answers to "=0" the same way. A
+ * bare getenv() != NULL reads as "is it set", which makes NAME=0 turn the thing
+ * ON -- the opposite of what someone writing 0 to disable it expects, and the
+ * opposite of what the sibling switch beside it does.
+ *
+ * It lives here, beside the other environment helpers, because a switch can be
+ * read on either side of the component boundary: the orchestrator decides
+ * whether to schedule an opt-in component, and the component decides the same
+ * thing again when it is invoked directly. Two readings of one variable have to
+ * be one rule or they will differ on a value neither author thought about.
+ *
+ * For a switch only. A variable carrying a VALUE -- a path, a release string --
+ * is read with getenv() and checked for emptiness by its own caller, since "0"
+ * is a legitimate value there. */
+static inline int kasld_env_enabled(const char *name) {
+  const char *e = getenv(name);
+  return e && *e && *e != '0';
+}
+
 /* environ is undeclared under a strict -std=c99 compile and declared by
  * unistd.h under a feature-test macro, so this covers the first case and the
  * pragma the second, whichever order a translation unit reaches them in. */

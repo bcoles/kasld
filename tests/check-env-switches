@@ -1,0 +1,84 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-env-switches — a KASLD_ environment variable is bound, never tested.
+#
+# The tree reads its environment two ways, and the difference is not cosmetic:
+#
+#   a SWITCH  turns something on. kasld_env_enabled() (api.h) answers it, and
+#             answers "=0" as off, which is what someone writing 0 to disable a
+#             thing means.
+#   a VALUE   is a path or a release string. getenv() answers it, and the caller
+#             checks it for emptiness itself, because "0" is a legitimate value
+#             there.
+#
+# A switch read as `getenv(NAME) != NULL` asks "is it set", so NAME=0 turns the
+# thing ON. The rule against that has been written down since kasld_env_enabled
+# was introduced, and two switches drifted back to the bare reading anyway --
+# one of them read that way in three places in the orchestrator while a sibling
+# switch two lines below it used the helper.
+#
+# So the invariant is expressed as shape rather than as a list of which names
+# are switches, which nothing could keep current: the result of a
+# getenv("KASLD_...") is BOUND to a pointer. A caller that wants a truth value
+# asks kasld_env_enabled(), and a caller that wants a string binds it and looks
+# at what it got.
+#
+# FAILS on a getenv("KASLD_...") anywhere but the right-hand side of a pointer
+# assignment. Comments and string literals are stripped before matching, and the
+# variable's name is recovered from the raw line, the same way
+# check-fact-source reads a name the stripper has removed.
+#
+# Third-party conventions are out of scope by construction: NO_COLOR, CLICOLOR
+# and CLICOLOR_FORCE each specify their own handling of an empty or "0" value,
+# and none carries the KASLD_ prefix this matches on.
+#
+# Usage: tests/check-env-switches   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/c-code-grep.sh
+. "$ROOT/tests/lib/c-code-grep.sh"
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# The one shape a KASLD_ getenv may take: bound to a pointer.
+# c_code_grep prefixes each hit with "LINENO:", so the shape is anchored past it.
+BOUND='^[0-9]+:[[:space:]]*(const[[:space:]]+)?char[[:space:]]*\*[[:space:]]*[A-Za-z_][A-Za-z_0-9]*[[:space:]]*=[[:space:]]*getenv\('
+
+n=0
+bad=""
+for f in "$ROOT"/src/*.c "$ROOT"/src/*/*.c "$ROOT"/src/include/*.h \
+         "$ROOT"/src/include/kasld/*.h; do
+  [ -f "$f" ] || continue
+  rel=${f#"$ROOT"/}
+  n=$((n + 1))
+  hits=$(c_code_grep "$f" '(^|[^A-Za-z0-9_])getenv[[:space:]]*\(' |
+    grep 'KASLD_' | grep -vE "$BOUND")
+  [ -n "$hits" ] && bad="$bad
+$(printf '%s\n' "$hits" | sed "s#^#  $rel:#")"
+done
+
+if [ -n "$bad" ]; then
+  printf '%senv-switch guard: FAIL%s — a KASLD_ variable is read without being bound:\n' \
+    "$RED" "$RESET" >&2
+  printf '%s\n' "$bad" | grep -v '^$' >&2
+  printf 'A switch is read with kasld_env_enabled(NAME), which treats NAME=0 as\n' >&2
+  printf 'off. A value is bound to a pointer and checked by its caller, since 0\n' >&2
+  printf 'is a legitimate path or release. Testing getenv() directly asks only\n' >&2
+  printf 'whether the name is set, which turns NAME=0 into ON.\n' >&2
+  exit 1
+fi
+
+guard_scope "check-env-switches" "$n" 40
+
+printf '%senv-switch guard: OK%s (%d sources; every KASLD_ read is bound or goes through kasld_env_enabled)\n' \
+  "$GREEN" "$RESET" "$n"

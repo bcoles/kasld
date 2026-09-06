@@ -209,7 +209,9 @@ so the report names the captured kernel rather than the one running the
 analysis.
 .TP
 .B KASLD_EXPERIMENTAL
-When set, enable experimental components, equivalent to
+When set to a value that is non-empty and does not begin with
+.BR 0 ,
+enable experimental components, equivalent to
 .BR \-\-experimental .
 .TP
 .B KASLD_EXEC_WRAPPER
@@ -238,8 +240,10 @@ comes from the running kernel, which
 already names, so the variable is ignored and a warning is printed.
 .TP
 .B KASLD_DEBUG_CONSTRAINTS
-When set, print each inference constraint and the resulting bounds to standard
-error. Diagnostic only; it does not affect the result.
+When set to a value that is non-empty and does not begin with
+.BR 0 ,
+print each inference constraint and the resulting bounds to standard error.
+Diagnostic only; it does not affect the result.
 .TP
 .B NO_COLOR
 When present (any value, including empty), disable coloured output regardless of

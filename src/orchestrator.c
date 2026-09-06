@@ -1207,7 +1207,7 @@ static void *inference_worker(void *arg) {
  * Sequential phases (!p->parallel): always a single-threaded loop. */
 #ifndef KASLD_TESTING
 static void run_phase(const struct phase *p) {
-  int exp_active = experimental_mode || getenv("KASLD_EXPERIMENTAL") != NULL;
+  int exp_active = experimental_mode || kasld_env_enabled("KASLD_EXPERIMENTAL");
   pool_inf_n = 0;
   for (int i = 0; i < num_components; i++) {
     if (strcmp(components[i].phase, p->key) == 0 &&
@@ -2380,7 +2380,7 @@ static void engine_report_corroboration(const struct engine *e) {
  * quantity's lo/hi. Opt-in via KASLD_DEBUG_CONSTRAINTS so normal --verbose
  * stays uncluttered. Diagnostic only (stderr). */
 static void engine_report_constraints(const struct engine *e) {
-  if (!getenv("KASLD_DEBUG_CONSTRAINTS"))
+  if (!kasld_env_enabled("KASLD_DEBUG_CONSTRAINTS"))
     return;
   for (int q = 0; q < Q__COUNT; q++) {
     int header = 0;
@@ -3668,7 +3668,7 @@ int main(int argc, char *argv[]) {
 
   /* Component accounting: determine how many will run */
   {
-    int exp_env = getenv("KASLD_EXPERIMENTAL") != NULL;
+    int exp_env = kasld_env_enabled("KASLD_EXPERIMENTAL");
     if (experimental_mode)
       setenv("KASLD_EXPERIMENTAL", "1", 1);
     int exp_active = experimental_mode || exp_env;
@@ -3705,7 +3705,7 @@ int main(int argc, char *argv[]) {
     progress_total =
         num_active_components > 0 ? num_active_components : num_components;
     int exp_active =
-        experimental_mode || (getenv("KASLD_EXPERIMENTAL") != NULL);
+        experimental_mode || kasld_env_enabled("KASLD_EXPERIMENTAL");
     int nf = 0, ne = 0;
     for (int i = 0; i < num_components; i++) {
       if (components[i].is_filtered)
