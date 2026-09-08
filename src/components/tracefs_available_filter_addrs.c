@@ -67,6 +67,26 @@ KASLD_META("method:parsed\n"
            "source:files\n"
            "note:bypasses_kptr_restrict\n");
 
+/* Does this row's symbol field carry ftrace's module tag?
+ *
+ * print_rec() in the kernel emits the symbol and then, only when the address
+ * resolved to a module, " [<name>]" -- so a bracketed trailing field is the
+ * table's own statement that the call site is in a module. `sym` points at the
+ * symbol; a symbol name never contains a space, so the tag is the bracketed
+ * token after it. Anything else, including a truncated row, reads as kernel. */
+static int row_names_a_module(const char *sym) {
+  const char *p = strchr(sym, '[');
+
+  if (!p || p == sym || p[-1] != ' ')
+    return 0;
+  p++;
+  if (*p == ']')
+    return 0; /* "[]" names nothing */
+  while (*p && *p != ']' && *p != '\n')
+    p++;
+  return *p == ']';
+}
+
 static const char *const PATHS[] = {
     "/sys/kernel/tracing/available_filter_functions_addrs",
     "/sys/kernel/debug/tracing/available_filter_functions_addrs",
@@ -122,13 +142,24 @@ int main(int argc, char **argv) {
      * skip those so only cleanly-resolved call sites bound the base. */
     if (strncmp(e, "__ftrace_invalid_address___", 27) == 0)
       continue;
-    if (kasld_addr_is_kernel_text(a)) {
+    /* Which region a row belongs to is STATED by the table, not inferred from
+     * the address: ftrace appends " [<module>]" to the symbol for a module
+     * function and nothing for a kernel one. Reading the address's band
+     * instead misclassifies wherever the text validation window covers the
+     * module region -- s390 carries a module band starting at 0, and arm64's
+     * union spans most of the kernel VAS -- and a module call site accepted as
+     * kernel text is an interior sample BELOW the real _text, which lowers the
+     * image ceiling past the truth. The band check stays, demoted to what it
+     * can soundly answer: whether the address is usable at all. */
+    int is_mod = row_names_a_module(e);
+
+    if (!is_mod && kasld_addr_is_kernel_text(a)) {
       if (!have_text || a < text_lo)
         text_lo = a;
       if (!have_text || a > text_hi)
         text_hi = a;
       have_text = 1;
-    } else if (kasld_addr_is_module_band(a)) {
+    } else if (is_mod && kasld_addr_is_module_band(a)) {
       if (!have_mod || a < mod_lo)
         mod_lo = a;
       if (!have_mod || a > mod_hi)

@@ -25,7 +25,8 @@
 #   tests/vm/run                 # every supported arch, default profile
 #   tests/vm/run <arch>          # one arch, default profile
 #   tests/vm/run <arch> <mode>   # mode: default | kptr-hidden | perf-open |
-#                                #       dmesg-open | bpf-open | hardened |
+#                                #       dmesg-open | bpf-open |
+#                                #       tracefs-open | hardened |
 #                                #       nokaslr | no5lvl | no4lvl | la57
 #   tests/vm/run all <mode>      # every arch in a given mode
 #   tests/vm/run table           # render the results matrix (markdown) from the
@@ -57,6 +58,14 @@
 #   dmesg-open  default + dmesg_restrict=0 — dmesg log readable
 #   bpf-open    default + unprivileged_bpf_disabled=0 — the only setting under
 #               which the bpf verifier-log leaks fire
+#   tracefs-open kptr=2 + tracefs mounted gid=1000 — the "tracing group" vantage.
+#               The ftrace address tables print a bare %lx, with no
+#               kptr_restrict gate, so they recover kernel text where kallsyms
+#               is masked; the only gate is the tracefs mount permission this
+#               mode grants. Needs a kernel carrying
+#               available_filter_functions_addrs and built with function
+#               tracing — where either is absent the component reports the
+#               table missing rather than denied.
 #   hardened    kptr=2 + dmesg_restrict=1 + perf=3 + unprivileged_bpf_disabled=2
 #               — unprivileged floor
 #   nokaslr     boot with `nokaslr` — verifies the KASLR-disabled pin
@@ -1034,6 +1043,7 @@ EOF
     perf-open)   append="$append perfopen" ;;
     dmesg-open)  append="$append dmesgopen" ;;
     bpf-open)    append="$append bpfopen" ;;
+    tracefs-open) append="$append tracefsopen" ;;
     hardened)    append="$append hardened" ;;
     nokaslr)     append="$append nokaslr" ;;
     no5lvl)      append="$append no5lvl" ;;
