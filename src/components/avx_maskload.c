@@ -446,7 +446,7 @@ int main(int argc, char **argv) {
   unsigned char *page, *hole;
   uint64_t t_map, t_unmap, scale;
   int64_t floor, hi_t, lo_t;
-  int pass, n_hi, n_lo, above, n, run, best_run, best_at;
+  int pass, n_hi, n_lo, above, n, run, best_run, best_at, lowest_at;
   size_t j;
 
   kasld_cli(argc, argv);
@@ -679,13 +679,16 @@ int main(int argc, char **argv) {
   {
     unsigned long lowest = 0;
 
+    lowest_at = -1;
     for (j = 0; j < NUM_SLOTS; j++)
       if (flag[j]) {
         unsigned long a = KERNEL_VIRT_TEXT_MIN + (unsigned long)j * STEP;
 
         kasld_debug("image interior: 0x%016lx", a);
-        if (!lowest)
+        if (!lowest) {
           lowest = a;
+          lowest_at = (int)j;
+        }
       }
     if (lowest)
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, lowest, NULL,
@@ -693,10 +696,21 @@ int main(int argc, char **argv) {
   }
 
   /* A contiguous band additionally pins the base: the sweep grid is the KASLR
-   * grid, so the leftmost slot of the band is the image base itself. The slot
-   * below it must NOT stand out -- without that the band's left edge is only
-   * the edge of the scan or of a longer region, and the samples above already
-   * carry everything that was measured. */
+   * grid, so the leftmost slot of the band is the image base itself. NOTHING
+   * below it may stand out -- without that the band's left edge is only the
+   * edge of the scan or of a longer region, and the samples above already
+   * carry everything that was measured.
+   *
+   * Nothing below, not merely the adjacent slot: a band can sit well inside the
+   * image with sparser standouts beneath it, separated by a slot or two that
+   * did not carry. Testing only the neighbour reads that gap as the image's
+   * edge and pins the base above its own interior sample -- a pair of claims
+   * that contradict each other, since an interior sample states base <= sample.
+   * Observed on an Intel part with sixteen standouts whose longest run of
+   * twelve began ten slots above the lowest: the run cleared the share test at
+   * exactly 3/4 and named a base 20 MiB past the truth, which the sample it
+   * shipped alongside already bounded correctly. Requiring the band to START at
+   * the lowest standout makes the two emissions consistent by construction. */
   run = best_run = 0;
   best_at = -1;
   for (j = 0; j < NUM_SLOTS; j++) {
@@ -715,7 +729,7 @@ int main(int argc, char **argv) {
              n, best_run, n ? 100 * best_run / n : 0,
              above ? "slower" : "faster");
 
-  if (best_run >= BAND_MIN && best_at > 0 && !flag[best_at - 1] &&
+  if (best_run >= BAND_MIN && best_at > 0 && best_at == lowest_at &&
       (long)best_run * BAND_SHARE_DEN >= (long)n * BAND_SHARE_NUM) {
     unsigned long base = KERNEL_VIRT_TEXT_MIN + (unsigned long)best_at * STEP;
 
