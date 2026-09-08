@@ -205,7 +205,7 @@ void engine_run_full_floored(struct engine *e, enum kasld_confidence floor,
         }
         if (already_have(e, &tmp[i]))
           continue; /* dedup keeps the store from growing across passes */
-        tmp[i].id = next_id++;
+        tmp[i].id = KASLD_CONSTRAINT_ID(next_id++);
         e->constraints[e->n_constraints++] = tmp[i];
       }
     }

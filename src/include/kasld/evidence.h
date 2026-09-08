@@ -35,6 +35,15 @@
 #define MAX_COVERINGS MAX_OBSERVATIONS
 #endif
 
+/* Evidence ids are the untagged half of the id space (see KASLD_CONSTRAINT_ID
+ * in constraint.h). Observations and coverings share one counter, so the two
+ * stores together must never issue an ordinal that reaches the constraint tag;
+ * past it an evidence id would read as a constraint id and the two spaces
+ * would overlap again from the other end. */
+__extension__ _Static_assert((unsigned long)MAX_OBSERVATIONS + MAX_COVERINGS <
+                                 KASLD_CONSTRAINT_ID_BIT,
+                             "evidence ids reach the constraint-id tag bit");
+
 /* One extent of a COMPLETE, single-source covering of a region — an entry in a
  * whole RAM map (an E820 region, a device-tree /memory node, a hotplug block
  * run). A covering is a fundamentally different kind of evidence from an

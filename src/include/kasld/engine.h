@@ -27,6 +27,10 @@
 #ifndef ENGINE_MAX_CONSTRAINTS
 #define ENGINE_MAX_CONSTRAINTS 1024
 #endif
+/* The ordinal a constraint id carries below its tag bit (constraint.h). */
+__extension__ _Static_assert((unsigned long)ENGINE_MAX_CONSTRAINTS <
+                                 KASLD_CONSTRAINT_ID_BIT,
+                             "constraint ordinals overflow the id tag bit");
 #ifndef ENGINE_MAX_PASSES
 #define ENGINE_MAX_PASSES 8
 #endif

@@ -3176,7 +3176,12 @@ static void add_virt_at(struct engine *e, enum kasld_region region,
   evidence_add(&e->ev, &o);
 }
 
-/* Count constraints whose lineage names an observation the run invalidated. */
+/* Count constraints whose lineage names an observation the run invalidated.
+ *
+ * The comparison is only meaningful because the two stores issue ids from
+ * disjoint spaces: a lineage entry naming a CONSTRAINT cannot equal an
+ * observation id, so a match here is provenance rather than a numeric
+ * coincidence. test_engine_id_spaces_are_disjoint pins that separation. */
 static int stale_lineage_constraints(const struct engine *e) {
   int n = 0;
   for (int c = 0; c < e->n_constraints; c++)
@@ -3252,6 +3257,36 @@ static void test_full_engine_curation_settles_before_constraints(void) {
 #endif /* __SIZEOF_LONG__ >= 8 */
 }
 
+/* The id spaces the check above rests on. Both counters start at 1, so without
+ * a tag the nth observation and the nth constraint are the same number and a
+ * lineage entry naming one reads as the other -- which is how a rule recording
+ * an edge-setting constraint id was reported as resting on a discarded
+ * observation. Assert the separation over a run that mints both kinds, rather
+ * than over the macro alone: what matters is that the ids actually ISSUED
+ * cannot meet. */
+static void test_engine_id_spaces_are_disjoint(void) {
+#if __SIZEOF_LONG__ >= 8
+  static struct engine e;
+  int n_rules = 0, n_vrules = 0;
+  const rule_fn *rules = engine_rules(&n_rules);
+  const verdict_fn *vrules = engine_verdict_rules(&n_vrules);
+
+  plant_curation_cascade(&e);
+  engine_run_full(&e, rules, n_rules, vrules, n_vrules);
+
+  assert(e.ev.n_obs > 0);
+  assert(e.n_constraints > 0);
+  for (int i = 0; i < e.ev.n_obs; i++) {
+    assert(kasld_id_is_evidence(e.ev.obs[i].id));
+    assert(!kasld_id_is_constraint(e.ev.obs[i].id));
+    for (int c = 0; c < e.n_constraints; c++)
+      assert(e.ev.obs[i].id != e.constraints[c].id);
+  }
+  for (int c = 0; c < e.n_constraints; c++)
+    assert(kasld_id_is_constraint(e.constraints[c].id));
+#endif
+}
+
 int main(void) {
   TEST_SUITE("test_engine_integration");
 
@@ -3290,6 +3325,7 @@ int main(void) {
   RUN(test_full_engine_property_arm32_floor);
   RUN(test_full_engine_property_coverage);
   RUN(test_full_engine_curation_settles_before_constraints);
+  RUN(test_engine_id_spaces_are_disjoint);
   RUN(test_full_engine_ppc64_hardened_shape);
   RUN(test_full_engine_s390_no_prng_shape);
   RUN(test_full_engine_arm32_no_kaslr_shape);

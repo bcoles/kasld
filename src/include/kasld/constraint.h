@@ -34,6 +34,33 @@
 
 /* ORIGIN_LEN (the emitting-rule name width) is defined once in api.h. */
 
+/* Constraint ids are drawn from a space disjoint from the EVIDENCE ids that
+ * evidence_set.next_id issues to observations and coverings. Both counters
+ * start at 1 and neither knows about the other, so without a mark the nth
+ * observation and the nth constraint are the same number.
+ *
+ * That matters because derived_from below holds either kind and carries no
+ * other tag: a lineage entry naming constraint n is indistinguishable from one
+ * naming observation n, and a consumer asking "does this rest on an
+ * observation the run threw out?" answers on a numeric coincidence rather than
+ * on provenance. Marking the constraint space closes that off at the source,
+ * where one branch cannot forget it, rather than at each consumer.
+ *
+ * The mark is a high bit, so the ordinal stays readable in a debugger and an
+ * id remains a plain value to compare — nothing orders, prints or does
+ * arithmetic on one. 0 stays "no id" under both spaces. */
+#define KASLD_CONSTRAINT_ID_BIT 0x80000000u
+#define KASLD_CONSTRAINT_ID(n) ((uint32_t)(n) | KASLD_CONSTRAINT_ID_BIT)
+
+/* Which store an id belongs to. A lineage entry is one or the other; there is
+ * no third kind, so the negative answer is "evidence", not "unknown". */
+static inline int kasld_id_is_constraint(uint32_t id) {
+  return (id & KASLD_CONSTRAINT_ID_BIT) != 0;
+}
+static inline int kasld_id_is_evidence(uint32_t id) {
+  return id != 0 && !kasld_id_is_constraint(id);
+}
+
 enum constraint_op {
   C_LOWER_BOUND = 0, /* q >= value            (interval: raise lo)        */
   C_UPPER_BOUND,     /* q <= value            (interval: lower hi)        */
@@ -88,14 +115,19 @@ struct constraint {
                          *   other ops: unused (must be 0) */
   enum kasld_confidence conf;
 
-  /* Lineage: ids of the observations/constraints this was derived from.
-   * Empty (lineage_count == 0) is legal only for axiomatic constraints
-   * (e.g. an arch-static ceiling); derived constraints must justify. */
+  /* Lineage: ids of the observations/constraints this was derived from, each
+   * tagged by its store (see KASLD_CONSTRAINT_ID above), so a reader can tell
+   * which it is holding. Empty (lineage_count == 0) is legal only for axiomatic
+   * constraints (e.g. an arch-static ceiling); derived constraints must
+   * justify. lineage_count is read as a corroboration key when two constraints
+   * tie on confidence (prio_before in estimate.c), so which entries a rule
+   * records is not bookkeeping alone. */
   uint32_t derived_from[MAX_LINEAGE];
   uint8_t lineage_count;
 
   char origin[ORIGIN_LEN]; /* emitting rule name */
-  uint32_t id;             /* monotonic, assigned at emission */
+  uint32_t id; /* monotonic within the run, assigned at emission, carrying
+                * KASLD_CONSTRAINT_ID_BIT */
 };
 
 /* Emit one direct constraint on a quantity:
