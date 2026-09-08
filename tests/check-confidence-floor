@@ -73,6 +73,15 @@ RULES=$ROOT/src/rules
 #                                 independent proof of the modern layout
 #   arm64_va_bits_from_scalar     read: the cpuinfo/probe width itself, filtered
 #                                 to the arch's candidate set
+#   arm64_page_offset_from_va_bits  the width admits TWO linear-map bases --
+#                                 -(1<<va) on the flipped layout and
+#                                 -(1<<(va-1)) on the older one -- so the
+#                                 at-floor emission carves only the span BETWEEN
+#                                 them and pins neither. The C_EQUALS naming the
+#                                 flipped base is CONF_HEURISTIC, likely window
+#                                 only. VA_BITS=52 postdates the flip and has no
+#                                 older counterpart, so there the width does fix
+#                                 the base and the pin is at-floor
 #   arm64_va_bits_from_vmemmap    computed, but capped at CONF_HEURISTIC: the
 #                                 pre-v5.4 vmemmap overlaps the modern VA52 one,
 #                                 so the witness is ambiguous. Likely window only
@@ -190,6 +199,7 @@ RULES=$ROOT/src/rules
 #   x86_64_va_bits_from_scalar    read: the cpuinfo/probe width itself, published
 #                                 only where it states the ACTIVE level
 ALLOW="arm64_efi_kimg_align
+arm64_page_offset_from_va_bits
 arm64_phys_text_residue
 arm64_text_phys_residue
 arm64_va_bits_from_directmap

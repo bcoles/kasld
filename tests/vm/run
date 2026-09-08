@@ -123,6 +123,12 @@ done
 #   flavor: a netboot kernel name (virt/lts) or "apk" (extract vmlinuz from the
 #           linux-lts apk — for ports with no netboot image, e.g. riscv64/
 #           loongarch64), or "local" (built from kernel.org by build-kernel).
+#
+#   aarch64-mainline-4.19 is the one arm64 cell on the older VA layout, where the
+#   linear map sits at -(1 << (VA_BITS - 1)) and the image and modules below it
+#   rather than above. It pins -cpu cortex-a72 where its siblings use -cpu max:
+#   that kernel line does not boot under max at all (no console output), so the
+#   model is load-bearing and not a candidate for normalising with the others.
 TABLE='
 x86_64-alpine-6.12      | x86_64      | virt| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
 i686-alpine-6.12        | x86         | lts | i686         | i386        | -M pc -cpu max         | ttyS0
@@ -139,6 +145,7 @@ i686-mainline-5.15      | -           | local| i686         | i386        | -M p
 i686-mainline-6.6       | -           | local| i686         | i386        | -M pc -cpu max         | ttyS0
 i686-mainline-7.0       | -           | local| i686         | i386        | -M pc -cpu max         | ttyS0
 i686-mainline-7.0-vmsplit2g | -       | local| i686         | i386        | -M pc -cpu max         | ttyS0
+aarch64-mainline-4.19   | -           | local| aarch64      | aarch64     | -M virt -cpu cortex-a72 | ttyAMA0
 aarch64-mainline-5.15   | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 aarch64-mainline-6.6    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 aarch64-mainline-7.0    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0

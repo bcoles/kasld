@@ -19,6 +19,25 @@
 // MODULES_START/END are a wide union of several VA layouts rather than the
 // live band.
 //
+// PRECONDITION — W bounds the allocator only on the MODERN VA layout. On the
+// older arm64 layout the module region was randomized across the whole vmalloc
+// span, deliberately decoupled from the image ("this prevents modules from
+// leaking any information about the address of the kernel itself"), and an
+// intermediate generation drew the window at twice this width. A module
+// address on such a kernel can sit far further from _text than W, so applying
+// W there would place the guaranteed window where _text is not — the one
+// failure the sound floor exists to prevent. Neither generation can be
+// identified from a version string, so the layout is established from evidence:
+// the lowest module address itself is the witness, and
+// arm64_modern_layout_proven() answers whether it lies above every PAGE_OFFSET
+// still admitted.
+//
+// Unproven does not mean silent. The bounds are still emitted, at a confidence
+// BELOW the sound floor, so they shape the likely window and leave the
+// guaranteed one untouched. The modern layout is the overwhelmingly common
+// case, so this keeps the precision where it is a reported best guess and
+// withdraws it only from the window that must hold.
+//
 // PROVENANCE: reads VIRT REGION_MODULE only, NOT REGION_MODULE_BAND. The
 // weaker tag covers addresses classified as module merely because they fell
 // inside that union, and on arm64 the union overlaps a VA_BITS=48 direct map,
@@ -79,6 +98,23 @@ int rule_module_text_bracket(const struct evidence_set *ev,
   if (vmod_lo == ULONG_MAX)
     return 0;
 
+  /* Establish the layout before claiming the width (see PRECONDITION above).
+   * The lowest module address is the witness: proving IT sits above the linear
+   * map proves the whole region does, since nothing places a module below the
+   * region's own base. */
+#if defined(__aarch64__)
+  enum kasld_confidence conf = CONF_HEURISTIC;
+  {
+    unsigned long po_lo = 0, po_hi = 0;
+    if (quantity_window(Q_PAGE_OFFSET, &est[Q_PAGE_OFFSET], &po_lo, &po_hi) &&
+        arm64_modern_layout_proven(vmod_lo, po_hi))
+      conf = CONF_INFERRED;
+  }
+#else
+#error                                                                         \
+    "MODULES_BRACKET_TEXT on a non-arm64 arch: state whether the bracket width holds across every VA layout the header admits, or supply that arch's layout witness here"
+#endif
+
   int n = 0;
 
   /* Upper bound: image_base <= vmod_lo + W - 1, floored onto the image-base
@@ -100,7 +136,7 @@ int rule_module_text_bracket(const struct evidence_set *ev,
       c->q = Q_VIRT_IMAGE_BASE;
       c->op = C_UPPER_BOUND;
       c->value = new_max;
-      c->conf = CONF_INFERRED;
+      c->conf = conf;
       c->derived_from[0] = lo_src;
       c->lineage_count = 1;
       snprintf(c->origin, ORIGIN_LEN, "module_text_bracket");
@@ -118,7 +154,7 @@ int rule_module_text_bracket(const struct evidence_set *ev,
       c->q = Q_VIRT_IMAGE_BASE;
       c->op = C_LOWER_BOUND;
       c->value = new_min;
-      c->conf = CONF_INFERRED;
+      c->conf = conf;
       c->derived_from[0] = hi_src;
       c->lineage_count = 1;
       snprintf(c->origin, ORIGIN_LEN, "module_text_bracket");

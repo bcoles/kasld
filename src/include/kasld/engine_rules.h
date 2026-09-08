@@ -366,6 +366,7 @@ R(module_base_bounds);
 R(module_base_execmem_window);
 R(module_base_no_kaslr_ceiling);
 R(module_base_from_text);
+R(module_base_from_text_bracket);
 R(loongarch64_module_base);
 R(module_base_ppc64_vmalloc);
 

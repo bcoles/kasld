@@ -340,6 +340,14 @@ build_one() {
   # leaving the previous member set makes the outcome depend on which of them
   # olddefconfig resolves first. 4K pages is the dependency of the 39-bit
   # member.
+  # arm64 defconfig carries CONFIG_RANDOMIZE_BASE=y from the 5.15 line onward
+  # but not on the older ones, so a cell built from an older tree boots
+  # unrandomized unless the option is asked for. Ask. The module region follows:
+  # RANDOMIZE_MODULE_REGION_FULL depends on RANDOMIZE_BASE and defaults on, and
+  # it is the setting that decouples the module region from the kernel image,
+  # which is the property this cell exists to exercise.
+  aarch64-mainline-4.19)
+    "$src/scripts/config" --file "$bdir/.config" -e RANDOMIZE_BASE ;;
   *-va36 | *-va39 | *-va42 | *-va47)
     # The VA width fixes the page size: 39 needs 4K, 36 and 47 need 16K, 42
     # needs 64K (arch/arm64/Kconfig). 36-bit is additionally EXPERT-gated. Clear
@@ -372,6 +380,28 @@ build_one() {
       return 1
     fi
     echo "  [*] split moved: CONFIG_PAGE_OFFSET=0x80000000" ;;
+  aarch64-mainline-4.19)
+    for _sym in CONFIG_RANDOMIZE_BASE CONFIG_RANDOMIZE_MODULE_REGION_FULL; do
+      if ! grep -q "^$_sym=y\$" "$bdir/.config"; then
+        echo "  !! $arch: $_sym did not take -- the cell would boot unrandomized"
+        return 1
+      fi
+    done
+    # And assert the SOURCE is the pre-flip layout, which is the whole point of
+    # the cell. The version in a cell name is only a label -- the caller supplies
+    # LINUX_VERSION -- so a mismatched pin would build a modern kernel wearing
+    # this name and the cell would pass while testing nothing. Read the property
+    # off the tree rather than comparing version strings: the flipped layout
+    # defines its linear-map base through a _PAGE_OFFSET(va) macro, which the
+    # older one has no equivalent of.
+    if grep -q 'define _PAGE_OFFSET(va)' \
+         "$src/arch/arm64/include/asm/memory.h"; then
+      echo "  !! $arch: source at $LINUX_VERSION has the flipped VA layout;" \
+        "this cell needs a tree that predates it"
+      return 1
+    fi
+    echo "  [*] KASLR on, module region randomized over the full window," \
+      "pre-flip VA layout confirmed in-tree" ;;
   *-va36 | *-va39 | *-va42 | *-va47)
     _w=${arch##*-va}
     if ! grep -q "^CONFIG_ARM64_VA_BITS=$_w\$" "$bdir/.config"; then

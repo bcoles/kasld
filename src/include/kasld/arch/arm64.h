@@ -106,6 +106,37 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
   return -(1UL << (va_bits - 1));
 }
 
+// The linear-map base the OLD (pre-flip) layout placed at this width. The two
+// layouts are mirror images of one another: what the modern layout calls
+// _PAGE_END -- the TOP of its linear map -- is exactly where the old layout's
+// linear map BEGINS, so the expression coincides with arm64_page_end_for().
+// Kept as its own name because the two answer different questions and only one
+// of them names a base; a caller reaching for "the old PAGE_OFFSET" should not
+// have to know they happen to be the same arithmetic.
+static inline unsigned long
+arm64_page_offset_preflip_for(unsigned long va_bits) {
+  return -(1UL << (va_bits - 1));
+}
+
+// Does an observed kernel-region address prove the MODERN ("flipped") VA
+// layout? On the old layout the linear map occupied the top of the kernel half
+// and every other kernel region -- image, modules, vmalloc, vmemmap -- sat
+// BELOW PAGE_OFFSET; the flip inverted that. So a kernel-region address
+// strictly above every PAGE_OFFSET the estimate still admits cannot have come
+// from the old layout, whatever VA_BITS that layout ran at. This is the same
+// discriminator arm64_va_bits_from_directmap uses to decide whether the
+// ambiguous linear-map base may pin a width.
+//
+// page_offset_hi is the UPPER edge of the resolved window, so the answer holds
+// for every admitted value rather than one guess, and an unresolved
+// PAGE_OFFSET (edge at the top of the VAS) answers 0. That is the fail-safe
+// direction: the predicate is never wrongly true, only wrongly false. A 0 means
+// "the old layout is still possible", never "the layout is old".
+static inline int arm64_modern_layout_proven(unsigned long witness,
+                                             unsigned long page_offset_hi) {
+  return witness != 0 && page_offset_hi != 0 && witness > page_offset_hi;
+}
+
 // On arm64, PHYS_OFFSET is runtime (= memstart_addr, randomized at boot), so
 // the compile-time formula is NOT a sound runtime directmap projection;
 // phys_to_directmap_virt() is therefore left undefined (see gate at end of

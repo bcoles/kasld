@@ -4944,9 +4944,11 @@ static void test_x86_64_randomize_memory_budget_inert(void) {
   assert(e.est[Q_VMALLOC_BASE].lo == t.lo);
 }
 
-/* arm64_page_offset_from_va_bits: a resolved Q_VA_BITS pins the exact
- * linear-map virtual base -(1<<VA_BITS), even with no directmap/vmemmap leak
- * present. */
+/* arm64_page_offset_from_va_bits: a resolved Q_VA_BITS narrows the linear-map
+ * virtual base with no directmap/vmemmap leak present. A width alone does not
+ * say which VA layout is in force, so at the sound floor it admits BOTH the
+ * flipped base -(1<<VA_BITS) and the older -(1<<(VA_BITS-1)); only VA_BITS=52,
+ * which postdates the flip, pins. */
 
 /* Narrow a FINSET estimate to the single candidate `value`. */
 static void resolve_finset(struct estimate *e, unsigned long value) {
@@ -4969,16 +4971,59 @@ static void test_arm64_page_offset_from_va_bits(void) {
 
   /* Resolve Q_VA_BITS by a leak-free path (no directmap observation). */
   resolve_finset(&e.est[Q_VA_BITS], 48);
-  int n = rule_arm64_page_offset_from_va_bits(&e.ev, e.est, out, 4);
+  int n = rule_arm64_page_offset_from_va_bits(&e.ev, e.est, out, 8);
 #if defined(__aarch64__)
-  unsigned long po = -(1ul << 48); /* arm64_page_offset_for(48) */
+  unsigned long po = -(1ul << 48);     /* flipped layout   */
+  unsigned long po_old = -(1ul << 47); /* older layout     */
+  assert(n >= 2);
+  /* The sound-floor emissions must ADMIT both bases: floor at or below the
+   * lower, ceiling at or above the upper. A pin at either one is the defect
+   * this test exists to catch. */
+  for (int i = 0; i < n; i++) {
+    if (out[i].conf < CONF_INFERRED)
+      continue;
+    assert(out[i].q == Q_PAGE_OFFSET);
+    if (out[i].op == C_LOWER_BOUND)
+      assert(out[i].value <= po);
+    if (out[i].op == C_UPPER_BOUND)
+      assert(out[i].value >= po_old);
+    if (out[i].op == C_EXCLUDE) /* the span between them, never an edge */
+      assert(out[i].value > po && out[i].value2 < po_old);
+  }
+
+  /* VA_BITS=52 has no older-layout counterpart, so there the width pins. */
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 52);
+  n = rule_arm64_page_offset_from_va_bits(&e.ev, e.est, out, 8);
+  unsigned long po52 = -(1ul << 52);
   assert(n == 2);
-  assert(out[0].q == Q_PAGE_OFFSET && out[0].op == C_LOWER_BOUND &&
-         out[0].value == po);
-  assert(out[1].q == Q_PAGE_OFFSET && out[1].op == C_UPPER_BOUND &&
-         out[1].value == po);
+  for (int i = 0; i < n; i++)
+    assert(out[i].value == po52 && out[i].conf == CONF_INFERRED);
 #else
   assert(n == 0); /* inert off arm64 */
+#endif
+}
+
+/* The failure this rule's two-candidate emission prevents, end to end at the
+ * sound floor: an older-layout kernel whose width probes as 48 must not have
+ * its linear-map base pinned to the flipped value, because every rule that
+ * reads a resolved PAGE_OFFSET as proof of the layout then floors the image
+ * base half an address space above the truth. */
+static void test_arm64_page_offset_admits_preflip_base(void) {
+#if defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 48);
+  const rule_fn rules[] = {rule_arm64_page_offset_from_va_bits,
+                           rule_arm64_text_base};
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 2, NULL, 0);
+
+  /* The older layout's base for this width stays admitted... */
+  assert(quantity_admits(Q_PAGE_OFFSET, &e.est[Q_PAGE_OFFSET],
+                         0xffff800000000000ul));
+  /* ...and so does a v4.14-style image base, which the flipped floor excludes.
+   */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= 0xffff000008080000ul);
 #endif
 }
 
@@ -5054,9 +5099,13 @@ static void test_arm64_va_bits_from_scalar(void) {
   engine_run(&e, rules, 2);
 #if defined(__aarch64__)
   assert(finset_is(&e.est[Q_VA_BITS], 48)); /* width pinned */
-  assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
-         0xffff000000000000ul); /* -(1<<48) derived */
-  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == 0xffff000000000000ul);
+  /* The width narrows the base to the two layouts' candidates, not to one:
+   * -(1<<48) flipped, -(1<<47) older. engine_run is unfloored, so the
+   * below-floor modern C_EQUALS also applies and closes the window onto the
+   * flipped value -- which is the likely-window answer, not the guaranteed
+   * one (test_arm64_page_offset_admits_preflip_base pins that side). */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xffff000000000000ul);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) <= 0xffff800000000000ul);
 #else
   struct estimate t;
   quantities[Q_VA_BITS].init_top(&t);
@@ -7809,6 +7858,126 @@ static void test_module_text_bracket_real_arm64_witness(void) {
 #endif
 }
 
+/* The bracket width belongs to the modern VA layout. With PAGE_OFFSET left at
+ * its top every layout is still admitted, so the relation is unproven and the
+ * bounds must stay BELOW the sound floor: free to shape the likely window,
+ * barred from the guaranteed one. */
+static void test_module_text_bracket_unproven_layout_is_below_floor(void) {
+#if MODULES_BRACKET_TEXT > 0 && defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  struct observation o =
+      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, 0xffff97c1ce36f000ul,
+             LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+
+  struct constraint out[4];
+  int n = rule_module_text_bracket(&e.ev, e.est, out, 4);
+  assert(n >= 1); /* it still speaks -- just not at the floor */
+  for (int i = 0; i < n; i++)
+    assert((int)out[i].conf < (int)CONF_INFERRED);
+#endif
+}
+
+/* ...and with a resolved PAGE_OFFSET the module sits above, the old layout is
+ * excluded and the same bounds reach the sound floor. Staged as the pair to the
+ * test above so the gate is shown to move in both directions rather than being
+ * uniformly closed. */
+static void test_module_text_bracket_proven_layout_reaches_floor(void) {
+#if MODULES_BRACKET_TEXT > 0 && defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  struct observation o =
+      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, 0xffff97c1ce36f000ul,
+             LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  po_set(&e.est[Q_PAGE_OFFSET], arm64_page_offset_for(48ul),
+         arm64_page_offset_for(48ul));
+
+  struct constraint out[4];
+  int n = rule_module_text_bracket(&e.ev, e.est, out, 4);
+  assert(n >= 1);
+  for (int i = 0; i < n; i++)
+    assert(out[i].conf == CONF_INFERRED);
+#endif
+}
+
+/* The failure the gate exists to prevent, run end to end at the sound floor.
+ *
+ * On the pre-flip layout the module region was randomized across the vmalloc
+ * span with no relation to the image, so a module can sit arbitrarily far above
+ * _text. Applying the bracket width there raises the image floor past the true
+ * base and carves it out of the GUARANTEED window. Truth must survive a floored
+ * run; the likely window is free to guess. */
+static void test_module_text_bracket_old_layout_truth_survives_floor(void) {
+#if MODULES_BRACKET_TEXT > 0 && defined(__aarch64__)
+  /* v4.14 VA48: image low, at VA_START(48) + module region + head gap. */
+  const unsigned long old_text = 0xffff000008080000ul;
+  /* A module the old allocator placed high in vmalloc -- far more than a
+   * bracket width above the image. */
+  const unsigned long far_module = 0xffff7e0000000000ul;
+  assert(far_module - old_text > (unsigned long)MODULES_BRACKET_TEXT);
+
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, far_module,
+                                LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_kaslr_align_arch_default,
+                           rule_module_text_bracket};
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 2, NULL, 0);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= old_text);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi >= old_text);
+#endif
+}
+
+/* module_base_from_text_bracket: the converse direction. A resolved image base
+ * floors the module base a bracket width below it, which is the edge the
+ * compile-time union never moves. Proven layout, so it reaches the floor. */
+static void test_module_base_from_text_bracket_floors_at_bracket(void) {
+#if MODULES_BRACKET_TEXT > 0 && defined(__aarch64__)
+  const unsigned long text = 0xffffffd915200000ul;
+  struct engine e;
+  engine_init(&e);
+  po_set(&e.est[Q_PAGE_OFFSET], arm64_page_offset_for(39ul),
+         arm64_page_offset_for(39ul));
+  e.est[Q_VIRT_IMAGE_BASE].lo = text;
+  e.est[Q_VIRT_IMAGE_BASE].hi = text;
+  e.est[Q_VIRT_IMAGE_BASE].lo_binding = 0;
+  e.est[Q_VIRT_IMAGE_BASE].hi_binding = 0;
+
+  struct constraint out[4];
+  int n = rule_module_base_from_text_bracket(&e.ev, e.est, out, 4);
+  assert(n == 1);
+  assert(out[0].q == Q_MODULE_BASE && out[0].op == C_LOWER_BOUND);
+  assert(out[0].conf == CONF_INFERRED);
+  assert(out[0].value == text - (unsigned long)MODULES_BRACKET_TEXT);
+  /* Sound: the floor never rises above a base the allocator could return. The
+   * lowest such base is a full bracket below the image. */
+  assert(out[0].value <= text);
+  /* And it improves on the compile-time union, which is what it is for. */
+  assert(out[0].value > (unsigned long)MODULES_START);
+#endif
+}
+
+/* Same rule, layout unproven: the floor is still offered, below the sound
+ * floor, so a capture that never resolved PAGE_OFFSET keeps the precision in
+ * the likely window without moving the guaranteed one. */
+static void test_module_base_from_text_bracket_unproven_is_below_floor(void) {
+#if MODULES_BRACKET_TEXT > 0 && defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  e.est[Q_VIRT_IMAGE_BASE].lo = 0xffffffd915200000ul;
+  e.est[Q_VIRT_IMAGE_BASE].hi = 0xffffffd915200000ul;
+
+  struct constraint out[4];
+  int n = rule_module_base_from_text_bracket(&e.ev, e.est, out, 4);
+  assert(n == 1);
+  assert((int)out[0].conf < (int)CONF_INFERRED);
+#endif
+}
+
 /* module_text_bound must not take a range-classified address. This rule moves
  * Q_VIRT_IMAGE_BASE at the sound floor, and on BOTH arches it runs on the
  * module band contains the whole kernel-text range — so a kernel address that
@@ -9015,6 +9184,11 @@ int main(void) {
   RUN(test_module_text_bracket_contains_truth);
   RUN(test_module_text_bracket_ignores_range_classified);
   RUN(test_module_text_bracket_real_arm64_witness);
+  RUN(test_module_text_bracket_unproven_layout_is_below_floor);
+  RUN(test_module_text_bracket_proven_layout_reaches_floor);
+  RUN(test_module_text_bracket_old_layout_truth_survives_floor);
+  RUN(test_module_base_from_text_bracket_floors_at_bracket);
+  RUN(test_module_base_from_text_bracket_unproven_is_below_floor);
   RUN(test_module_text_bound_ignores_range_classified);
   RUN(test_module_text_bound_floor_from_high_edge);
   RUN(test_module_base_pinned_by_region_landmark);
@@ -9104,6 +9278,7 @@ int main(void) {
   RUN(test_va_bits_arm64_va47_no_witness);
   RUN(test_va_bits_arm64_unambiguous_va48_pins);
   RUN(test_arm64_page_offset_from_va_bits);
+  RUN(test_arm64_page_offset_admits_preflip_base);
   RUN(test_x86_64_va_bits_from_scalar);
   RUN(test_x86_64_page_offset_floor_from_va_bits);
   RUN(test_arm64_va_bits_from_scalar);

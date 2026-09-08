@@ -87,6 +87,7 @@ static const rule_fn k_rules[] = {
     rule_module_base_execmem_window,
     rule_module_base_no_kaslr_ceiling,
     rule_module_base_from_text,
+    rule_module_base_from_text_bracket,
     rule_loongarch64_module_base,
     rule_module_base_ppc64_vmalloc,
 
