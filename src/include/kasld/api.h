@@ -690,6 +690,31 @@ __extension__ _Static_assert(!TEXT_TRACKS_DIRECTMAP ||
 #ifndef MODULES_BAND_STRENGTH
 #define MODULES_BAND_STRENGTH MOD_BAND_ADMISSION
 #endif
+/* BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT -- does the size of the /boot kernel
+ * artefact lower-bound the image's in-memory footprint?
+ *
+ * 1 where the artefact is a boot blob: a compressed or raw image the loader
+ * expands, so it never occupies fewer bytes in memory than it does on disk.
+ * 0 where it is an ELF, whose file carries symbol and section data that is
+ * never loaded -- there the file can be LARGER than the footprint and its size
+ * bounds nothing. That is the case on the architectures whose bootloader
+ * consumes an ELF directly (mips, ppc); every other supported architecture
+ * ships a blob (an EFI/PE Image, a self-decompressing zImage, or an arch boot
+ * header).
+ *
+ * This licenses one thing only: reading the size with stat() where the content
+ * cannot be read at all, which is the ordinary unprivileged posture on
+ * distributions that ship /boot/vmlinuz-* mode 0600 inside a world-listable
+ * /boot. Where the content IS readable the magic decides and this axis is not
+ * consulted, so a stray vmlinux at a vmlinuz path is still rejected.
+ *
+ * Conservative default: 0. An architecture that omits it loses a lower bound
+ * and keeps every guarantee, so this needs no #error -- unlike the axes whose
+ * every default is dangerous. */
+#ifndef BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT
+#define BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT 0
+#endif
+
 __extension__ _Static_assert(MODULES_BAND_STRENGTH == MOD_BAND_ADMISSION ||
                                  MODULES_BAND_STRENGTH == MOD_BAND_BOUNDS ||
                                  MODULES_BAND_STRENGTH == MOD_BAND_PINNED,

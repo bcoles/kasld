@@ -328,4 +328,9 @@ static inline unsigned long arch_default_text_base(void) {
 // arch/riscv/kernel/vmlinux.lds.S, arch/riscv/kernel/head.S
 #define IMAGE_BASE_RESIDUE_FIXED 0
 
+// The /boot artefact is a boot blob, not an ELF, so its on-disk size never
+// exceeds the in-memory footprint and can be read with stat() where the file
+// content is unreadable. See the axis contract in api.h.
+#define BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT 1
+
 #endif /* KASLD_RISCV64_H */

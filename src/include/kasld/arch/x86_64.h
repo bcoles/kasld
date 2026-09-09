@@ -344,4 +344,9 @@ static inline unsigned long arch_default_phys_text_base(void) {
   (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START_MIN_PRACTICAL)
 #define KASLR_PHYS_MIN_WIDE PHYSICAL_START_MIN_PRACTICAL
 
+// The /boot artefact is a boot blob, not an ELF, so its on-disk size never
+// exceeds the in-memory footprint and can be read with stat() where the file
+// content is unreadable. See the axis contract in api.h.
+#define BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT 1
+
 #endif /* KASLD_X86_64_H */

@@ -43,6 +43,7 @@
 
 #include "sysroot.h"
 
+#include <errno.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -423,6 +424,47 @@ kasld_image_size_from_vmlinuz(const char *release) {
   if (sz < (long)KIMG_MIN_BYTES)
     return 0;
   return (unsigned long)sz;
+}
+
+/* The blob's size where its CONTENT cannot be read at all.
+ *
+ * Distributions commonly ship /boot/vmlinuz-* mode 0600 inside a world-listable
+ * /boot, so an unprivileged run can stat the file but not open it. Every reader
+ * above needs the content and returns 0 there, which costs more than precision:
+ * dram_ceiling declines outright without a size, leaving the physical ceiling
+ * at the architectural top rather than a DRAM-relative one.
+ *
+ * The size alone still bounds the footprint from below, but only for a blob --
+ * an ELF carries unloaded symbol and section data and can exceed its footprint.
+ * Which one this architecture ships is BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT, and it
+ * is consulted only here, where nothing better is available: an open that
+ * SUCCEEDS is left to the readers above, whose magic check rejects a stray ELF
+ * on its own evidence rather than on the axis.
+ *
+ * Emitted as a lower bound and never as an exact size. Returns 0 where the
+ * architecture ships an ELF, where the file opens, or where the size is
+ * implausible. */
+__attribute__((unused)) static unsigned long
+kasld_image_size_from_stat(const char *release) {
+#if BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT
+  char path[256];
+  struct stat st;
+
+  snprintf(path, sizeof(path), "/boot/vmlinuz-%s", release);
+  FILE *fp = kasld_fopen(path, "rb");
+  if (fp) {
+    fclose(fp);
+    return 0; /* readable: the content readers own this file */
+  }
+  if (errno != EACCES && errno != EPERM)
+    return 0; /* absent, not withheld -- nothing to bound */
+  if (kasld_stat(path, &st) != 0 || st.st_size < (off_t)KIMG_MIN_BYTES)
+    return 0;
+  return (unsigned long)st.st_size;
+#else
+  (void)release;
+  return 0;
+#endif
 }
 
 #endif /* KASLD_KERNEL_IMAGE_H */
