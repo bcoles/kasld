@@ -46,6 +46,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
@@ -87,10 +88,59 @@ static int row_names_a_module(const char *sym) {
   return *p == ']';
 }
 
+/* Where the table may live, canonical first, each paired with the mount it sits
+ * in. tracefs is a SINGLE-INSTANCE filesystem, so where both are mounted they
+ * are one filesystem seen twice and the second can never hold a file the first
+ * lacks.
+ *
+ * That is what decides how to read a failure, and it is easy to get backwards.
+ * /sys/kernel/debug is root-only, so an unprivileged run that does not find the
+ * table at the canonical path and then falls through collects an EACCES from
+ * the debugfs mount point itself. That denial says nothing about whether the
+ * table exists: it reports a blocked data source where the usual truth is a
+ * kernel built without dynamic ftrace.
+ *
+ * What that costs is worth stating exactly, because it is easy to over- or
+ * under-rate. Today it is the reported outcome and nothing further, because
+ * the hardening report credits a denial -- to a sysctl knob, or to an enforcing
+ * MAC policy -- only for a component that declares a sysctl gate, and this one
+ * declares none. Declare a gate here and a spurious denial would begin
+ * crediting a control that blocked nothing.
+ *
+ * So where the canonical mount is live its answer is the whole answer, and the
+ * fallback is left alone; the fallback earns its place only when tracefs is not
+ * mounted canonically, where a denial really is a denied data source. */
+static const char *const MOUNTS[] = {
+    "/sys/kernel/tracing",
+    "/sys/kernel/debug/tracing",
+};
 static const char *const PATHS[] = {
     "/sys/kernel/tracing/available_filter_functions_addrs",
     "/sys/kernel/debug/tracing/available_filter_functions_addrs",
 };
+__extension__ _Static_assert(sizeof(PATHS) == sizeof(MOUNTS),
+                             "every candidate path needs its mount");
+
+/* Is a tracefs actually mounted here, or is this the bare directory the kernel
+ * leaves behind as a mount point? A mounted one is populated; an unmounted one
+ * is empty. Readability is part of the question rather than a precondition: a
+ * directory that cannot be enumerated settles nothing, and answering 0 sends
+ * the caller on to the fallback, which is the conservative direction. */
+static int tracefs_live_at(const char *dir) {
+  DIR *d = kasld_opendir(dir);
+  struct dirent *ent;
+  int populated = 0;
+
+  if (!d)
+    return 0;
+  while ((ent = readdir(d)) != NULL)
+    if (strcmp(ent->d_name, ".") != 0 && strcmp(ent->d_name, "..") != 0) {
+      populated = 1;
+      break;
+    }
+  closedir(d);
+  return populated;
+}
 
 int main(int argc, char **argv) {
   kasld_cli(argc, argv);
@@ -106,6 +156,15 @@ int main(int argc, char **argv) {
     if (errno == EACCES || errno == EPERM) {
       kasld_err("%s: permission denied", PATHS[i]);
       return KASLD_EXIT_NOPERM;
+    }
+    /* Not here -- and if this mount is live it answers for every other one, so
+     * the table is not built into this kernel. Say that, rather than walking
+     * into the next path's mount point and reporting whatever it says. */
+    if (tracefs_live_at(MOUNTS[i])) {
+      kasld_err("%s is mounted and carries no address table (kernel built "
+                "without dynamic ftrace)",
+                MOUNTS[i]);
+      return KASLD_EXIT_UNAVAILABLE;
     }
   }
   if (!f) {
