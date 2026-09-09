@@ -79,7 +79,6 @@ dmesg_ramdisk
 dmesg_reserved_mem_opensbi
 dmesg_riscv_relocation
 efi_present
-fdt_facts
 hibernation_nokaslr
 ioctl_mmio_phys
 kernel_image_facts
@@ -96,7 +95,6 @@ proc_config
 proc_pid_syscall
 proc_stat_wchan
 qemu_tcg_iret
-riscv64_no_seed
 sidt
 sysfs_devicetree_initrd
 sysfs_devicetree_kernel_end

@@ -704,6 +704,11 @@ $(TEST_KMEMLEAK_BIN): $(TEST_DIR)/test_kmemleak.c $(SRC_DIR)/components/kmemleak
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kmemleak.c -o $@
 
+TEST_RV64NOSEED_BIN := $(TEST_OBJ_DIR)/test_riscv64_no_seed
+$(TEST_RV64NOSEED_BIN): $(TEST_DIR)/test_riscv64_no_seed.c $(SRC_DIR)/components/riscv64_no_seed.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_riscv64_no_seed.c -o $@
+
 TEST_IOMEM_BIN := $(TEST_OBJ_DIR)/test_proc_iomem_kernel
 $(TEST_IOMEM_BIN): $(TEST_DIR)/test_proc_iomem_kernel.c $(SRC_DIR)/components/proc_iomem_kernel.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
@@ -916,6 +921,7 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_REPORT_BIN) \
   $(TEST_PTDUMP_BIN) \
   $(TEST_KMEMLEAK_BIN) \
+  $(TEST_RV64NOSEED_BIN) \
   $(TEST_IOMEM_BIN) \
   $(TEST_ZFSDBG_BIN) \
   $(TEST_FWMEMMAP_BIN) \

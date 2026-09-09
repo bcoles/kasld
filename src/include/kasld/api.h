@@ -1958,7 +1958,6 @@ enum kasld_scalar_fact {
                                    pins Q_PAGE_OFFSET, unlike a directmap-address
                                    leak which only upper-bounds it */
   SF_EFI_PRESENT,         /* 1 if /sys/firmware/efi exists (EFI boot)         */
-  SF_FDT_KASLR_SEED,      /* FDT /chosen/kaslr-seed (riscv64)                 */
   SF_VIRT_KASLR_DISABLED, /* 1 if a detector observed VIRTUAL KASLR off       */
                           /* (nokaslr cmdline, !CONFIG_RANDOMIZE_BASE, riscv64*/
                           /* no FDT seed, dmesg "KASLR disabled", hibernation,*/
@@ -2077,7 +2076,6 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_VIRT_CONFIG_PAGE_OFFSET] = "virt_config_page_offset",
     [SF_VIRT_PAGE_OFFSET] = "virt_page_offset",
     [SF_EFI_PRESENT] = "efi_present",
-    [SF_FDT_KASLR_SEED] = "fdt_kaslr_seed",
     [SF_VIRT_KASLR_DISABLED] = "virt_kaslr_disabled",
     [SF_PHYS_KASLR_DISABLED] = "phys_kaslr_disabled",
     [SF_VIRT_KASLR_RANDOMIZATION_FAILED] = "virt_kaslr_randomization_failed",

@@ -8618,130 +8618,6 @@ static void test_arm64_va_bits_constants_agree(void) {
 #endif
 }
 
-/* riscv64 non-EFI: FDT kaslr-seed + image size pins the text base (Path 1).
- * Assert it pins within [KERNEL_LINK_ADDR, +1 GiB). */
-/* A readable /chosen/kaslr-seed alongside a positive KASLR-disabled signal: the
- * bootloader wrote a seed and `nokaslr` stopped the kernel consuming it, so the
- * slot arithmetic describes a placement that never happened. The rule must
- * decline outright — deriving here pinned the base to a fresh wrong address
- * every boot, which is how a live riscv64 nokaslr cell reported its truth
- * OUTSIDE a pinned window. Truth is the compile-time default, which
- * virt_kaslr_disabled_pin supplies; this test only requires that the seed rule
- * add nothing. */
-__attribute__((unused)) static void
-test_riscv64_fdt_kaslr_seed_declines_when_kaslr_off(void) {
-  struct estimate top;
-  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
-  const rule_fn rules[] = {rule_riscv64_fdt_kaslr_seed};
-  const unsigned long ksize = 0x1900000ul; /* 25 MiB, as above */
-
-  static struct engine e;
-  engine_init(&e);
-  struct observation seed =
-      mk_scalar(SF_FDT_KASLR_SEED, 0x12345678ul, CONF_PARSED);
-  struct observation efi = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
-  struct observation smin = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
-  struct observation smax = mk_scalar(SF_IMAGE_SIZE_MAX, ksize, CONF_PARSED);
-  struct observation off = mk_scalar(SF_VIRT_KASLR_DISABLED, 1ul, CONF_PARSED);
-  evidence_add(&e.ev, &seed);
-  evidence_add(&e.ev, &efi);
-  evidence_add(&e.ev, &smin);
-  evidence_add(&e.ev, &smax);
-  evidence_add(&e.ev, &off);
-
-  /* Called directly as well as through the engine: the estimate staying at its
-   * top could also mean a constraint was emitted and then dropped, and what
-   * this pins down is that none is emitted at all. */
-  struct constraint out[4];
-  assert(rule_riscv64_fdt_kaslr_seed(&e.ev, e.est, out, 4) == 0);
-  engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
-         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
-}
-
-__attribute__((unused)) static void test_riscv64_fdt_kaslr_seed(void) {
-  struct estimate top;
-  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
-  /* 32-bit-safe seed. 25 MiB is deliberately NOT a PMD multiple of the PUD
-   * remainder, so the .head.text head does not straddle a bucket boundary and
-   * the [min, max] bracket collapses to one nr_pos. */
-  const unsigned long seed_val = 0x12345678ul;
-  const unsigned long ksize = 0x1900000ul; /* 25 MiB */
-  const rule_fn rules[] = {rule_riscv64_fdt_kaslr_seed};
-
-  /* Exact size (min == max) → nr_pos uniquely determined → Path 1 pins the
-   * slot at CONF_INFERRED, which is at the sound floor and so holds in the
-   * guaranteed window too. */
-  static struct engine e;
-  engine_init(&e);
-  struct observation seed = mk_scalar(SF_FDT_KASLR_SEED, seed_val, CONF_PARSED);
-  struct observation efi = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
-  struct observation smin = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
-  struct observation smax = mk_scalar(SF_IMAGE_SIZE_MAX, ksize, CONF_PARSED);
-  evidence_add(&e.ev, &seed);
-  evidence_add(&e.ev, &efi);
-  evidence_add(&e.ev, &smin);
-  evidence_add(&e.ev, &smax);
-  engine_run(&e, rules, 1);
-#if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
-  {
-    unsigned long pud = 1ul << 30, pmd = 2ul * 1024 * 1024;
-    unsigned long nr_pos =
-        (pud - (ksize + (unsigned long)IMAGE_BASE_OFFSET)) / pmd;
-    unsigned long expect =
-        (unsigned long)KERNEL_LINK_ADDR + (seed_val % nr_pos) * pmd;
-    if (expect >= top.lo && expect <= top.hi) {
-      assert(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
-      assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
-      engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
-      assert(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
-      assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
-    }
-  }
-#else
-  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
-         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert off-arch */
-#endif
-
-  /* Lower-bound size only (no SF_IMAGE_SIZE_MAX) → nr_pos is NOT uniquely
-   * determined, so the wrong-slot pin is suppressed. With no text/data leak
-   * Path 2's ceiling is inert too, so the estimate stays at its honest top.
-   * (Holds on every arch: off-riscv64 the rule is inert.) */
-  static struct engine e2;
-  engine_init(&e2);
-  struct observation seed2 =
-      mk_scalar(SF_FDT_KASLR_SEED, seed_val, CONF_PARSED);
-  struct observation efi2 = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
-  struct observation smin2 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
-  evidence_add(&e2.ev, &seed2);
-  evidence_add(&e2.ev, &efi2);
-  evidence_add(&e2.ev, &smin2);
-  engine_run(&e2, rules, 1);
-  assert(e2.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
-         e2.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* not pinned */
-
-  /* Exact size (min == max) but on a PMD-bucket boundary (24 MiB): the
-   * .head.text head lifts the upper end into the next bucket, so nr_pos is
-   * ambiguous and Path 1 still refuses to pin. This is the bracket's whole
-   * point — an exact footprint is not enough; nr_pos must be provably unique.
-   * (Holds on every arch: off-riscv64 the rule is inert.) */
-  static struct engine e3;
-  engine_init(&e3);
-  const unsigned long bsize = 0x1800000ul; /* 24 MiB, a PMD-bucket boundary */
-  struct observation seed3 =
-      mk_scalar(SF_FDT_KASLR_SEED, seed_val, CONF_PARSED);
-  struct observation efi3 = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
-  struct observation smin3 = mk_scalar(SF_IMAGE_SIZE_MIN, bsize, CONF_PARSED);
-  struct observation smax3 = mk_scalar(SF_IMAGE_SIZE_MAX, bsize, CONF_PARSED);
-  evidence_add(&e3.ev, &seed3);
-  evidence_add(&e3.ev, &efi3);
-  evidence_add(&e3.ev, &smin3);
-  evidence_add(&e3.ev, &smax3);
-  engine_run(&e3, rules, 1);
-  assert(e3.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
-         e3.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* boundary → no pin */
-}
-
 /* riscv64 non-EFI: a PHYS DRAM-base leak + EFI-absent pins the physical text
  * base to pdram_lo + RISCV_PHYS_LOAD_OFFSET + IMAGE_BASE_OFFSET — the OpenSBI
  * firmware placement (2 MiB) plus the .head.text length (0x2000), which lands
@@ -9284,8 +9160,6 @@ int main(void) {
   RUN(test_arm64_va_bits_from_scalar);
 
   BEGIN_CATEGORY("riscv64-specific rules");
-  RUN(test_riscv64_fdt_kaslr_seed);
-  RUN(test_riscv64_fdt_kaslr_seed_declines_when_kaslr_off);
   RUN(test_riscv64_non_efi_phys_base);
   RUN(test_riscv64_text_base_legacy);
   RUN(test_riscv64_text_base_modern);

@@ -137,17 +137,30 @@ kasld_kaslr_disabled_text_default(void) {
                  the verdict does not depend on privilege. */
   if (kasld_access("/proc/device-tree", F_OK) != 0)
     return 0; /* no FDT mounted: seed state unknown */
-  if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0 ||
-      errno != ENOENT)
-    return 0; /* present, or unreadable to this vantage (EACCES on an
-                 unprivileged traversal): the node's presence can't be ruled
-                 out, so skip. Only a genuine ENOENT is the no-seed signal — see
-                 the arm64 branch below for why this must not depend on
-                 privilege
-                 */
-  if (kasld_cpu_feature_zkr_present())
-    return 0; /* Zkr seed CSR may have seeded KASLR despite the absent FDT seed
+  if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0) {
+    /* Seed cell present. The kernel reads and zeroes the property in one step
+       when it consumes it (arch/riscv/kernel/pi/fdt_early.c get_kaslr_seed),
+       and that already-wiped blob is what setup_arch unflattens into
+       /proc/device-tree. So a cell still holding a NON-ZERO value proves the
+       kernel never consumed it: no FDT-seed randomization happened and the
+       kernel sits at the compile-time default. A zero cell is ambiguous
+       (consumed-then-wiped, or a zero seed supplied) and stays inert; an
+       unreadable cell reads back as zero here, which likewise stays inert. */
+    if (kasld_read_fdt_kaslr_seed() == 0)
+      return 0;
+  } else if (errno != ENOENT) {
+    return 0; /* cell present but untraversable to this vantage (EACCES on an
+                 unprivileged traversal): its presence can't be ruled out, so
+                 skip. Only a genuine ENOENT is the no-seed signal — see the
+                 arm64 branch below for why this must not depend on privilege.
                */
+  }
+  /* Reached iff the cell is genuinely absent (ENOENT) or present and non-zero:
+     both mean the FDT seed did not place this kernel. The Zkr seed CSR takes
+     priority and leaves the FDT cell untouched, so a Zkr-capable CPU may have
+     randomized regardless — do not assert KASLR off there. */
+  if (kasld_cpu_feature_zkr_present())
+    return 0;
   return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 #elif defined(__aarch64__)
   if (kasld_access("/sys/firmware/efi", F_OK) == 0 || errno != ENOENT)

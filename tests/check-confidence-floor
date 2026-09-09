@@ -174,7 +174,6 @@ RULES=$ROOT/src/rules
 #                                 partial leak -- a partial one would exclude real
 #                                 RAM
 #   randomize_memory_page_offset  page_offset reconstructed from a directmap leak
-#   riscv64_fdt_kaslr_seed        gated on the observed fdt KASLR seed
 #   riscv64_non_efi_phys_base     computed, but capped at CONF_HEURISTIC: the
 #                                 OpenSBI load offset is a firmware convention.
 #                                 Likely window only
@@ -226,7 +225,6 @@ phys_reservation_exclude
 phys_virt_synth
 ram_map_phys_exclude
 randomize_memory_page_offset
-riscv64_fdt_kaslr_seed
 riscv64_non_efi_phys_base
 riscv64_text_base
 riscv64_va_bits_pin

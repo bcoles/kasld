@@ -13,9 +13,8 @@
 #
 # Deliberately KEPT: chosen/kaslr-seed and chosen/rng-seed. They are random,
 # non-identifying values (the kernel zeroes them after boot anyway), and KASLD
-# *reads* kaslr-seed to infer the KASLR state (fdt_facts / riscv64_no_seed /
-# riscv64_fdt_kaslr_seed) — scrubbing it would falsify the fixture's ground
-# truth. Existing committed fixtures keep chosen/kaslr-seed as-is.
+# *reads* kaslr-seed to infer the KASLR state (riscv64_no_seed) — scrubbing it
+# would falsify the fixture's ground truth.
 #
 # Requires `dtc`. Edits each .dtb in place and writes no backup beside it: an
 # unscrubbed copy of the tree left in the bundle is what this exists to keep out
