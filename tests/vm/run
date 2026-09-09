@@ -159,6 +159,7 @@ aarch64-mainline-5.15   | -           | local| aarch64      | aarch64     | -M v
 aarch64-mainline-6.6    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 aarch64-mainline-7.0    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 aarch64-mainline-7.0-va39 | -         | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+aarch64-mainline-7.0-ftrace | -       | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 aarch64-mainline-7.0-va47 | -         | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 aarch64-mainline-7.0-va42 | -         | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 aarch64-mainline-7.0-va36 | -         | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
@@ -1211,7 +1212,7 @@ cmd_spec_table() {
   excluded_timing=0
   for a in $arches; do
     arch_disp=${a%%-*}
-    for scen in default kptr-hidden perf-open dmesg-open bpf-open hardened; do
+    for scen in default kptr-hidden perf-open dmesg-open bpf-open hardened tracefs-open; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue
       grep -aq 'KASLD VM DONE' "$log" || continue
@@ -1299,7 +1300,7 @@ cmd_table() {
     # cell name (<arch>-<distro>-<version>). The same arch appears under several
     # cells (distro/version); the `source` and `release` columns carry that split.
     arch_disp=${a%%-*}
-    for scen in default kptr-hidden perf-open dmesg-open bpf-open hardened nokaslr \
+    for scen in default kptr-hidden perf-open dmesg-open bpf-open hardened tracefs-open nokaslr \
       no5lvl no4lvl la57; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue   # arch not built (no kernel) — simply omitted

@@ -348,6 +348,13 @@ build_one() {
   # which is the property this cell exists to exercise.
   aarch64-mainline-4.19)
     "$src/scripts/config" --file "$bdir/.config" -e RANDOMIZE_BASE ;;
+  # Function tracing, for the cell that exercises the ftrace address tables.
+  # available_filter_functions_addrs is built only under DYNAMIC_FTRACE, which
+  # no stock defconfig in this matrix enables, so the tables exist nowhere else.
+  # FUNCTION_TRACER sits inside the FTRACE menu, so asking for it alone is
+  # dropped without a word; set both and DYNAMIC_FTRACE follows by select.
+  *-ftrace)
+    "$src/scripts/config" --file "$bdir/.config" -e FTRACE -e FUNCTION_TRACER ;;
   *-va36 | *-va39 | *-va42 | *-va47)
     # The VA width fixes the page size: 39 needs 4K, 36 and 47 need 16K, 42
     # needs 64K (arch/arm64/Kconfig). 36-bit is additionally EXPERT-gated. Clear
@@ -380,6 +387,13 @@ build_one() {
       return 1
     fi
     echo "  [*] split moved: CONFIG_PAGE_OFFSET=0x80000000" ;;
+  *-ftrace)
+    if ! grep -q '^CONFIG_DYNAMIC_FTRACE=y$' "$bdir/.config"; then
+      echo "  !! $arch: DYNAMIC_FTRACE did not take -- the address tables this" \
+        "cell exists to exercise would not be built"
+      return 1
+    fi
+    echo "  [*] function tracing on: available_filter_functions_addrs built" ;;
   aarch64-mainline-4.19)
     for _sym in CONFIG_RANDOMIZE_BASE CONFIG_RANDOMIZE_MODULE_REGION_FULL; do
       if ! grep -q "^$_sym=y\$" "$bdir/.config"; then
