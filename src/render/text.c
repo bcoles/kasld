@@ -266,20 +266,43 @@ static void print_group(enum kasld_addr_type type, const char *section,
  * can draw the same table without moving it away from its rationale. */
 static void layout_render(void);
 
+/* A candidate count whose log2 is exact, so ceil(log2) rounded nothing: the "~"
+ * that marks a rounded bit-count is then wrong and is dropped. */
+static int count_is_exact_pow2(unsigned long v) {
+  return v != 0 && (v & (v - 1)) == 0;
+}
+
+/* The denominator a residual is stated against, as a raw count: a SET is
+ * counted against what the engine searched, an interval against the kernel's
+ * honest window. Mirrors report.c's own choice of denominator for `top_bits`.
+ */
+static unsigned long entropy_top_count(const struct kasld_report_quantity *it) {
+  return it->guaranteed.shape == RSHAPE_SET ? it->search_top : it->entropy_top;
+}
+
 /* Residual entropy, against the entropy the window started with where that
- * baseline is known: "~5 bits" alone says nothing about how much was
- * recovered. */
-static const char *entropy_phrase(int bits, int bits_top, char *buf,
-                                  size_t bufsz) {
+ * baseline is known: "5 bits" alone says nothing about how much was recovered.
+ * The count is the exact figure; bits is ceil(log2) of it and rounds, so each
+ * bit-count carries a "~" unless its candidate count is an exact power of two.
+ */
+static const char *entropy_phrase(int bits, int bits_top,
+                                  unsigned long candidates, unsigned long top,
+                                  char *buf, size_t bufsz) {
   /* Stated whenever a baseline exists, equal figures included, so that a bare
-   * "~N bits" means no baseline is modelled -- the same rule the Layout table's
+   * "N bits" means no baseline is modelled -- the same rule the Layout table's
    * Candidates cell follows. `bits_top > 0` is what separates "no baseline"
    * from one that happens to be zero. A baseline below the residual is not one
    * this line can stand on, and is withheld rather than inverted. */
-  if (bits_top > 0 && bits_top >= bits)
-    snprintf(buf, bufsz, "~%d of %d bits", bits, bits_top);
-  else
-    snprintf(buf, bufsz, "~%d bits", bits);
+  if (bits_top > 0 && bits_top >= bits) {
+    /* Both figures are shown, so the mark is dropped only when neither rounded.
+     */
+    const char *mark =
+        count_is_exact_pow2(candidates) && count_is_exact_pow2(top) ? "" : "~";
+    snprintf(buf, bufsz, "%s%d of %d bits", mark, bits, bits_top);
+  } else {
+    const char *mark = count_is_exact_pow2(candidates) ? "" : "~";
+    snprintf(buf, bufsz, "%s%d bits", mark, bits);
+  }
   return buf;
 }
 
@@ -362,16 +385,19 @@ static void render_kaslr_text(void) {
      * figures have to come from one place or the pair can disagree. */
     if (iv && iv->guaranteed.candidates > 0)
       printf("  %-*s %s\n", KASLR_LABEL_W, "Virtual entropy:",
-             entropy_phrase(iv->guaranteed.bits, iv->top_bits, ebuf,
-                            sizeof(ebuf)));
+             entropy_phrase(iv->guaranteed.bits, iv->top_bits,
+                            iv->guaranteed.candidates, entropy_top_count(iv),
+                            ebuf, sizeof(ebuf)));
     if (ip && ip->guaranteed.candidates > 0)
       printf("  %-*s %s\n", KASLR_LABEL_W, "Physical entropy:",
-             entropy_phrase(ip->guaranteed.bits, ip->top_bits, ebuf,
-                            sizeof(ebuf)));
+             entropy_phrase(ip->guaranteed.bits, ip->top_bits,
+                            ip->guaranteed.candidates, entropy_top_count(ip),
+                            ebuf, sizeof(ebuf)));
     if (id && id->guaranteed.candidates > 0)
       printf("  %-*s %s\n", KASLR_LABEL_W, "Direct map entropy:",
-             entropy_phrase(id->guaranteed.bits, id->top_bits, ebuf,
-                            sizeof(ebuf)));
+             entropy_phrase(id->guaranteed.bits, id->top_bits,
+                            id->guaranteed.candidates, entropy_top_count(id),
+                            ebuf, sizeof(ebuf)));
 
     /* The sub-ranges carved out of a window's interior.
      *

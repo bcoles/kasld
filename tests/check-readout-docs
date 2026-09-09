@@ -112,6 +112,9 @@ retired_check 'best guess' 'likely'
 retired_check 'Inferred text range' 'Guaranteed text range'
 retired_check 'Inferred phys text range' 'Guaranteed phys text range'
 retired_check 'Likely text range' 'the Layout table'
+# oneline reports the residual as an exact slot count, not a rounded bit-count.
+retired_check 'entropy=' 'slots='
+retired_check 'pentropy=' 'pslots='
 
 # 2. Width of the readout sample blocks. Only lines inside a fenced block that
 #    contains the readout's own headings are measured -- other fenced blocks

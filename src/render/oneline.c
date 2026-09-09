@@ -27,7 +27,7 @@
 // those ARE the answer set and endpoints would imply everything between them.
 //
 // Keys carrying a measurement or a property of the run rather than an answer to
-// an unknown — arch, kaslr, entropy, pentropy, dram, results — are always
+// an unknown — arch, kaslr, slots, pslots, dram, results — are always
 // present and follow the forms described below.
 //
 // Keys, in order:
@@ -39,14 +39,16 @@
 //             raw leak consensus
 //   stext     virtual _stext, when it differs from the image base
 //   slide     virtual KASLR slide, signed: ±0xHEX(decimal)
-//   entropy   virtual residual entropy over the guaranteed window, `Nbits`;
-//             present whenever a window was resolved (an unpinned window
-//             reports its N bits; a pin reports 0bits). `na` only when KASLR is
-//             off/unsupported (no window).
+//   slots     virtual residual slot count over the guaranteed window: the exact
+//             number of image-base placements still admissible. Present
+//             whenever a window was resolved (an unpinned window reports its
+//             count; a pin reports 1). `na` only when KASLR is off/unsupported
+//             (no window). Bits of entropy are ceil(log2(slots)), left to the
+//             reader.
 //   ptext     physical image base (_text), per the value grammar
 //   pstext    physical _stext, when it differs from the physical image base
 //   pslide    physical KASLR slide (decoupled arches only)
-//   pentropy  physical residual entropy (same window/`na` rule as entropy)
+//   pslots    physical residual slot count (same window/`na` rule as slots)
 //   dmap      direct-map base (PAGE_OFFSET), per the value grammar; never the
 //             compile-time constant
 //   vmalloc   vmalloc base, same
@@ -195,19 +197,21 @@ void render_oneline(const struct summary *s) {
     printf(" slide=na");
   }
 
-  /* Residual entropy over the guaranteed window — the bits of the base the
-   * evidence could not strip. Shown whenever the engine resolved a window with
-   * candidates in it: the unpinned windowed case (where the residual is the
-   * whole point) reports its N bits, and a pin reports 0 bits. Matches the JSON
-   * inferred.entropy_bits. `na` only when there is no window — KASLR
-   * off/unsupported zero the slot count. (In the `failed` posture the window is
-   * still the proven residual; `kaslr=failed` is the effective-zero signal.) */
+  /* Residual slot count over the guaranteed window — the exact number of base
+   * placements the evidence could not strip, which is the quantity the tool
+   * resolves; bits (ceil(log2)) round and are left to the reader. Shown
+   * whenever the engine resolved a window with candidates in it: the unpinned
+   * windowed case (where the residual is the whole point) reports its count,
+   * and a pin reports 1. Matches the JSON guaranteed.slots. `na` only when
+   * there is no window — KASLR off/unsupported zero the slot count. (In the
+   * `failed` posture the window is still the proven residual; `kaslr=failed` is
+   * the effective-zero signal.) */
   if (qv && qv->guaranteed.present && qv->guaranteed.candidates > 0)
-    printf(" entropy=%dbits", qv->guaranteed.bits);
+    printf(" slots=%lu", qv->guaranteed.candidates);
   else
-    printf(" entropy=na");
+    printf(" slots=na");
 
-  /* Physical image base + _stext + slide + residual entropy — sibling block.
+  /* Physical image base + _stext + slide + residual slot count — sibling block.
    * Same rule: the engine-resolved base only, never a leak consensus. */
   oneline_quantity("ptext", qp);
 
@@ -225,9 +229,9 @@ void render_oneline(const struct summary *s) {
   }
 
   if (qp && qp->guaranteed.present && qp->guaranteed.candidates > 0)
-    printf(" pentropy=%dbits", qp->guaranteed.bits);
+    printf(" pslots=%lu", qp->guaranteed.candidates);
   else
-    printf(" pentropy=na");
+    printf(" pslots=na");
 
   /* Direct-map base (PAGE_OFFSET): the address once the engine resolves the
    * region to one, never an interior linear-map sample and never the

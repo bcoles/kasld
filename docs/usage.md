@@ -455,21 +455,21 @@ or not applicable to the arch/run renders the sentinel `na` (never a
 fabricated, defaulted, or leaked value):
 
 ```
-arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) entropy=0bits ptext=[0x1000000..0x3ffdefff] pstext=na pslide=na pentropy=9bits dmap=0xffff800000000000 vmalloc=na vmemmap=na module=[0xffffffffc0000000..0xffffffffc0400000] vabits=na dram=[0x0..0x3ffdefff] results=27 replay=no
+arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) slots=1 ptext=[0x1000000..0x3ffdefff] pstext=na pslide=na pslots=480 dmap=0xffff800000000000 vmalloc=na vmemmap=na module=[0xffffffffc0000000..0xffffffffc0400000] vabits=na dram=[0x0..0x3ffdefff] results=27 replay=no
 ```
 
 | Key | Meaning |
 | --- | --- |
 | `arch` | kernel machine (`uname`), or `unknown` |
 | `kaslr` | `on` \| `off` \| `unsupported` \| `failed` (`failed` = randomization failed at boot: effective 0 bits, deterministic per boot — distinct from `off`, a deliberate opt-out at the link-time default) |
-| `text` | virtual image base (`_text`); engine-resolved, never a leak. This is the best concrete answer, which may rest on a sub-floor signal; the line carries no speculative marker, so read `entropy` alongside it — `0bits` means one surviving candidate, i.e. proven |
+| `text` | virtual image base (`_text`); engine-resolved, never a leak. This is the best concrete answer, which may rest on a sub-floor signal; the line carries no speculative marker, so read `slots` alongside it — `slots=1` means one surviving candidate, i.e. proven |
 | `stext` | virtual `_stext`, when it differs from the image base |
 | `slide` | virtual KASLR slide, signed `±0xHEX(decimal)` |
-| `entropy` | virtual residual entropy over the guaranteed window, `Nbits`; present whenever a window was resolved — an unpinned window reports its N bits, a pin reports `0bits`. `na` only when KASLR is off/unsupported |
+| `slots` | virtual residual slot count over the guaranteed window: the exact number of image-base placements still admissible. Present whenever a window was resolved — an unpinned window reports its count, a pin reports `1`. `na` only when KASLR is off/unsupported. Bits of entropy are `ceil(log2(slots))`, left to the reader |
 | `ptext` | physical image base (`_text`) |
 | `pstext` | physical `_stext`, when it differs from the physical image base |
 | `pslide` | physical KASLR slide (decoupled arches only) |
-| `pentropy` | physical residual entropy (same window / `na` rule as `entropy`) |
+| `pslots` | physical residual slot count (same window / `na` rule as `slots`) |
 | `dmap` | direct-map base (`PAGE_OFFSET`), per the value grammar below; never the compile-time constant |
 | `vmalloc` | vmalloc base, same. `na` where the architecture does not randomize the region, so there is no such unknown |
 | `vmemmap` | vmemmap base, same |

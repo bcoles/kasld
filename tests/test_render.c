@@ -709,8 +709,9 @@ static void test_render_likely_window(void) {
  *
  * oneline is not among them and is not exercised here: its fixed schema has
  * no grade field, so `text=` carries a speculative base as a bare value. A
- * scraper separates the two cases by `entropy=`, which is measured over the
- * guaranteed window and is non-zero exactly when the base is not pinned. */
+ * scraper separates the two cases by `slots=`, the residual count over the
+ * guaranteed window, which is greater than one exactly when the base is not
+ * pinned. */
 static void test_render_vtext_speculative(void) {
   struct summary s;
   reset_results();
@@ -3230,9 +3231,9 @@ static void test_render_oneline_schema_is_stable(void) {
   layout.virt_page_offset_max = sv[5];
 
   static const char *const keys[] = {
-      "arch=",     "kaslr=",  " text=",    " stext=",  " slide=",
-      " entropy=", " ptext=", " pstext=",  " pslide=", " pentropy=",
-      " dmap=",    " dram=",  " results=",
+      "arch=",   "kaslr=",  " text=",    " stext=",  " slide=",
+      " slots=", " ptext=", " pstext=",  " pslide=", " pslots=",
+      " dmap=",  " dram=",  " results=",
   };
   for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
     assert(strstr(render_cap, keys[i]) != NULL);
@@ -3240,18 +3241,18 @@ static void test_render_oneline_schema_is_stable(void) {
   /* With nothing resolved, every optional field is the na sentinel. */
   assert(strstr(render_cap, " text=na") != NULL);
   assert(strstr(render_cap, " slide=na") != NULL);
-  assert(strstr(render_cap, " entropy=na") != NULL);
+  assert(strstr(render_cap, " slots=na") != NULL);
   assert(strstr(render_cap, " ptext=na") != NULL);
   assert(strstr(render_cap, " pslide=na") != NULL);
   assert(strstr(render_cap, " dmap=na") != NULL);
   assert(strstr(render_cap, " dram=na") != NULL);
 }
 
-/* Oneline entropy reflects the guaranteed-window residual even with NO concrete
+/* Oneline slots reflect the guaranteed-window residual even with NO concrete
  * base (the unpinned windowed case — the number a fleet/CI scraper needs), and
- * 0bits for a pin (not na); and the randomization-failed posture surfaces as
+ * one slot for a pin (not na); and the randomization-failed posture surfaces as
  * kaslr=failed, distinct from off/on. */
-static void test_render_oneline_entropy_and_failed(void) {
+static void test_render_oneline_slots_and_failed(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
@@ -3259,7 +3260,7 @@ static void test_render_oneline_entropy_and_failed(void) {
   num_scalar_facts = 0;
 
   /* Unpinned windowed case: a resolved window (vslots/pslots), no concrete
-   * base. Residual entropy must still surface for both virt and phys. */
+   * base. The residual slot count must still surface for both virt and phys. */
   memset(&s, 0, sizeof(s));
   memset(&t_stage, 0, sizeof(t_stage));
   t_stage.vslots = 512;
@@ -3274,18 +3275,18 @@ static void test_render_oneline_entropy_and_failed(void) {
     v += strlen(" text=");
     assert(*v == '[' || strncmp(v, "na", 2) == 0);
   }
-  assert(strstr(render_cap, " entropy=9bits") != NULL);  /* residual shown */
-  assert(strstr(render_cap, " pentropy=6bits") != NULL); /* phys too */
+  assert(strstr(render_cap, " slots=512") != NULL); /* residual shown */
+  assert(strstr(render_cap, " pslots=64") != NULL); /* phys too */
   assert(strstr(render_cap, " kaslr=on") != NULL);
 
-  /* Pin: one slot -> 0 bits, reported as 0bits (not na). */
+  /* Pin: one surviving slot, reported as slots=1 (not na). */
   memset(&s, 0, sizeof(s));
   memset(&t_stage, 0, sizeof(t_stage));
   s.kaslr.vtext = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   t_stage.vslots = 1;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, " entropy=0bits") != NULL);
-  assert(strstr(render_cap, " entropy=na") == NULL);
+  assert(strstr(render_cap, " slots=1") != NULL);
+  assert(strstr(render_cap, " slots=na") == NULL);
 
   /* Randomization-failed posture -> kaslr=failed (distinct from off/on). The
    * proven window residual is still reported; kaslr=failed is the effective-
@@ -3298,7 +3299,7 @@ static void test_render_oneline_entropy_and_failed(void) {
   assert(strstr(render_cap, " kaslr=failed") != NULL);
   assert(strstr(render_cap, " kaslr=on") == NULL);
   assert(strstr(render_cap, " kaslr=off") == NULL);
-  assert(strstr(render_cap, " entropy=9bits") != NULL);
+  assert(strstr(render_cap, " slots=512") != NULL);
 
   set_render_mode(0, 0, 0);
 }
@@ -5593,7 +5594,7 @@ int main(void) {
   RUN(test_render_oneline_dmap_is_base_not_interior);
   RUN(test_render_oneline_text_na_when_engine_unresolved);
   RUN(test_render_oneline_schema_is_stable);
-  RUN(test_render_oneline_entropy_and_failed);
+  RUN(test_render_oneline_slots_and_failed);
   RUN(test_render_randomization_failed_posture);
   RUN(test_render_text_lists_all_origins);
   RUN(test_render_text_leaks_aggregates_across_records);
