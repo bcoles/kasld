@@ -161,7 +161,7 @@ static void render_environment_markdown(void) {
   printf("|:-------|:---------|\n");
   for (int i = 0; i < KASLD_N_ORACLES; i++)
     printf("| `%s` | %s |\n", v->oracle_path[i],
-           v->oracle_readable[i] ? "yes" : "no");
+           kasld_oracle_answer(v->oracle_access[i]));
   printf("\n");
 
   /* Cap-gated leaks the effective cap set unlocks (if any). */

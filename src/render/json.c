@@ -372,11 +372,18 @@ static void render_environment_json(void) {
   else
     printf(v->no_new_privs ? "true" : "false");
 
+  /* Each source carries the answer AND why: a refusal is the target's
+   * hardening, a missing file says nothing about it, and "unknown" is where
+   * nothing observed separates them. `readable` stays false for all three of
+   * the non-readable states, so a consumer that only asks whether the source
+   * can be read reads one field and ignores the rest. */
   printf(",\n    \"readable_oracles\": {\n");
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
     printf("      ");
     json_print_escaped(v->oracle_path[i]);
-    printf(": %s%s\n", v->oracle_readable[i] ? "true" : "false",
+    printf(": {\"readable\": %s, \"status\": \"%s\"}%s\n",
+           v->oracle_access[i] == ORACLE_READABLE ? "true" : "false",
+           kasld_oracle_status_name(v->oracle_access[i]),
            i + 1 < KASLD_N_ORACLES ? "," : "");
   }
   printf("    },\n");

@@ -2551,7 +2551,7 @@ void render_system_config(int replay) {
    * vantage; shared list with the JSON/markdown environment block), then the
    * log/debug/boot sources. */
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
-    int readable = vant->oracle_readable[i];
+    enum oracle_access acc = vant->oracle_access[i];
     /* Where the table carries no label the heading is built from the path the
      * row reports on, so it cannot come to name one source while answering for
      * another. A label is there for the paths too long to head a 30-column
@@ -2562,8 +2562,14 @@ void render_system_config(int replay) {
         kasld_oracles[i].label ? kasld_oracles[i].label : vant->oracle_path[i];
     char label[64];
     snprintf(label, sizeof(label), "Readable %s:", name);
-    printf("%-30s%s%s%s\n", label, readable ? c(C_GREEN) : c(C_DIM),
-           readable ? "yes" : "no", c(C_RESET));
+    /* A refusal is the target's hardening and a missing file is not, so the
+     * row answers with the reason where the probe established one. "unknown"
+     * is not a hedge: it is the answer where nothing observed can tell the two
+     * apart, which is every unreadable row of a replay whose capture kept no
+     * record. */
+    printf("%-30s%s%s%s\n", label,
+           acc == ORACLE_READABLE ? c(C_GREEN) : c(C_DIM),
+           kasld_oracle_answer(acc), c(C_RESET));
   }
 
   printf("\n");

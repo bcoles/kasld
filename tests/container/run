@@ -357,7 +357,7 @@ try: e=json.load(open(sys.argv[1])).get("environment",{})
 except Exception: sys.exit(1)
 caps=[l.get("capability") for l in e.get("cap_reachable_leaks",[])]
 sys.exit(0 if e.get("container")=="docker" and e.get("seccomp")=="filter"
-         and e.get("readable_oracles",{}).get("/proc/kallsyms") is False
+         and e.get("readable_oracles",{}).get("/proc/kallsyms",{}).get("readable") is False
          and "CAP_SYS_RAWIO" in caps else 1)
 PY
 then

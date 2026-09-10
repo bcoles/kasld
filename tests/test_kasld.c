@@ -2881,8 +2881,11 @@ static void test_vantage_container_absent_then_present(void) {
   th_sysroot_clear();
   kasld_gather_vantage(&v);
   assert(v.container == NULL);
+  /* A staged tree answers UNKNOWN rather than ABSENT for what it does not
+   * hold: the tree is a capture, and a capture cannot tell an absent source
+   * from one it could not read. */
   for (int i = 0; i < KASLD_N_ORACLES; i++)
-    assert(v.oracle_readable[i] == 0);
+    assert(v.oracle_access[i] == ORACLE_UNKNOWN);
 
   /* The docker marker is an empty file -- its existence is the signal. */
   th_sysroot_clear();
@@ -3229,7 +3232,7 @@ static void test_vantage_oracle_readable_each_path(void) {
     th_sysroot_write(probed[i], "x\n");
     kasld_gather_vantage(&v);
     for (int j = 0; j < KASLD_N_ORACLES; j++)
-      assert(v.oracle_readable[j] == (i == j));
+      assert((v.oracle_access[j] == ORACLE_READABLE) == (i == j));
   }
 
   /* All of them at once, so "exactly one readable" cannot be what passes. */
@@ -3238,7 +3241,58 @@ static void test_vantage_oracle_readable_each_path(void) {
     th_sysroot_write(probed[i], "x\n");
   kasld_gather_vantage(&v);
   for (int i = 0; i < KASLD_N_ORACLES; i++)
-    assert(v.oracle_readable[i] == 1);
+    assert(v.oracle_access[i] == ORACLE_READABLE);
+
+  th_sysroot_clear();
+}
+
+/* A capture answers the oracle rows it can, and claims nothing for the rest.
+ *
+ * The tree cannot carry the difference on its own: a source that was absent on
+ * the target and one that was refused are both simply not in it. One of the
+ * capture's notes settles it and the other does not -- "unreadable" means the
+ * path was there and the read failed, while "absent" means the stat failed,
+ * which a policy that will not describe a path produces just as readily as a
+ * path that is not there. So DENIED comes from the first, and the second is
+ * held to no claim at all.
+ *
+ * Staged with each note for a different path, so "every row takes the same
+ * value" cannot be what passes. */
+static void test_vantage_oracle_capture_notes(void) {
+  struct kasld_vantage v;
+  char probed[KASLD_N_ORACLES][KASLD_ORACLE_PATH_MAX];
+  char notes[512];
+
+  th_sysroot_clear();
+  kasld_gather_vantage(&v);
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    snprintf(probed[i], sizeof probed[i], "%s", v.oracle_path[i]);
+
+  /* One absent, one refused, one readable, and the rest unrecorded. */
+  snprintf(notes, sizeof notes,
+           "absent: %s\n"
+           "unreadable: %s\n"
+           "absent: %s\n"
+           "anonymized: host identity redacted\n",
+           probed[0], probed[1], probed[2]);
+  th_sysroot_clear();
+  th_sysroot_write("/.collect-notes", notes);
+  th_sysroot_write(probed[2], "x\n");
+  kasld_gather_vantage(&v);
+
+  /* "absent" cannot separate a missing path from a policy-hidden one. */
+  assert(v.oracle_access[0] == ORACLE_UNKNOWN);
+  assert(v.oracle_access[1] == ORACLE_DENIED);
+  /* Present in the tree, so it is readable whatever the notes claim. */
+  assert(v.oracle_access[2] == ORACLE_READABLE);
+  for (int i = 3; i < KASLD_N_ORACLES; i++)
+    assert(v.oracle_access[i] == ORACLE_UNKNOWN);
+
+  /* No notes at all: nothing is claimed about any of them. */
+  th_sysroot_clear();
+  kasld_gather_vantage(&v);
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    assert(v.oracle_access[i] == ORACLE_UNKNOWN);
 
   th_sysroot_clear();
 }
@@ -3277,12 +3331,12 @@ static void test_vantage_oracle_release_suffixed_paths(void) {
     th_sysroot_clear();
     th_sysroot_write(kasld_oracles[i].path, "x\n");
     kasld_gather_vantage(&v);
-    assert(v.oracle_readable[i] == 0);
+    assert(v.oracle_access[i] != ORACLE_READABLE);
 
     th_sysroot_clear();
     th_sysroot_write(staged, "x\n");
     kasld_gather_vantage(&v);
-    assert(v.oracle_readable[i] == 1);
+    assert(v.oracle_access[i] == ORACLE_READABLE);
   }
   assert(checked == 2);
 
@@ -3474,6 +3528,7 @@ int main(void) {
   RUN(test_unprivileged_exec_keeps_its_environment);
   RUN(test_vantage_mac_absent_then_present);
   RUN(test_vantage_oracle_readable_each_path);
+  RUN(test_vantage_oracle_capture_notes);
   RUN(test_vantage_oracle_release_suffixed_paths);
   RUN(test_discard_ledger_aggregates_and_reports_truncation);
   RUN(test_discard_project_engine_classifies_correctly);

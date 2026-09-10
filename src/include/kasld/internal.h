@@ -730,6 +730,29 @@ struct kasld_oracle {
 };
 extern const struct kasld_oracle kasld_oracles[KASLD_N_ORACLES];
 
+/* Why a source is or is not readable from this vantage. One axis rather than a
+ * flag plus a reason, so a state cannot be half-set: a probe that fails is
+ * DENIED or ABSENT or neither, never "not readable" with nothing said.
+ *
+ * The distinction is the point. A refusal is the target's hardening; a missing
+ * file says nothing about it, and reporting one as the other credits a policy
+ * that is not there or blames a build for a policy that is. errno separates
+ * them on a live probe: EACCES/EPERM is a refusal, ENOENT/ENOTDIR is an
+ * absence, and anything else is neither, which is what ORACLE_UNKNOWN carries.
+ *
+ * A captured tree cannot answer from errno at all. Capture stores an
+ * unreadable source and an absent one the same way -- as a file that is not in
+ * the tree -- so ENOENT there means "the capture does not have it", which is a
+ * fact about the capture and not about the target. A capture that recorded
+ * which of the two it hit is read for the answer; without one the honest
+ * verdict is ORACLE_UNKNOWN. */
+enum oracle_access {
+  ORACLE_READABLE = 0,
+  ORACLE_DENIED,
+  ORACLE_ABSENT,
+  ORACLE_UNKNOWN,
+};
+
 /* SELinux runtime mode, read from /sys/fs/selinux/enforce. Absent covers both
  * "SELinux is not built in" and "selinuxfs is not reachable from here" — which
  * are indistinguishable from an unprivileged vantage, so the value never
@@ -746,7 +769,7 @@ struct kasld_vantage {
   int no_new_privs;      /* -1 unknown; 0/1 */
   int have_caps;         /* 1 if cap_eff/cap_bnd are valid */
   unsigned long long cap_eff, cap_bnd;
-  int oracle_readable[KASLD_N_ORACLES]; /* per kasld_oracles[] */
+  enum oracle_access oracle_access[KASLD_N_ORACLES]; /* per kasld_oracles[] */
   /* The path each probe actually opened, resolved once at snapshot time. Every
    * format names this rather than the template, so a release-suffixed source is
    * reported as the file it was. */

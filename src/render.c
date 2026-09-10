@@ -59,6 +59,39 @@ const char *human_size(unsigned long bytes, char *buf, size_t bufsz) {
  */
 /* anchor_addr() is defined as a static inline in kasld/internal.h. */
 
+/* The oracle rows' two vocabularies, defined once so no format can invent a
+ * third. Both answer the same axis: `status` is the machine token, `answer` the
+ * human phrasing that keeps the row readable as a reply to "Readable <path>:".
+ * "unknown" is a real answer -- the state where nothing observed separates a
+ * refusal from an absence -- not a placeholder for one of the others. */
+const char *kasld_oracle_status_name(enum oracle_access a) {
+  switch (a) {
+  case ORACLE_READABLE:
+    return "readable";
+  case ORACLE_DENIED:
+    return "denied";
+  case ORACLE_ABSENT:
+    return "absent";
+  case ORACLE_UNKNOWN:
+    break;
+  }
+  return "unknown";
+}
+
+const char *kasld_oracle_answer(enum oracle_access a) {
+  switch (a) {
+  case ORACLE_READABLE:
+    return "yes";
+  case ORACLE_DENIED:
+    return "no (denied)";
+  case ORACLE_ABSENT:
+    return "no (absent)";
+  case ORACLE_UNKNOWN:
+    break;
+  }
+  return "unknown";
+}
+
 const char *result_method(const struct result *r) {
   if (!r)
     return "unknown";

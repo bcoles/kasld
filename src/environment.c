@@ -157,6 +157,44 @@ static void read_hardening_state(struct kasld_hardening *h) {
  * (text verbose block, JSON, markdown) so they can't diverge. Outside the
  * KASLD_TESTING guard because the render modules link against these. ------- */
 
+/* Answer the oracle rows of a replayed run from the capture's own record.
+ *
+ * A capture cannot carry the difference in the tree itself: a source that was
+ * absent on the target and one that was there and refused both end as a file
+ * that is not present, so errno in a replay describes the capture. What the
+ * capture does carry is a note per path saying which of the two it hit, and
+ * that is what these rows are read from. A tree assembled by hand, or one from
+ * a capture that wrote no notes, leaves every unreadable row ORACLE_UNKNOWN --
+ * the honest answer, and never a claim about a target nothing observed.
+ *
+ * Only one of the capture's two notes is load-bearing here. "unreadable" is
+ * written where the path could be stat'd and the read still failed, which is a
+ * refusal: which refusal is not recorded, and a read can fail for reasons other
+ * than permission, so it is the capture's word for one rather than a proof.
+ * "absent" is written where the stat ITSELF failed, and a stat fails both for a
+ * path that is not there and for one a policy will not describe -- the same
+ * conflation these rows exist to undo -- so it resolves to no claim at all.
+ *
+ * These rows are reported, never inferred from: no rule or hardening verdict
+ * reads them. */
+static void oracle_access_from_capture(struct kasld_vantage *v) {
+  FILE *f = kasld_fopen("/.collect-notes", "r");
+  if (!f)
+    return;
+  char line[KASLD_ORACLE_PATH_MAX + 64];
+  while (fgets(line, sizeof(line), f)) {
+    line[strcspn(line, "\n")] = '\0';
+    if (strncmp(line, "unreadable: ", 12) != 0)
+      continue;
+    const char *path = line + 12;
+    for (int i = 0; i < KASLD_N_ORACLES; i++)
+      if (v->oracle_access[i] == ORACLE_UNKNOWN &&
+          strcmp(path, v->oracle_path[i]) == 0)
+        v->oracle_access[i] = ORACLE_DENIED;
+  }
+  fclose(f);
+}
+
 const struct kasld_oracle kasld_oracles[KASLD_N_ORACLES] = {
     {"/proc/kallsyms", NULL, 0},
     {"/proc/kcore", NULL, 0},
@@ -446,8 +484,20 @@ void kasld_gather_vantage(struct kasld_vantage *v) {
     else
       snprintf(v->oracle_path[i], sizeof v->oracle_path[i], "%s",
                kasld_oracles[i].path);
-    v->oracle_readable[i] = kasld_access(v->oracle_path[i], R_OK) == 0;
+    if (kasld_access(v->oracle_path[i], R_OK) == 0)
+      v->oracle_access[i] = ORACLE_READABLE;
+    else if (kasld_fact_source() != KASLD_FACTS_LIVE)
+      v->oracle_access[i] =
+          ORACLE_UNKNOWN; /* answered from the capture below */
+    else if (errno == EACCES || errno == EPERM)
+      v->oracle_access[i] = ORACLE_DENIED;
+    else if (errno == ENOENT || errno == ENOTDIR)
+      v->oracle_access[i] = ORACLE_ABSENT;
+    else
+      v->oracle_access[i] = ORACLE_UNKNOWN;
   }
+  if (kasld_fact_source() != KASLD_FACTS_LIVE)
+    oracle_access_from_capture(v);
 
   /* Discretionary identity: the uid/gid pair the kernel checks first, and the
    * supplementary groups that decide the group-gated sources.

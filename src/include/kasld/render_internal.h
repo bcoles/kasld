@@ -33,6 +33,8 @@ static inline const char *kasld_coupling_descr(void) {
 /* Result-model helpers (mirror anchor_addr(). result_method returns the
  * strongest method in the record's method_set; contributors are walked with
  * origin_set_next() over r->origins at the consuming renderer). */
+const char *kasld_oracle_status_name(enum oracle_access a);
+const char *kasld_oracle_answer(enum oracle_access a);
 const char *result_method(const struct result *r);
 const char *result_section(const struct result *r);
 int in_bounds(const struct result *r);

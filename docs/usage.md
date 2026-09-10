@@ -276,6 +276,15 @@ confined — its seccomp / capability / no-new-privs state, plus which leak
 sources are readable here: the `/proc` oracles, the system logs, debugfs, and
 the `System.map` and kernel config for the running release.
 
+A source that is not readable says which of two different things happened. `no
+(denied)` is a refusal, which is the target's hardening; `no (absent)` is a
+source that is not there, which says nothing about it. `unknown` is neither —
+the state where nothing observed separates them, which is what a probe failing
+for any other reason reports, and what a replayed capture reports for a source
+it does not hold. A capture cannot answer from the tree alone: an absent source
+and a refused one are both simply not in it, so only a capture that recorded a
+refusal at collection time renders one.
+
 Group names come from `/etc/group` in the tree being analysed, so an offline
 replay names that tree's groups rather than the analysing host's; the ids kasld
 knows gate one of its own sources are named even where the tree cannot name
@@ -331,16 +340,16 @@ Seccomp:                      none
 Effective capabilities:       none
 No new privileges:            no
 
-Readable /proc/kallsyms:      no
-Readable /proc/kcore:         no
-Readable /proc/iomem:         no
+Readable /proc/kallsyms:      unknown
+Readable /proc/kcore:         unknown
+Readable /proc/iomem:         unknown
 Readable /proc/modules:       yes
-Readable /var/log/dmesg:      no
-Readable /var/log/kern.log:   no
-Readable /var/log/syslog:     no
-Readable debugfs:             no
-Readable /boot/System.map:    no
-Readable /boot/config:        no
+Readable /var/log/dmesg:      unknown
+Readable /var/log/kern.log:   unknown
+Readable /var/log/syslog:     unknown
+Readable debugfs:             unknown
+Readable /boot/System.map:    unknown
+Readable /boot/config:        unknown
 ```
 
 The per-region Results table, from a capture whose base the engine resolves.
@@ -545,7 +554,10 @@ with `groups_truncated` when the process holds more than the report keeps),
 and a `readable_oracles` map of the sources probed for readability — the
 `/proc` oracles, the system logs, debugfs, and the `/boot` `System.map` and
 config, the last two keyed by the path including the running kernel release
-(fields are a `null` or enum when they do not apply); and `cap_reachable_leaks`,
+(fields are a `null` or enum when they do not apply). Each entry is an object
+carrying `readable` (a boolean, false for every state that is not a successful
+read) and `status`, one of `readable`, `denied`, `absent` or `unknown` — the
+same distinction the text readout draws, described above; and `cap_reachable_leaks`,
 the capability-gated leak sources reachable from the process's current
 capabilities. `lsm`, `selinux` and
 `security_context` are `null` when this vantage cannot read them, which is not
