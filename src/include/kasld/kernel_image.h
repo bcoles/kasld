@@ -1,6 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Kernel image size, read from the on-disk /boot artefacts, without privileges.
+// Kernel image size, read from whatever the vantage exposes, without
+// privileges.
 //
 // The size rules need two things about the kernel's in-memory footprint: a
 // guaranteed LOWER bound (the ceiling/exclusion rules subtract it from a window
@@ -17,6 +18,9 @@
 //   - gzip stream, whole-file or EFI-zboot inner (arm64, loongarch64): the
 //     ISIZE trailer = decompressed size (_edata - _text). This EXCLUDES BSS, so
 //     it is a sound lower bound only, not a footprint upper bound.
+//   - .BTF section length (/sys/kernel/btf/vmlinux): a section inside the
+//     image, so its length is a sound lower bound. The weakest of the readers
+//     and the only one needing neither /boot nor dmesg nor a relaxed sysctl.
 //   - vmlinuz file size (any compressed, non-ELF image): the image never
 //     decompresses to fewer bytes than its on-disk size, so the file size is a
 //     sound (loose) lower bound. A last-resort fallback, e.g. for arm32/s390
@@ -41,6 +45,11 @@
 #ifndef KASLD_KERNEL_IMAGE_H
 #define KASLD_KERNEL_IMAGE_H
 
+/* api.h for the arch axes read below (BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT), so
+ * this header stands on its own: tests/test_kernel_image.c includes it directly
+ * and would otherwise see the axis undefined and silently take the wrong
+ * branch. */
+#include "api.h"
 #include "sysroot.h"
 
 #include <errno.h>
@@ -465,6 +474,38 @@ kasld_image_size_from_stat(const char *release) {
   (void)release;
   return 0;
 #endif
+}
+
+/* The .BTF section's length, from /sys/kernel/btf/vmlinux.
+ *
+ * BTF is linked into the kernel image -- the section is emitted inside
+ * RO_DATA(), which every architecture's linker script places between _text and
+ * _end -- so its length can never exceed the footprint. A lower bound, and the
+ * weakest of these readers: BTF runs to a few MiB against an image of tens.
+ *
+ * It earns its place on reach rather than tightness. Every other reader needs
+ * /boot, and this one needs nothing: the file is mode 0444 with no sysctl gate,
+ * so it answers in a container with no /boot and a masked /proc, where the size
+ * would otherwise fall back to the rules' own conservative floor.
+ *
+ * The SIZE is authoritative here, which is worth saying because the BTF reader
+ * elsewhere in the tree treats a sysfs size as unreliable -- true of an
+ * ordinary text attribute, and not of this one. /sys/kernel/btf/vmlinux is a
+ * bin_attribute carrying an explicit size (__stop_BTF - __start_BTF), and sysfs
+ * hands that through to the inode, so stat() reports the section length
+ * exactly. Nothing is read from the file itself.
+ *
+ * Live only: no capture stages this file, so a replay falls through to the
+ * readers above. Returns 0 where BTF is not built in, the file is denied, or
+ * the length is implausible. */
+__attribute__((unused)) static unsigned long kasld_image_size_from_btf(void) {
+  struct stat st;
+
+  if (kasld_stat("/sys/kernel/btf/vmlinux", &st) != 0)
+    return 0;
+  if (st.st_size < (off_t)KIMG_MIN_BYTES)
+    return 0;
+  return (unsigned long)st.st_size;
 }
 
 #endif /* KASLD_KERNEL_IMAGE_H */

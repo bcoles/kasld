@@ -56,6 +56,8 @@ int main(void) {
     lb = kasld_image_size_from_vmlinuz(rel);
   if (!lb)
     lb = kasld_image_size_from_stat(rel);
+  if (!lb)
+    lb = kasld_image_size_from_btf();
   if (lb)
     kasld_emit_scalar(SF_IMAGE_SIZE_MIN, lb, CONF_PARSED);
   return 0;
