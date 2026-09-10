@@ -11,9 +11,11 @@
 # downgraded KASLR state) DO fail, that an improvement does not, and the error
 # paths.
 #
-# Also asserts the fact-source pairing: a live snapshot and a replayed one
-# measure different vantages, so the pair is refused rather than diffed, while
-# a snapshot predating the field is still compared.
+# Also asserts the two comparability guards: a live snapshot against a replayed
+# one, and a pair describing different architectures, are refused rather than
+# diffed, while a snapshot predating either field is still compared. And that a
+# posture state the gate cannot rank is reported when it CHANGES rather than
+# scored as the best one, which is the direction that would hide a regression.
 #
 # Usage: tests/check-posture-diff   (also run by `make test`)
 # ---
@@ -45,6 +47,7 @@ base=$TMP/baseline.json
 cat >"$base" <<'EOF'
 {
   "replay": false,
+  "arch": "x86_64",
   "kaslr": {
     "inferred": { "entropy_bits": 9 },
     "inferred_physical": { "entropy_bits": 31 },
@@ -76,6 +79,14 @@ mk replayed '.replay = true'
 # A snapshot from before the field existed. The pairing cannot be checked, which
 # must not turn into a refusal to compare.
 mk unstated 'del(.replay)'
+# A different target: every bit this gate compares is measured per architecture.
+mk otherarch '.arch = "aarch64"'
+# A snapshot naming no architecture -- the pair cannot be checked, and is still
+# compared rather than refused.
+mk noarch 'del(.arch)'
+# A posture state outside the ranked set. Reported when it changes, silent when
+# it does not; never scored as the best state, which would pass a real move.
+mk unranked '.hardening.kaslr_posture.state = "quarantined"'
 echo 'not json{' >"$TMP/broken.json"
 # Valid JSON, but not a kasld snapshot: must error, NOT report a false
 # "entropy dropped to 0" regression.
@@ -108,13 +119,17 @@ want 1 "$base" "$TMP/pentropy.json" "physical entropy dropped"
 want 1 "$base" "$TMP/cve.json" "new CVE-class leak"
 want 1 "$base" "$TMP/defoff.json" "defense turned off"
 want 1 "$base" "$TMP/posture.json" "KASLR posture downgraded"
+want 1 "$base" "$TMP/unranked.json" "KASLR posture moved to an unrankable state"
 # 0 = no regression, fact sources agree or cannot be compared
 want 0 "$TMP/replayed.json" "$TMP/replayed.json" "both snapshots replayed"
 want 0 "$base" "$TMP/unstated.json" "current states no fact source"
 want 0 "$TMP/unstated.json" "$TMP/replayed.json" "one side states no fact source"
+want 0 "$TMP/unranked.json" "$TMP/unranked.json" "unrankable posture state, unchanged"
+want 0 "$base" "$TMP/noarch.json" "current states no architecture"
 # 2 = error
 want 2 "$base" "$TMP/replayed.json" "live baseline against a replayed current"
 want 2 "$TMP/replayed.json" "$base" "replayed baseline against a live current"
+want 2 "$base" "$TMP/otherarch.json" "snapshots describe different architectures"
 want 2 "$base" "$TMP/broken.json" "invalid JSON input"
 want 2 "$base" "$TMP/notkasld.json" "valid JSON but not a kasld snapshot"
 want 2 "$base" "$TMP/nonexistent.json" "missing input file"
@@ -124,5 +139,5 @@ if [ "$fails" -ne 0 ]; then
   exit 1
 fi
 
-printf '%scheck-posture-diff: OK%s (16 cases; reboot ignored, regressions caught)\n' \
+printf '%scheck-posture-diff: OK%s (20 cases; reboot ignored, regressions caught)\n' \
   "$GREEN" "$RESET"

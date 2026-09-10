@@ -7,8 +7,8 @@
 #
 # Input is one `kasld -j` file per host, passed as arguments. The host label is
 # the file's basename (minus a .json suffix), because `kasld -j` deliberately
-# carries no hostname — identity comes from how you name the file when you
-# collect it. This tool does NO collection and NO transport: your own fan-out
+# carries no hostname — identity comes from how the file is named at collection
+# time. This tool does NO collection and NO transport: the caller's own fan-out
 # supplies the snapshots. A reference loop:
 #
 #   for h in $(cat hosts); do ssh "$h" 'kasld -j' > "snap/$h.json"; done
@@ -21,6 +21,11 @@
 #
 # Only the boot-STABLE posture is summarised — the per-boot resolved addresses
 # never appear (they re-randomize every boot and mean nothing across hosts).
+#
+# Each row states its fact source (`src`: live or replay). A replay reaches only
+# the components a captured tree can answer, so its counts are measured against
+# a smaller set than a live run's and the two do not compare like for like; a
+# fleet that mixes them says so in the table rather than reading as posture.
 #
 # Usage:  posture-summary [--text|--markdown|--csv|--json] FILE...
 # Exit:   0 = at least one snapshot summarised, 2 = usage / no valid input.
@@ -91,6 +96,9 @@ row='{
   host:   $host,
   arch:   (.arch // "?"),
   kernel: (.kernel.release // "?"),
+  src:    (if (.replay | type) == "boolean" then
+             (if .replay then "replay" else "live" end)
+           else "?" end),
   kaslr:  (.hardening.kaslr_posture.state // "active"),
   vbits:  (.kaslr.inferred.entropy_bits // 0),
   pbits:  (.kaslr.inferred_physical.entropy_bits // 0),
@@ -121,7 +129,7 @@ done
   exit 2
 }
 
-HDR="host arch kernel kaslr vbits pbits leaks defenses cves top-fix"
+HDR="host arch kernel src kaslr vbits pbits leaks defenses cves top-fix"
 
 case "$fmt" in
 json)
@@ -129,19 +137,24 @@ json)
   ;;
 csv)
   echo "$HDR" | tr ' ' ','
-  jq -rs 'sort_by(.host)[] | [.host, .arch, .kernel, .kaslr, .vbits, .pbits,
+  jq -rs 'sort_by(.host)[] | [.host, .arch, .kernel, .src, .kaslr, .vbits, .pbits,
     "\(.leaks)/\(.total)", .defenses, .cves, .topfix] | @csv' "$tmp"
   ;;
 markdown)
   echo "$HDR" | sed 's/ / | /g; s/^/| /; s/$/ |/'
   echo "$HDR" | sed 's/[^ ]*/---/g; s/ / | /g; s/^/| /; s/$/ |/'
-  jq -rs 'sort_by(.host)[] | "| \(.host) | \(.arch) | \(.kernel) | \(.kaslr) | \(.vbits) | \(.pbits) | \(.leaks)/\(.total) | \(.defenses) | \(.cves) | \(.topfix) |"' "$tmp"
+  # A cell holding a `|` would close its column early and shift every cell to
+  # its right, so the row no longer lines up under the header. The host label is
+  # a filename and the fix text is free-form, so neither is guaranteed to be
+  # pipe-free; both are escaped to the table syntax.
+  jq -rs 'def md: tostring | gsub("\\|"; "\\|");
+    sort_by(.host)[] | "| \(.host|md) | \(.arch|md) | \(.kernel|md) | \(.src|md) | \(.kaslr|md) | \(.vbits) | \(.pbits) | \(.leaks)/\(.total) | \(.defenses) | \(.cves) | \(.topfix|md) |"' "$tmp"
   ;;
 text)
   # Header + rows as tab-separated, then align each column to its widest cell.
   {
     echo "$HDR" | tr ' ' '\t'
-    jq -rs 'sort_by(.host)[] | [.host, .arch, .kernel, .kaslr, "\(.vbits)b",
+    jq -rs 'sort_by(.host)[] | [.host, .arch, .kernel, .src, .kaslr, "\(.vbits)b",
       "\(.pbits)b", "\(.leaks)/\(.total)", .defenses, .cves, .topfix] | @tsv' "$tmp"
   } | awk -F'\t' '
     { for (i = 1; i <= NF; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) } nc = NF; nr = NR }

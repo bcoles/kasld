@@ -151,7 +151,10 @@ extra/posture-diff baseline.json current.json || echo "KASLR posture regressed"
 ```
 
 Both read `kasld -j` snapshots (live, or replayed from a `collect` bundle via
-`KASLD_SYSROOT`). Full detail — the entropy-threshold and CVE-leak gates they pair
+`KASLD_SYSROOT`), and both say which: the summary gives each row a `src` column,
+and the diff refuses a live/replay pair outright. A replay reaches only the
+components a captured tree can answer, so its counts are not measured against
+the same set. Full detail — the entropy-threshold and CVE-leak gates they pair
 with — is in [usage.md → Continuous integration](../docs/usage.md#continuous-integration).
 
 ### Turn a recovered base into an exploit

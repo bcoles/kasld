@@ -714,8 +714,8 @@ offset from `_text`, so a leaked address pins only its own symbol and a generic
 In JSON, the assessment is the top-level `hardening` object, with fields
 `exposure`, `kaslr_posture` (`state` is one of
 `active` / `disabled` / `unsupported` / `randomization_failed`),
-`active_defenses`, `lockdown`, `available_hardening`,
-`patched_vulnerabilities`, `compile_time_surface`,
+`active_defenses`, `confirmed_mitigations`, `lockdown`,
+`available_hardening`, `patched_vulnerabilities`, `compile_time_surface`,
 `hardware_side_channels`, `no_mitigation`, and `text_order` — the last present
 when the kernel-text order is determined, carrying `class` and
 `symbol_resolution` (the JSON form of the Function-layout block above).
@@ -874,7 +874,10 @@ replay reaches only the components a captured tree can answer, so pairing one
 with a live run measures a change of vantage rather than of posture, and
 typically as an improvement, which a gate would pass. The top-level `replay`
 flag is what separates them, and a mismatched pair is refused with exit `2`
-rather than diffed.
+rather than diffed. A pair whose snapshots name different architectures is
+refused the same way: the KASLR grid and the residual entropy are measured per
+architecture, so subtracting one from the other reports a change of scale as
+drift.
 
 ### Fleet summary (`extra/posture-summary`)
 
@@ -889,19 +892,28 @@ extra/posture-summary snap/*.json
 ```
 
 ```
-host     arch     kernel   kaslr   vbits  pbits  leaks  defenses  cves  top-fix
-cache03  x86_64   6.12.81  active  9b     31b    2/71   1         0     Set kernel.perf_event_paranoid = 2
-db02     aarch64  6.12.90  active  16b    16b    0/68   3         0     -
-web01    x86_64   6.15.6   active  9b     31b    1/70   2         1     Enable kernel lockdown (confidentiality mode)
+host     arch     kernel   src     kaslr   vbits  pbits  leaks  defenses  cves  top-fix
+cache03  x86_64   6.12.81  live    active  9b     31b    2/71   1         0     Set kernel.perf_event_paranoid = 2
+db02     aarch64  6.12.90  replay  active  16b    16b    0/47   3         0     -
+web01    x86_64   6.15.6   live    active  9b     31b    1/70   2         1     Enable kernel lockdown (confidentiality mode)
 ```
 
-Each row carries only the boot-stable posture — KASLR state, guaranteed
-residual entropy (virtual/physical), leaks succeeded/total, how many distinct
-hardening controls were observed foiling a leak, unpatched CVE-class count, and
-the most load-bearing hardening action still available. The host label is the
-snapshot's filename (`-j` carries no hostname), so each file must be named after
-its host at collection time; this tool does no collection or transport itself.
-Output is an aligned text table by default, or `--markdown` (issue trackers),
-`--csv` (spreadsheets), or `--json` (further tooling). A file that is not a
-valid `kasld -j` snapshot is skipped with a warning rather than aborting the
-report.
+Each row carries only the boot-stable posture — the fact source, KASLR state,
+guaranteed residual entropy (virtual/physical), leaks succeeded/total, how many
+distinct hardening controls were observed foiling a leak, unpatched CVE-class
+count, and the most load-bearing hardening action still available. The host
+label is the snapshot's filename (`-j` carries no hostname), so each file must
+be named after its host at collection time; this tool does no collection or
+transport itself. Output is an aligned text table by default, or `--markdown`
+(issue trackers), `--csv` (spreadsheets), or `--json` (further tooling). A file
+that is not a valid `kasld -j` snapshot is skipped with a warning rather than
+aborting the report.
+
+`src` is the snapshot's fact source — `live`, `replay`, or `?` for a snapshot
+predating the field. It qualifies every column to its right: a replay reaches
+only the components a captured tree can answer, so `db02` above scores its 0
+leaks against 47 techniques where a live row scores against 70. A mixed fleet
+therefore reads as a difference of vantage, not of posture, and the column is
+what separates the two. A gate cannot present the distinction and carry on, so
+[posture-diff](#regression-gate-extraposture-diff) refuses the same pairing
+outright rather than diffing it.

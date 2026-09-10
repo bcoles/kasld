@@ -23,7 +23,8 @@
 #   bundle via KASLD_SYSROOT=<bundle>/sysroot kasld -j) -- both taken the same
 #   way, which the tool checks: a replay reaches only the components a captured
 #   tree can answer, so a live run and a replay of one host measure different
-#   vantages and are not comparable.
+#   vantages and are not comparable. A pair describing different architectures
+#   is refused on the same grounds.
 #
 # Exit:  0 = no regression   1 = regression (findings on stdout)   2 = error
 #
@@ -121,6 +122,24 @@ if [ "$b_src" = unstated ] || [ "$c_src" = unstated ]; then
     "and replayed captures cannot be told apart; recapture to check it" >&2
 fi
 
+# Both snapshots have to describe the same architecture. Every quantity this
+# gate compares is measured on a per-arch scale -- the KASLR grid, the slot
+# count, the residual entropy in bits -- so an x86_64 baseline against an
+# aarch64 current subtracts two different scales and reports the difference as
+# drift. A snapshot that identifies no architecture states nothing to check.
+arch_of() { jq -r '.arch // "unknown"' "$1"; }
+b_arch=$(arch_of "$base") || exit 2
+c_arch=$(arch_of "$cur") || exit 2
+
+if [ "$b_arch" != "$c_arch" ] &&
+  [ "$b_arch" != unknown ] && [ "$c_arch" != unknown ]; then
+  echo "$prog: snapshots describe different architectures:" \
+    "baseline is $b_arch, current is $c_arch" >&2
+  echo "$prog: residual entropy and the KASLR grid are measured per" \
+    "architecture, so the two postures are not comparable" >&2
+  exit 2
+fi
+
 # The boot-stable posture: everything a regression gate should compare, and
 # nothing that re-randomizes per boot. Missing blocks (an older kasld -j, KASLR
 # off) coalesce to safe neutral values.
@@ -140,14 +159,22 @@ c_posture=$(jq "$posture" "$cur") || exit 2
 findings=$(jq -rn --argjson b "$b_posture" --argjson c "$c_posture" '
   # KASLR posture worse-ness: active is best; a disabled / failed kernel is
   # worse. unsupported is arch-fixed (cannot change on the same host).
-  def rank: {"active": 2, "randomization_failed": 1, "disabled": 1, "unsupported": 0}[.] // 2;
+  # A state outside this set has NO rank. Scoring it as the best would let a
+  # move into an unrecognised state read as no regression -- the one direction
+  # a gate must not get wrong -- so an unrankable CHANGE is reported instead,
+  # while an unrankable state that stayed put is not a change at all.
+  def rank: {"active": 2, "randomization_failed": 1, "disabled": 1, "unsupported": 0}[.];
   ( if $c.guar_bits < $b.guar_bits
     then "guaranteed entropy dropped: \($b.guar_bits) -> \($c.guar_bits) bits (virtual)"
     else empty end ),
   ( if $c.pguar_bits < $b.pguar_bits
     then "guaranteed entropy dropped: \($b.pguar_bits) -> \($c.pguar_bits) bits (physical)"
     else empty end ),
-  ( if ($c.kaslr | rank) < ($b.kaslr | rank)
+  ( if ($b.kaslr | rank) == null or ($c.kaslr | rank) == null
+    then ( if $c.kaslr != $b.kaslr
+           then "KASLR posture state changed and cannot be ranked: \($b.kaslr) -> \($c.kaslr)"
+           else empty end )
+    elif ($c.kaslr | rank) < ($b.kaslr | rank)
     then "KASLR posture worsened: \($b.kaslr) -> \($c.kaslr)"
     else empty end ),
   ( ($c.unpatched - $b.unpatched)[] | "new CVE-class leak succeeded: \(.)" ),
