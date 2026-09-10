@@ -111,6 +111,59 @@ static void test_text_line_pins_image_base(void) {
   assert(strstr(cap, want) != NULL);
 }
 
+/* The layout dump's region lines print the address ONE PAST the region -- each
+ * arch derives the size it shows as (hi - lo), and the constants behind them
+ * are half-open bounds. An extent is stored inclusive, so the emitted hi must
+ * be one below the printed figure. The staged span is a round 1 GiB, which the
+ * printed pair can only express the half-open way. */
+static void test_vmalloc_range_high_edge_is_exclusive(void) {
+  unsigned long lo = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long printed_hi = lo + 0x40000000ul;
+  char line[256], want[80];
+  snprintf(line, sizeof(line), "      vmalloc : 0x%lx - 0x%lx   (1024 MB)", lo,
+           printed_hi);
+  parse_capture(line, cap, sizeof(cap));
+  snprintf(want, sizeof(want),
+           "V vmalloc pos=base conf=parsed lo=0x%lx hi=0x%lx", lo,
+           printed_hi - 1);
+  assert(strstr(cap, want) != NULL);
+}
+
+/* The vmemmap needle carries the same convention, and the s390 spelling has no
+ * spaces around the dash -- both reach the same conversion. */
+static void test_vmemmap_and_s390_spelling(void) {
+  unsigned long lo = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long printed_hi = lo + 0x40000000ul;
+  char line[256], want[80];
+
+  snprintf(line, sizeof(line), "      vmemmap : 0x%lx - 0x%lx   (1024 MB)", lo,
+           printed_hi);
+  parse_capture(line, cap, sizeof(cap));
+  snprintf(want, sizeof(want),
+           "V vmemmap pos=base conf=parsed lo=0x%lx hi=0x%lx", lo,
+           printed_hi - 1);
+  assert(strstr(cap, want) != NULL);
+
+  snprintf(line, sizeof(line), "vmalloc area:        0x%lx-0x%lx", lo,
+           printed_hi);
+  parse_capture(line, cap, sizeof(cap));
+  snprintf(want, sizeof(want),
+           "V vmalloc pos=base conf=parsed lo=0x%lx hi=0x%lx", lo,
+           printed_hi - 1);
+  assert(strstr(cap, want) != NULL);
+}
+
+/* A line whose two figures are equal describes no region; stepping the high
+ * edge back would put it under the low one, so nothing is emitted. */
+static void test_degenerate_range_emits_nothing(void) {
+  unsigned long lo = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  char line[256];
+  snprintf(line, sizeof(line), "      vmalloc : 0x%lx - 0x%lx   (   0 MB)", lo,
+           lo);
+  parse_capture(line, cap, sizeof(cap));
+  assert(strstr(cap, "vmalloc") == NULL);
+}
+
 int main(void) {
   TEST_SUITE("test_dmesg_layout");
   BEGIN_CATEGORY("riscv layout-dump kernel line");
@@ -118,5 +171,9 @@ int main(void) {
   RUN(test_kernel_line_below_text_rejected);
   BEGIN_CATEGORY("arm/x86_32 layout .text line");
   RUN(test_text_line_pins_image_base);
+  BEGIN_CATEGORY("half-open region lines");
+  RUN(test_vmalloc_range_high_edge_is_exclusive);
+  RUN(test_vmemmap_and_s390_spelling);
+  RUN(test_degenerate_range_emits_nothing);
   return TEST_DONE();
 }

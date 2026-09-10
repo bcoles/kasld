@@ -132,8 +132,25 @@ KASLD_META("method:parsed\n"
  *   s390:   "vmalloc area:        0x...-0x..."         (range; boot KERN_DEBUG)
  */
 enum layout_kind {
-  LK_BASE = 0,   /* needle ... 0x<lo> ...      (single address) */
-  LK_RANGE,      /* needle ... 0x<lo>[ ]-[ ]0x<hi> ... (two addresses) */
+  LK_BASE = 0, /* needle ... 0x<lo> ...      (single address) */
+  /* needle ... 0x<lo>[ ]-[ ]0x<hi> ... (two addresses), where the printed high
+   * figure is the address ONE PAST the region -- every layout line matched
+   * above computes its size as (hi - lo), and each arch's constant behind it is
+   * a half-open bound: riscv VMALLOC_END = PAGE_OFFSET and VMEMMAP_END =
+   * VMALLOC_START, sh FIXADDR_START - 2*PAGE_SIZE, s390 MODULES_VADDR, arm32
+   * 0xff800000, arm64 vmemmap printed as VMEMMAP_START + VMEMMAP_SIZE, x86_32
+   * PKMAP_BASE - 2*PAGE_SIZE. An extent is stored inclusive, so the handler
+   * steps the high edge back by one.
+   *
+   * Named for the convention rather than left as a bare "range" because the
+   * other kind exists: x86_64 defines VMALLOC_END as the last address INSIDE
+   * the region (VMALLOC_START + size - 1, both the plain and KMSAN forms). It
+   * prints no layout line today, so no needle here is of that kind -- but a
+   * line that is must not inherit this conversion silently. Add a value beside
+   * this one instead; the switch below then refuses to compile until the new
+   * kind is handled. The tell, when checking a new one: a half-open end is
+   * page-aligned, an inclusive end terminates in 0xfff. */
+  LK_RANGE_HALF_OPEN,
   LK_IMAGE_BASE, /* single address that IS _text (the image base) directly, so
                   * emit_base() must NOT apply the _start->_text projection (the
                   * ".text : 0x" line, distinct from the _start-reporting
@@ -196,11 +213,11 @@ static const struct layout_entry entries[] = {
      * "vmalloc"/"vmemmap" appears only in matching layout lines on these
      * kernels; the needle includes it explicitly). */
     {"vmalloc : 0x", KASLD_TYPE_VIRT, "vmalloc region", REGION_VMALLOC,
-     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_RANGE},
+     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_RANGE_HALF_OPEN},
     {"vmalloc area:", KASLD_TYPE_VIRT, "vmalloc region", REGION_VMALLOC,
-     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_RANGE},
+     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_RANGE_HALF_OPEN},
     {"vmemmap : 0x", KASLD_TYPE_VIRT, "vmemmap region", REGION_VMEMMAP,
-     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_RANGE},
+     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_RANGE_HALF_OPEN},
     {NULL, 0, NULL, REGION_UNKNOWN, 0, 0, LK_BASE},
 };
 
@@ -295,7 +312,11 @@ static int on_match(const char *line, void *ctx) {
     if (strstr(line, entries[i].needle) == NULL)
       continue;
 
-    if (entries[i].kind == LK_RANGE) {
+    /* Switched over the kind with no default, so a kind added to the enum
+     * without a conversion here fails to build rather than borrowing whichever
+     * branch it happens to fall into. */
+    switch (entries[i].kind) {
+    case LK_RANGE_HALF_OPEN: {
       unsigned long lo, hi;
       if (!extract_range(line, &lo, &hi))
         continue;
@@ -303,14 +324,21 @@ static int on_match(const char *line, void *ctx) {
        * describe a non-degenerate range (lo < hi). */
       if (lo < entries[i].gate_min || hi > entries[i].gate_max || lo >= hi)
         continue;
-      emit_range(i, lo, hi);
-    } else {
+      /* The printed high figure is one past the region; an extent is stored
+       * inclusive. lo < hi above, so the step back cannot cross lo. */
+      emit_range(i, lo, hi - 1);
+      break;
+    }
+    case LK_BASE:
+    case LK_IMAGE_BASE: {
       unsigned long addr = extract_addr(line);
       if (!addr)
         continue;
       if (addr < entries[i].gate_min || addr > entries[i].gate_max)
         continue;
       emit_base(i, addr);
+      break;
+    }
     }
     sc->found_mask |= (1 << i);
   }
