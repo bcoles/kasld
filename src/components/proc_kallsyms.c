@@ -1,6 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Retrieve kernel _text (image base) and _stext symbols from /proc/kallsyms
+// Retrieve kernel _text (image base) and _stext symbols from /proc/kallsyms,
+// and the image footprint from the outer symbols.
 //
 // Based on original code by spender:
 // https://grsecurity.net/~spender/exploits/exploit.txt
@@ -34,6 +35,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/kernel_image.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,7 +45,8 @@ KASLD_EXPLAIN(
     "Reads kernel symbol virtual addresses from /proc/kallsyms. When "
     "kernel.kptr_restrict is 0 (or the reader has CAP_SYSLOG), symbol "
     "addresses are printed in full. The _stext symbol gives the kernel "
-    "text base directly. Distributions such as Debian and Ubuntu set "
+    "text base directly, and the distance from _text to _end is the image "
+    "footprint exactly. Distributions such as Debian and Ubuntu set "
     "kptr_restrict to 1 (mainline defaults to 0), hiding addresses from "
     "unprivileged users.");
 
@@ -87,13 +90,14 @@ int main(void) {
   if (all_zero)
     return KASLD_EXIT_NOPERM;
 
-  unsigned long text = 0, stext = 0, etext = 0;
+  unsigned long text = 0, stext = 0, etext = 0, end = 0;
 
   FILE *ks = kasld_fopen("/proc/kallsyms", "r");
   if (ks) {
     unsigned long a;
     char line[512], type, sym[256];
-    kasld_info("scanning /proc/kallsyms for _text, _stext and _etext ...");
+    kasld_info("scanning /proc/kallsyms for _text, _stext, _etext and _end "
+               "...");
     /* Read line-wise rather than with a "%lx" field: a symbol address wider
      * than this build's word must be refused, and scanf would hand back a
      * truncated one that looks like a valid base. */
@@ -109,7 +113,9 @@ int main(void) {
         stext = a;
       else if (!etext && strcmp(sym, "_etext") == 0)
         etext = a;
-      if (text && stext && etext)
+      else if (!end && strcmp(sym, "_end") == 0)
+        end = a;
+      if (text && stext && etext && end)
         break;
     }
     fclose(ks);
@@ -145,6 +151,30 @@ int main(void) {
 
   if (etext)
     kasld_info("kernel text end   (_etext): 0x%lx", etext);
+
+  if (end)
+    kasld_info("kernel image end  (_end):   0x%lx", end);
+
+  /* Image footprint from the outermost symbols in hand. Any pair with
+   * _text <= lo and hi <= _end satisfies hi - lo <= _end - _text, so a partial
+   * pair still bounds the footprint from below -- older mips exports _stext
+   * with no _text, and a kallsyms filtered to the text symbols has no _end.
+   *
+   * Only the true outer edges give the footprint ITSELF, which is what the
+   * upper bound requires: it must be a value no in-image leak can exceed, and
+   * every arch linker script places _end after BSS, so nothing in text, data or
+   * bss lies above it. A span built from _stext or _etext understates and is
+   * emitted as a lower bound alone. */
+  unsigned long lo = text ? text : stext;
+  unsigned long hi = end ? end : etext;
+  if (lo && hi && hi > lo) {
+    unsigned long span = hi - lo;
+    if (span >= KIMG_MIN_BYTES) {
+      kasld_emit_scalar(SF_IMAGE_SIZE_MIN, span, CONF_PARSED);
+      if (text && end)
+        kasld_emit_scalar(SF_IMAGE_SIZE_MAX, span, CONF_PARSED);
+    }
+  }
 
   return 0;
 }

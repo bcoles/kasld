@@ -105,6 +105,72 @@ static void test_readable_kallsyms_emits_base(void) {
   assert(strstr(cap, want) != NULL);
 }
 
+/* _text and _end are the image's outer edges, so their distance is the
+ * footprint itself and bounds it from both sides. */
+static void test_text_to_end_is_the_exact_footprint(void) {
+  char text[512];
+  unsigned long b = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  snprintf(text, sizeof(text),
+           "%lx T _text\n%lx T _stext\n%lx T _etext\n%lx B _end\n", b,
+           b + 0x1000, b + 0x400000, b + 0x800000);
+  stage_kallsyms(text);
+  run_capture();
+  assert(strstr(cap, "image_size_min conf=parsed value=0x800000") != NULL);
+  assert(strstr(cap, "image_size_max conf=parsed value=0x800000") != NULL);
+}
+
+/* _stext and _etext lie inside the image, so their distance understates the
+ * footprint. It still bounds it from below, but claiming it as an upper bound
+ * would put the image-base floor above the true base and exclude it. */
+static void test_inner_symbols_bound_from_below_only(void) {
+  char text[512];
+  unsigned long b = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  snprintf(text, sizeof(text), "%lx T _stext\n%lx T _etext\n", b, b + 0x600000);
+  stage_kallsyms(text);
+  run_capture();
+  assert(strstr(cap, "image_size_min conf=parsed value=0x600000") != NULL);
+  assert(strstr(cap, "image_size_max") == NULL);
+}
+
+/* _text present but _end absent: the high edge falls back to _etext, which is
+ * inside the image, so the span understates the footprint. An upper bound may
+ * never understate -- the floor rule subtracts it from a leaked in-image
+ * address, and too small a value puts the floor above the true base and
+ * excludes it. One true edge is not enough. */
+static void test_text_without_end_bounds_from_below_only(void) {
+  char text[512];
+  unsigned long b = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  snprintf(text, sizeof(text), "%lx T _text\n%lx T _etext\n", b, b + 0x600000);
+  stage_kallsyms(text);
+  run_capture();
+  assert(strstr(cap, "image_size_min conf=parsed value=0x600000") != NULL);
+  assert(strstr(cap, "image_size_max") == NULL);
+}
+
+/* The symmetric case: _end present but _text absent, so the low edge falls back
+ * to _stext, again inside the image. */
+static void test_end_without_text_bounds_from_below_only(void) {
+  char text[512];
+  unsigned long b = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  snprintf(text, sizeof(text), "%lx T _stext\n%lx B _end\n", b, b + 0x600000);
+  stage_kallsyms(text);
+  run_capture();
+  assert(strstr(cap, "image_size_min conf=parsed value=0x600000") != NULL);
+  assert(strstr(cap, "image_size_max") == NULL);
+}
+
+/* Outer edges a page apart are not a kernel; the shared plausibility floor
+ * rejects the pair rather than publishing a footprint nothing could hold. */
+static void test_footprint_below_floor_not_emitted(void) {
+  char text[512];
+  unsigned long b = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  snprintf(text, sizeof(text), "%lx T _text\n%lx B _end\n", b, b + 0x1000);
+  stage_kallsyms(text);
+  run_capture();
+  assert(strstr(cap, "image_size_min") == NULL);
+  assert(strstr(cap, "image_size_max") == NULL);
+}
+
 /* A 64-bit table read by a narrower build. The addresses cannot be
  * represented, so nothing may be emitted — least of all their low halves,
  * which are plausible kernel-text values in their own right. */
@@ -133,12 +199,18 @@ static void test_too_wide_is_not_reported_as_restricted(void) {
 }
 
 int main(void) {
-  TEST_SUITE("proc_kallsyms (masked probe + address width)");
+  TEST_SUITE("proc_kallsyms (masked probe + footprint + address width)");
   th_sysroot_init("proc_kallsyms");
 
   BEGIN_CATEGORY("kptr_restrict probe");
   RUN(test_masked_kallsyms_is_denied);
   RUN(test_readable_kallsyms_emits_base);
+  BEGIN_CATEGORY("image footprint");
+  RUN(test_text_to_end_is_the_exact_footprint);
+  RUN(test_inner_symbols_bound_from_below_only);
+  RUN(test_text_without_end_bounds_from_below_only);
+  RUN(test_end_without_text_bounds_from_below_only);
+  RUN(test_footprint_below_floor_not_emitted);
   BEGIN_CATEGORY("address width");
   RUN(test_too_wide_addresses_are_not_truncated);
   RUN(test_too_wide_is_not_reported_as_restricted);
