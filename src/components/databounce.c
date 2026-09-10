@@ -176,6 +176,7 @@ int main(void) {
     return 0;
 
   debug_mode = kasld_env_enabled("KASLD_DATABOUNCE_DEBUG");
+  kasld_info("trying the databounce store-to-load forwarding side-channel ...");
   if (!is_intel_cpu()) {
     fprintf(stderr,
             "[-] databounce: not an Intel CPU; attack not applicable\n");

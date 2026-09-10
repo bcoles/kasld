@@ -93,6 +93,7 @@ static struct module_range get_addr_proc_modules(void) {
 }
 
 int main(void) {
+  kasld_info("reading /proc/modules for loaded module base addresses ...");
   /* Pre-check: is /proc/modules readable? */
   if (kasld_access("/proc/modules", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM

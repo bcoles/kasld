@@ -145,6 +145,7 @@ static int scan_line(const char *line) {
 int main(int argc, char **argv) {
   kasld_cli(argc, argv);
 
+  kasld_info("scanning %s for kernel pointers ...", DBGMSG_PATH);
   FILE *f = kasld_fopen(DBGMSG_PATH, "r");
   if (!f) {
     if (errno == EACCES || errno == EPERM) {

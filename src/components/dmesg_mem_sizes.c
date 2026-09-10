@@ -155,6 +155,7 @@ int main(int argc, char **argv) {
   kasld_cli(argc, argv);
   memset(&m, 0, sizeof(m));
 
+  kasld_info("searching the kernel log for the boot 'Memory:' summary ...");
   if (dmesg_search("Memory: ", on_memory_line, &m) < 0)
     return KASLD_EXIT_NOPERM;
 

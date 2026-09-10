@@ -12,6 +12,7 @@
 // ---
 // <bcoles@gmail.com>
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <unistd.h>
 
@@ -26,6 +27,7 @@ KASLD_META("method:parsed\n"
            "source:files\n");
 
 int main(void) {
+  kasld_info("checking /sys/firmware/efi for an EFI boot ...");
   if (kasld_access("/sys/firmware/efi", F_OK) == 0)
     kasld_emit_scalar(SF_EFI_PRESENT, 1, CONF_PARSED); /* EFI boot */
   else if (errno != EACCES)

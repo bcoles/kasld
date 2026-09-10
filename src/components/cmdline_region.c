@@ -10,6 +10,7 @@
 #define _POSIX_C_SOURCE 200809L /* pread() in boot_params.h */
 #include "include/kasld/api.h"
 #include "include/kasld/boot_params.h"
+#include "include/kasld/cli.h"
 
 KASLD_EXPLAIN("Reads the physical address and length of the kernel cmdline "
               "from /sys/kernel/boot_params/data and emits the spanned region. "
@@ -21,6 +22,7 @@ KASLD_META("method:parsed\n"
            "source:files\n");
 
 int main(void) {
+  kasld_info("reading the boot_params command-line pointer and size ...");
   unsigned long ptr = kasld_read_boot_cmd_line_ptr();
   unsigned long size = kasld_read_boot_cmdline_size();
   if (ptr == 0 || size == 0)

@@ -90,6 +90,8 @@ static unsigned long get_phys_addr_vmcoreinfo(void) {
 }
 
 int main(void) {
+  kasld_info("reading /sys/kernel/vmcoreinfo for the note's physical "
+             "address ...");
   /* Pre-check: is /sys/kernel/vmcoreinfo readable? */
   if (kasld_access("/sys/kernel/vmcoreinfo", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM

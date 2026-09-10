@@ -28,6 +28,7 @@ int main(void) {
   if (kasld_skip_live_probe("VA_BITS mmap"))
     return 0;
   /* Live mmap boundary probe of the running VA space. */
+  kasld_info("probing the mmap boundary for the virtual address width ...");
   int va = kasld_s390_va_bits();
   /* Inferred from an mmap boundary probe, not parsed from an authoritative
    * source: CONF_INFERRED (at the sound floor), not CONF_PARSED. */

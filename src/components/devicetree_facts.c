@@ -6,6 +6,7 @@
 // ---
 // <bcoles@gmail.com>
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/devicetree.h"
 
 KASLD_EXPLAIN("Reads the OPAL/RTAS firmware reserved-region base from the "
@@ -17,6 +18,7 @@ KASLD_META("method:parsed\n"
            "source:files\n");
 
 int main(void) {
+  kasld_info("reading the firmware reserved base from /proc/device-tree ...");
   unsigned long v = kasld_read_ppc64_fw_reserved_base();
   if (v)
     kasld_emit_scalar(SF_PHYS_FW_RESERVED_BASE, v, CONF_PARSED);

@@ -6,6 +6,7 @@
 // ---
 // <bcoles@gmail.com>
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/meminfo.h"
 
 KASLD_EXPLAIN("Reads /proc/meminfo (MemTotal, LowTotal) and /proc/zoneinfo "
@@ -18,6 +19,7 @@ KASLD_META("method:parsed\n"
 
 int main(void) {
   unsigned long v;
+  kasld_info("reading memory sizes from /proc/meminfo and /proc/zoneinfo ...");
   if ((v = kasld_read_memtotal_bytes()))
     kasld_emit_scalar(SF_PHYS_MEMTOTAL, v, CONF_PARSED);
   if ((v = kasld_read_lowmem_bytes()))

@@ -140,6 +140,8 @@ static void scan_sock_file(const char *path, struct sock_range *r) {
 int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
 
+  kasld_info("reading /proc/net/unix and /proc/net/netlink for socket "
+             "pointers ...");
   int unix_rc = kasld_access("/proc/net/unix", R_OK);
   int unix_errno = errno;
   int nl_rc = kasld_access("/proc/net/netlink", R_OK);

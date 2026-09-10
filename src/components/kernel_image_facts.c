@@ -16,6 +16,7 @@
 // ---
 // <bcoles@gmail.com>
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/kernel_image.h"
 
 KASLD_EXPLAIN(
@@ -52,6 +53,8 @@ static int boot_artefact_class(const char *release) {
 
 int main(void) {
   struct utsname uts;
+  kasld_info("sizing the kernel image from the boot artefacts for this "
+             "release ...");
   if (kasld_uname(&uts) != 0)
     return 0;
   const char *rel = uts.release;

@@ -25,6 +25,7 @@
 #define _POSIX_C_SOURCE 200809L /* pread() in boot_params.h */
 #include "include/kasld/api.h"
 #include "include/kasld/boot_params.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/kernel_image.h"
 
 #include <sys/utsname.h>
@@ -47,6 +48,8 @@ int main(void) {
   int relocatable = -1;
   struct utsname uts;
 
+  kasld_info("reading the boot_params image size, alignment and relocatable "
+             "flag ...");
   init_size = kasld_read_boot_init_size();
   align = kasld_read_boot_kernel_align();
   relocatable = kasld_read_boot_relocatable();

@@ -382,6 +382,7 @@ int main(void) {
   if (gated)
     return gated;
 
+  kasld_info("trying the zombieload MDS side-channel ...");
   if (!is_intel_cpu()) {
     fprintf(stderr,
             "[-] zombieload: not an Intel CPU; MDS is Intel-specific\n");

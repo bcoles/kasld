@@ -65,16 +65,17 @@ static int config_has_hibernation(FILE *fp) {
 }
 
 int main(void) {
+  kasld_info("checking for hibernation-disabled KASLR ...");
+
   /* Only LoongArch still disables KASLR during hibernation resume (v6.17).
    * On x86/x86_64 this was fixed in kernel v4.8 (commit 65fe935dd238).
    * All other architectures are unaffected. The Makefile compiles every
    * component for every target, so this guard prevents false positives on
    * non-LoongArch builds. */
 #if !defined(__loongarch__)
+  kasld_err("hibernation does not disable KASLR on this architecture");
   return KASLD_EXIT_UNAVAILABLE;
 #endif
-
-  kasld_info("checking for hibernation-disabled KASLR ...");
 
   /* "resume=" must be present — this is the hibernation resume path. */
   if (!cmdline_has_prefix("resume=")) {

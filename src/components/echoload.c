@@ -260,6 +260,7 @@ int main(void) {
   if (gated)
     return gated;
 
+  kasld_info("trying the echoload store-forwarding side-channel ...");
   if (!is_intel_cpu()) {
     fprintf(stderr, "[-] echoload: not an Intel CPU; attack not applicable\n");
     return kasld_disp_absent("not an Intel CPU");

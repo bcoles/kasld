@@ -107,6 +107,8 @@ static unsigned long get_kernel_addr_conntrack(void) {
 }
 
 int main(void) {
+  kasld_info("reading the nf_conntrack slab in /sys/kernel/slab for a struct "
+             "net pointer ...");
   /* Pre-check: is /sys/kernel/slab/ readable? */
   if (kasld_access("/sys/kernel/slab/", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM

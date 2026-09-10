@@ -64,6 +64,8 @@ KASLD_META("method:parsed\n"
 int main(int argc, char **argv) {
   kasld_cli(argc, argv);
 
+  kasld_info("reading /sys/kernel/debug/kmemleak for leaked kernel pointers "
+             "...");
   int fd = kasld_open("/sys/kernel/debug/kmemleak", O_RDONLY);
   if (fd < 0) {
     if (errno == EACCES || errno == EPERM)

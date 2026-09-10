@@ -69,6 +69,7 @@ static const char *const PATHS[] = {
 int main(int argc, char **argv) {
   kasld_cli(argc, argv);
 
+  kasld_info("searching the tracefs printk_formats for kernel pointers ...");
   FILE *f = NULL;
   const char *path = NULL;
   for (size_t i = 0; i < sizeof(PATHS) / sizeof(PATHS[0]); i++) {

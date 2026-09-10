@@ -5,6 +5,7 @@
 // ---
 // <bcoles@gmail.com>
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/cpuinfo.h"
 
 KASLD_EXPLAIN("Reads the CPU physical-address width from /proc/cpuinfo and "
@@ -16,6 +17,7 @@ KASLD_META("method:parsed\n"
            "source:files\n");
 
 int main(void) {
+  kasld_info("reading the physical address width from /proc/cpuinfo ...");
   int bits = kasld_read_phys_addr_bits();
   if (bits > 0)
     kasld_emit_scalar(SF_PHYS_ADDR_BITS, (unsigned long)bits, CONF_PARSED);

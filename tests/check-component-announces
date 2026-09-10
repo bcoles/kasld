@@ -1,0 +1,122 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-component-announces — every component accounts for itself.
+#
+# A run prints a header per component and then whatever that component emitted.
+# Where a component emits nothing the header stands over a blank space, and the
+# reader is left to guess which of three things happened: the technique does not
+# apply here, the source was there and access was refused, or it ran and found
+# nothing. Those are different facts about the target -- the middle one is
+# hardening -- and a blank space asserts none of them.
+#
+# The standard (see CONTRIBUTING): announce intent BEFORE the first operation
+# that can fail, through kasld_info, then report the outcome. Printed first, the
+# line survives an early return, a denial, a kill on timeout and a crash; a
+# component that speaks only once it has succeeded says nothing in exactly the
+# runs where the reader needs it most.
+#
+# Two assertions, because neither reaches the whole population on its own:
+#
+#   1. Static: the source calls kasld_info at least once. This is a floor -- it
+#      cannot see WHERE the call sits, so a success-only announce passes it --
+#      but it covers every component including the live probes, which the run
+#      below deliberately does not exercise.
+#
+#   2. Run: against a sysroot holding nothing, every component writes something
+#      to one of its two channels. An empty tree is the shape of a host where
+#      the reader most needs each component to speak, and it is deterministic --
+#      it depends on nothing this host happens to have. This is what catches an
+#      announce placed AFTER the early returns, which reads as correct in source
+#      and goes silent the moment a source is missing.
+#
+# Live probes read hardware rather than files, so under a sysroot they skip with
+# a message and pass the run assertion trivially; they are held to the static
+# one alone. Running them for real would make the guard depend on this host's
+# CPU and dominate its runtime, which is the same call check-fail-closed makes.
+#
+# Usage: tests/check-component-announces   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+SRC="$ROOT/src/components"
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
+# shellcheck source=tests/lib/component-artifacts.sh
+. "$ROOT/tests/lib/component-artifacts.sh"
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+# ---- 1. static: every component source announces somewhere ----------------
+
+mute=; nsrc=0
+for f in "$SRC"/*.c; do
+  [ -f "$f" ] || continue
+  nsrc=$((nsrc + 1))
+  grep -q 'kasld_info(' "$f" || mute="$mute $(basename "$f" .c)"
+done
+
+if [ -n "$mute" ]; then
+  printf '%scheck-component-announces: FAIL%s (component with no kasld_info call)\n' \
+    "$RED" "$RESET" >&2
+  for m in $mute; do printf '  %s\n' "$m" >&2; done
+  printf 'Announce the technique before the first call that can fail:\n' >&2
+  printf '  kasld_info("checking %%s for ...", path);\n' >&2
+  printf 'A component that prints nothing leaves its section blank, which says\n' >&2
+  printf 'neither "not applicable here" nor "refused" nor "found nothing".\n' >&2
+  exit 1
+fi
+
+guard_scope "check-component-announces" "$nsrc" 50
+
+# ---- 2. run: nothing readable, and every component still speaks -----------
+
+COMP=
+for t in $(host_triples); do
+  if [ -d "$ROOT/build/$t/components" ]; then
+    COMP=$ROOT/build/$t/components
+    break
+  fi
+done
+[ -n "$COMP" ] || {
+  printf '%scheck-component-announces: SKIP%s (static half OK for %s sources; no native build for the run half)\n' \
+    "$YELLOW" "$RESET" "$nsrc"
+  exit 0
+}
+
+EMPTY=$(mktemp -d) || exit 1
+trap 'rm -rf "$EMPTY"' EXIT INT TERM
+mkdir -p "$EMPTY/proc"
+
+silent=; nrun=0
+for f in "$COMP"/*; do
+  # Empty files are the architecture-gated stamp, not a component binary.
+  if [ ! -f "$f" ] || [ ! -s "$f" ] || [ ! -x "$f" ]; then
+    continue
+  fi
+  nrun=$((nrun + 1))
+  out=$(KASLD_SYSROOT="$EMPTY" timeout 10 "$f" 2>&1 | head -c 64)
+  [ -n "$out" ] || silent="$silent $(basename "$f")"
+done
+
+if [ -n "$silent" ]; then
+  printf '%scheck-component-announces: FAIL%s (ran with nothing readable and printed nothing)\n' \
+    "$RED" "$RESET" >&2
+  for s in $silent; do printf '  %s\n' "$s" >&2; done
+  printf 'The announce sits after an early return: the source check, the\n' >&2
+  printf 'permission check or the emptiness check reached its exit before the\n' >&2
+  printf 'component said what it was doing. Move it above them.\n' >&2
+  exit 1
+fi
+
+printf '%scheck-component-announces: OK%s (%s sources announce; %s binaries speak with nothing readable)\n' \
+  "$GREEN" "$RESET" "$nsrc" "$nrun"

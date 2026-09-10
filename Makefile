@@ -1083,6 +1083,7 @@ lint :
 	    $(TEST_DIR)/check-hostname-scrub \
 	    $(TEST_DIR)/check-absence-vs-denial \
 	    $(TEST_DIR)/check-component-output \
+	    $(TEST_DIR)/check-component-announces \
 	    $(TEST_DIR)/check-component-meta \
 	    $(TEST_DIR)/check-component-tests \
 	    $(TEST_DIR)/check-component-cap \

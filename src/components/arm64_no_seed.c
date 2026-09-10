@@ -35,6 +35,7 @@
 #endif
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/kaslr_default.h"
 
 KASLD_EXPLAIN("On non-EFI device-tree arm64 with no FDT /chosen/kaslr-seed and "
@@ -47,6 +48,8 @@ KASLD_META("method:parsed\n"
            "source:files\n");
 
 int main(void) {
+  kasld_info("checking /proc/device-tree/chosen for a kaslr-seed and the CPU "
+             "for FEAT_RNG ...");
   if (kasld_kaslr_disabled_text_default())
     kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
   return 0;

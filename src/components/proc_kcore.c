@@ -80,6 +80,8 @@ KASLD_META("method:parsed\n"
 int main(int argc, char **argv) {
   kasld_cli(argc, argv);
 
+  kasld_info("reading /proc/kcore program headers for the kernel text and "
+             "direct-map segments ...");
   int fd = kasld_open("/proc/kcore", O_RDONLY);
   if (fd < 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM

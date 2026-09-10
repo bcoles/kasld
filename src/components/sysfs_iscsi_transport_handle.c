@@ -322,6 +322,8 @@ static int wait_for_transport(void) {
 int main(void) {
   int denied = 0;
 
+  kasld_info("reading the iSCSI transport handles in %s ...", ISCSI_CLASS_DIR);
+
   /* KASLD_SYSROOT redirects reads to a copied tree: there is no live module to
    * load and whatever was captured is already present, so skip the trigger and
    * the wait and read the captured class directly. */

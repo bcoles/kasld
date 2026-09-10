@@ -128,6 +128,7 @@ static struct module_range get_module_text_sysfs(void) {
 }
 
 int main(void) {
+  kasld_info("reading /sys/module section addresses ...");
   /* Pre-check: is /sys/module/ readable? */
   if (kasld_access("/sys/module/", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM

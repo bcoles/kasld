@@ -284,6 +284,33 @@ Two channels, kept separate (`include/kasld/cli.h`):
   verbose. `tests/check-component-output` enforces this: any component
   printing a diagnostic to stdout fails the build.
 
+**Announce before the first operation that can fail.** A run prints a header per
+component and then whatever that component emitted, so a component that emits
+nothing leaves its header standing over a blank space — and a blank space cannot
+say which of three things happened: the technique does not apply here, the
+source was there and access was refused, or it ran and found nothing. The middle
+one is hardening, and it is the one a reader most needs to see.
+
+So the first `kasld_info` goes above the source check, not after it:
+
+```c
+int main(void) {
+  kasld_info("reading /proc/modules for loaded module base addresses ...");
+  if (kasld_access("/proc/modules", R_OK) != 0)
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
+```
+
+Printed first, the line survives an early return, a denial, a kill on timeout
+and a crash. Printed after the checks, it appears only on the runs that were
+going to succeed anyway. Report the outcome too, in the terms the reader needs:
+`kptr_restrict` masking every address in `/proc/kallsyms` is a fact about the
+target, and a silent exit 77 is not that fact.
+
+`tests/check-component-announces` enforces both halves — that every component
+source calls `kasld_info` at least once, and that every component still writes
+something when run against a tree holding nothing.
+
 **Options** are optional and **manual** (testing/debugging — the orchestrator
 passes none and sets no env). If a component takes any, parse them with
 `kasld_cli(argc, argv)` rather than hand-rolling `argv` — it gives every

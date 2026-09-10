@@ -12,6 +12,7 @@
 // <bcoles@gmail.com>
 #include "include/kasld/firmware_memmap.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 
 KASLD_EXPLAIN("Reads /sys/firmware/memmap (the authoritative firmware System "
               "RAM map) and emits each System RAM span as a PHYS RAM extent. "
@@ -24,6 +25,7 @@ KASLD_META("method:parsed\n"
 
 int main(void) {
   struct kasld_ram_extent ext[128];
+  kasld_info("reading the firmware RAM map ...");
   int n = kasld_load_ram_extents(ext, 128);
   /* n < 0: the map could not be captured completely (overflow, parse failure,
    * or word truncation). A partial covering would fabricate false gaps that

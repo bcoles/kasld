@@ -25,6 +25,7 @@ int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
   if (kasld_skip_live_probe("page size"))
     return 0;
+  kasld_info("reading the page size from sysconf ...");
   long p = sysconf(_SC_PAGESIZE);
   if (p > 0)
     kasld_emit_scalar(SF_PAGE_SIZE, (unsigned long)p, CONF_PARSED);

@@ -28,6 +28,7 @@
 #endif
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/kaslr_default.h"
 
 KASLD_EXPLAIN(
@@ -45,6 +46,7 @@ KASLD_META("method:parsed\n"
            "source:files\n");
 
 int main(void) {
+  kasld_info("checking /proc/device-tree/chosen for a kaslr-seed ...");
   if (kasld_kaslr_disabled_text_default()) {
     kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
     kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);

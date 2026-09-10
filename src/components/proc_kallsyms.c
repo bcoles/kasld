@@ -58,6 +58,7 @@ KASLD_META("method:parsed\n"
            "bypass:CAP_SYSLOG\n");
 
 int main(void) {
+  kasld_info("scanning /proc/kallsyms for _text, _stext, _etext and _end ...");
   /* Pre-check: is /proc/kallsyms readable? */
   FILE *f = kasld_fopen("/proc/kallsyms", "r");
   if (!f)
@@ -87,8 +88,10 @@ int main(void) {
   }
   fclose(f);
 
-  if (all_zero)
+  if (all_zero) {
+    kasld_err("every address in /proc/kallsyms reads as zero (kptr_restrict)");
     return KASLD_EXIT_NOPERM;
+  }
 
   unsigned long text = 0, stext = 0, etext = 0, end = 0;
 
@@ -96,8 +99,6 @@ int main(void) {
   if (ks) {
     unsigned long a;
     char line[512], type, sym[256];
-    kasld_info("scanning /proc/kallsyms for _text, _stext, _etext and _end "
-               "...");
     /* Read line-wise rather than with a "%lx" field: a symbol address wider
      * than this build's word must be refused, and scanf would hand back a
      * truncated one that looks like a valid base. */
