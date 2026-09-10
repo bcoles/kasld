@@ -179,16 +179,17 @@ A compiler which supports the `_GNU_SOURCE` macro is required due to
 use of non-portable code (`MAP_ANONYMOUS`, `getline()`, `popen()`, …).
 
 ```
-make              # build kasld + components
-make run          # build and run
-make test         # build and run unit tests
-make cross        # cross-compile for all supported architectures
-make install      # install to /usr/local (PREFIX=/usr/local)
-make installcheck # smoke-test the installed bin/kasld + libexec/kasld/
-make uninstall    # remove installed files
-make clean        # remove build directory
-make print-deps   # list build dependencies (libs + per-component flags)
-make help         # show all targets and options
+make               # build kasld + components
+make run           # build and run
+make test          # build and run unit tests
+make cross         # cross-compile for all supported architectures
+make install       # install to /usr/local (PREFIX=/usr/local)
+make install-strip # install, then strip the installed binaries
+make installcheck  # smoke-test the installed bin/kasld + libexec/kasld/
+make uninstall     # remove installed files
+make clean         # remove build directory
+make print-deps    # list build dependencies (libs + per-component flags)
+make help          # show all targets and options
 ```
 
 `COMPONENTS` restricts a build to the components matching a glob, so a target

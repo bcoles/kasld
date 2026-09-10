@@ -1664,6 +1664,7 @@ help:
 	@echo "      coverage        Host unit-test coverage report (gcov)"
 	@echo "      coverage-e2e    End-to-end coverage over x86 fixtures (gcov)"
 	@echo "      install         Install to PREFIX (default: /usr/local)"
+	@echo "      install-strip   Install, then strip the installed binaries"
 	@echo "      installcheck    Smoke-test the installed bin/kasld + libexec/kasld/"
 	@echo "      uninstall       Remove installed files"
 	@echo "      clean           Remove build directory"
@@ -1679,6 +1680,7 @@ help:
 	@echo "      test-fixtures          Offline soundness: resolved window contains truth"
 	@echo "      test-fixtures-perturb  Truth-free soundness: window stable vs faked container inputs"
 	@echo "      test-container         Container/cgroup execution checks (live; seccomp/ns/cpuset)"
+	@echo "      fuzz                   Build the libFuzzer harnesses (clang; opt-in)"
 	@echo
 	@echo "  Options:"
 	@echo "      CC=compiler     Compiler executable"
