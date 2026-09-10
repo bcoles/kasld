@@ -21,6 +21,7 @@
 #ifndef KASLD_CLI_H
 #define KASLD_CLI_H
 
+#include <errno.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -70,6 +71,24 @@ kasld_logf(char level, int gated, const char *fmt, ...) {
 #define kasld_err(...) kasld_logf('-', 0, __VA_ARGS__) /* failure / N-A */
 #define kasld_found(...)                                                       \
   kasld_logf('+', 0, __VA_ARGS__) /* a leak was produced*/
+
+/* A failure and the errno that explains it, as one '[-]' line: the levelled
+ * equivalent of perror(). Which errno a probe got is the difference between a
+ * source that is not there and one that is refused, so a component reporting a
+ * failed read without it makes the reader guess what it already knew.
+ *
+ * errno is read before anything else runs, since the formatting itself may
+ * change it. */
+__attribute__((format(printf, 1, 2))) static inline void
+kasld_errno(const char *fmt, ...) {
+  int e = errno;
+  char msg[512];
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(msg, sizeof(msg), fmt, ap);
+  va_end(ap);
+  kasld_logf('-', 0, "%s: %s", msg, strerror(e));
+}
 
 /* Live-probe guard for standalone invocation. A component declaring
  * source:live in KASLD_META draws its result from live runtime state of the

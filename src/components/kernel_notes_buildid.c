@@ -178,7 +178,7 @@ int main(void) {
 
   fd = kasld_open(path, O_RDONLY);
   if (fd < 0) {
-    perror("[-] open(/sys/kernel/notes)");
+    kasld_errno("open(/sys/kernel/notes)");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
   }

@@ -237,7 +237,7 @@ static unsigned long directmap_vote(int vendor, size_t n, uint64_t win_base,
         prefetch_scan_find_edge(times, n, vendor, DM_CONFIRM_K, DM_CONFIRM_M);
     results[i] = edge < 0 ? 0 : win_base + (unsigned long)edge * DM_STEP;
     if (verbose)
-      fprintf(stderr, "# pass %d: 0x%lx\n", i, results[i]);
+      kasld_info("# pass %d: 0x%lx", i, results[i]);
   }
   free(times);
 
@@ -314,9 +314,8 @@ static unsigned long get_directmap_base_prefetch(void) {
   }
 
   if (pti) {
-    fprintf(stderr,
-            "[-] KPTI is enabled; prefetch side-channel is ineffective\n"
-            "    (kernel pages unmapped from userspace page tables)\n");
+    kasld_err("KPTI is enabled; prefetch side-channel is ineffective\n"
+              "    (kernel pages unmapped from userspace page tables)");
     exit(kasld_disp_mitigation("kpti", "KPTI enabled"));
   }
 

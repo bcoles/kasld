@@ -143,7 +143,7 @@ int main(void) {
                 base);
       return KASLD_EXIT_UNAVAILABLE;
     }
-    perror("[-] opendir");
+    kasld_errno("opendir");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
   }

@@ -105,7 +105,7 @@ int main(void) {
     if (saved_errno == ENOENT || saved_errno == ENODEV)
       kasld_err("%s not present (CONFIG_LIBNVDIMM=n or no nd bus)", nd_base);
     else
-      perror("[-] opendir");
+      kasld_errno("opendir");
     return (saved_errno == EACCES || saved_errno == EPERM)
                ? KASLD_EXIT_NOPERM
                : KASLD_EXIT_UNAVAILABLE;

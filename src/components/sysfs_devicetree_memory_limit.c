@@ -56,8 +56,8 @@ int main(void) {
   }
 
   if (!found) {
-    fprintf(stderr, "[-] linux,memory-limit not present (non-PowerPC platform "
-                    "or no DT)\n");
+    kasld_err("linux,memory-limit not present (non-PowerPC platform "
+              "or no DT)");
     return KASLD_EXIT_UNAVAILABLE;
   }
   /* A zero value means "no limit imposed" — emit nothing. */

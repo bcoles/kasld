@@ -8,6 +8,7 @@
 #define KASLD_SYSLOG_H
 
 #define _GNU_SOURCE
+#include "include/kasld/cli.h"
 #include "include/kasld/sysroot.h"
 
 #include <errno.h>
@@ -54,7 +55,7 @@ static int read_dmesg_log_file(char **buffer, int *size) {
 
   f = kasld_fopen(path, "rb");
   if (f == NULL) {
-    perror("[-] fopen(/var/log/dmesg)");
+    kasld_errno("fopen(/var/log/dmesg)");
     return 1;
   }
 
@@ -70,7 +71,7 @@ static int read_dmesg_log_file(char **buffer, int *size) {
    * running kernel, so its length is whatever that tree says it is. */
   alloc = kasld_syslog_alloc(len);
   if (alloc == 0) {
-    fprintf(stderr, "[-] %s: implausible length (%ld bytes)\n", path, len);
+    kasld_err("%s: implausible length (%ld bytes)", path, len);
     fclose(f);
     return 1;
   }
@@ -122,7 +123,7 @@ static int mmap_syslog(char **buffer, int *size) {
    * so a fallback to the log file never inherits a size from the ring. */
   ring = klogctl(SYSLOG_ACTION_SIZE_BUFFER, 0, 0);
   if (ring < 0) {
-    perror("[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER)");
+    kasld_errno("klogctl(SYSLOG_ACTION_SIZE_BUFFER)");
     return read_dmesg_log_file(buffer, size);
   }
 
@@ -140,7 +141,7 @@ static int mmap_syslog(char **buffer, int *size) {
 
   *size = klogctl(SYSLOG_ACTION_READ_ALL, *buffer, (int)alloc);
   if (*size < 0) {
-    perror("[-] klogctl(SYSLOG_ACTION_READ_ALL)");
+    kasld_errno("klogctl(SYSLOG_ACTION_READ_ALL)");
     munmap(*buffer, alloc);
     return read_dmesg_log_file(buffer, size);
   }

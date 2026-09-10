@@ -106,7 +106,7 @@ int main(void) {
   FILE *f = kasld_fopen(path, "r");
   if (!f) {
     int e = errno;
-    perror("[-] fopen");
+    kasld_errno("fopen");
     return (e == EACCES || e == EPERM) ? KASLD_EXIT_NOPERM
                                        : KASLD_EXIT_UNAVAILABLE;
   }

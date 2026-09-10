@@ -70,12 +70,12 @@ static unsigned long get_phys_addr_vmcoreinfo(void) {
 
   f = kasld_fopen(path, "r");
   if (f == NULL) {
-    perror("[-] fopen");
+    kasld_errno("fopen");
     return 0;
   }
 
   if (fgets(buf, sizeof(buf), f) == NULL) {
-    perror("[-] fgets");
+    kasld_errno("fgets");
     fclose(f);
     return 0;
   }

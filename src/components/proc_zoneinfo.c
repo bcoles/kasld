@@ -103,7 +103,7 @@ int main(void) {
 
   f = kasld_fopen(path, "r");
   if (f == NULL) {
-    perror("[-] fopen");
+    kasld_errno("fopen");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
   }

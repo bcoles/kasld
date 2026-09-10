@@ -204,13 +204,35 @@ static int debug_mode;
 static int total_probe_hits; /* probe accesses across all runs; 0 = no transient
                                 LFB data */
 
+/* Append to a fixed row buffer, clamping at its end and leaving *len at what
+ * the buffer actually holds. The dumps below are one line built across a loop,
+ * and the levelled logger emits whole lines -- so the line is assembled first
+ * and logged once, rather than written out a piece at a time. */
+__attribute__((format(printf, 4, 5))) static void
+row_append(char *buf, size_t sz, size_t *len, const char *fmt, ...) {
+  va_list ap;
+  int n;
+
+  if (*len + 1 >= sz)
+    return;
+  va_start(ap, fmt);
+  n = vsnprintf(buf + *len, sz - *len, fmt, ap);
+  va_end(ap);
+  if (n < 0)
+    return;
+  *len = ((size_t)n >= sz - *len) ? sz - 1 : *len + (size_t)n;
+}
+
 /* Dump per-offset histogram peaks to stderr.
  * Each row shows 8 offsets: value:count for signal, --:count for noise.
  * 0xff values are flagged with '*' — they are the upper-byte signature of
  * kernel text pointers (0xFFFFFFFF8xxxxxxx). Set KASLD_ZOMBIELOAD_DEBUG=1. */
 static void dump_histograms(int run) {
-  fprintf(stderr, "[debug] run %d: per-offset peaks (signal = >=%d hits):\n",
-          run + 1, MDS_MIN_HITS);
+  char row[128];
+  size_t rowlen = 0;
+
+  kasld_info("run %d: per-offset peaks (signal = >=%d hits):", run + 1,
+             MDS_MIN_HITS);
   for (int off = 0; off < 64; off++) {
     /* The peak byte value is what %02x prints, so it is held in the type that
      * conversion takes; the count beside it is a plain int. */
@@ -222,14 +244,18 @@ static void dump_histograms(int run) {
         pv = (unsigned)v;
       }
     }
-    if (off % 8 == 0)
-      fprintf(stderr, "  [%2d]:", off);
+    if (off % 8 == 0) {
+      rowlen = 0;
+      row[0] = '\0';
+      row_append(row, sizeof(row), &rowlen, "  [%2d]:", off);
+    }
     if (pc >= MDS_MIN_HITS)
-      fprintf(stderr, " %02x:%-4d%c", pv, pc, pv == 0xff ? '*' : ' ');
+      row_append(row, sizeof(row), &rowlen, " %02x:%-4d%c", pv, pc,
+                 pv == 0xff ? '*' : ' ');
     else
-      fprintf(stderr, " --:%-4d ", pc);
+      row_append(row, sizeof(row), &rowlen, " --:%-4d ", pc);
     if (off % 8 == 7)
-      fprintf(stderr, "\n");
+      kasld_info("%s", row);
   }
 }
 
@@ -384,52 +410,51 @@ int main(void) {
 
   kasld_info("trying the zombieload MDS side-channel ...");
   if (!is_intel_cpu()) {
-    fprintf(stderr,
-            "[-] zombieload: not an Intel CPU; MDS is Intel-specific\n");
+    kasld_err("zombieload: not an Intel CPU; MDS is Intel-specific");
     return kasld_disp_absent("not an Intel CPU");
   }
 
   if (!has_rtm()) {
-    fprintf(stderr, "[-] zombieload: TSX/RTM not available (CPUID); "
-                    "required for MDS fault suppression\n");
+    kasld_err("zombieload: TSX/RTM not available (CPUID); "
+              "required for MDS fault suppression");
     return kasld_disp_absent("TSX/RTM not available");
   }
 
   if (!rtm_is_functional()) {
-    fprintf(stderr, "[-] zombieload: TSX/RTM disabled at runtime; "
-                    "CPUID reports RTM but transactions abort immediately "
-                    "(microcode update or hypervisor restriction)\n");
+    kasld_err("zombieload: TSX/RTM disabled at runtime; "
+              "CPUID reports RTM but transactions abort immediately "
+              "(microcode update or hypervisor restriction)");
     return kasld_disp_absent("TSX/RTM disabled at runtime");
   }
 
   int mds_status = check_mds_status();
   if (mds_status == 2) {
-    fprintf(stderr, "[-] zombieload: CPU not affected by MDS (hardware fix)\n");
+    kasld_err("zombieload: CPU not affected by MDS (hardware fix)");
     return kasld_disp_mitigation("mds",
                                  "CPU not affected by MDS (hardware fix)");
   }
   if (mds_status == 1) {
-    fprintf(stderr, "[.] zombieload: MDS mitigations active "
-                    "(VERW buffer clearing); attack may not work\n");
+    kasld_info("zombieload: MDS mitigations active "
+               "(VERW buffer clearing); attack may not work");
   } else if (mds_status == 0) {
-    fprintf(stderr, "[.] zombieload: MDS mitigations not active; "
-                    "CPU may be vulnerable\n");
+    kasld_info("zombieload: MDS mitigations not active; "
+               "CPU may be vulnerable");
   }
 
   debug_mode = kasld_env_enabled("KASLD_ZOMBIELOAD_DEBUG");
 
-  fprintf(stderr, "[.] zombieload: using TSX abort mode\n");
+  kasld_info("zombieload: using TSX abort mode");
 
   memset(probe, 1, sizeof(probe));
 
   cache_miss_threshold = detect_flush_reload_threshold();
-  fprintf(stderr, "[.] zombieload: cache miss threshold: %zu cycles\n",
-          cache_miss_threshold);
+  kasld_info("zombieload: cache miss threshold: %zu cycles",
+             cache_miss_threshold);
 
   /* Allocate faulting page (PROT_NONE — not readable) */
   fault_page = mmap(NULL, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (fault_page == MAP_FAILED) {
-    fprintf(stderr, "[-] zombieload: failed to map faulting page\n");
+    kasld_err("zombieload: failed to map faulting page");
     return kasld_disp_inconclusive("failed to map faulting page");
   }
 
@@ -455,10 +480,9 @@ int main(void) {
     if (debug_mode) {
       dump_histograms(run);
       if (samples[run])
-        fprintf(stderr, "[debug] run %d: candidate 0x%016lx\n", run + 1,
-                samples[run]);
+        kasld_info("run %d: candidate 0x%016lx", run + 1, samples[run]);
       else
-        fprintf(stderr, "[debug] run %d: no candidate found\n", run + 1);
+        kasld_info("run %d: no candidate found", run + 1);
     }
   }
 
@@ -481,56 +505,57 @@ int main(void) {
   }
 
   if (debug_mode) {
-    fprintf(stderr, "[debug] total probe hits across all runs: %d\n",
-            total_probe_hits);
-    fprintf(stderr, "[debug] votes:");
+    char votes[256];
+    size_t voteslen = 0;
+
+    kasld_info("total probe hits across all runs: %d", total_probe_hits);
+    votes[0] = '\0';
     for (int i = 0; i < MDS_RUNS; i++) {
       if (samples[i])
-        fprintf(stderr, " [%d]=0x%lx", i + 1, samples[i]);
+        row_append(votes, sizeof(votes), &voteslen, " [%d]=0x%lx", i + 1,
+                   samples[i]);
       else
-        fprintf(stderr, " [%d]=none", i + 1);
+        row_append(votes, sizeof(votes), &voteslen, " [%d]=none", i + 1);
     }
-    fprintf(stderr, "\n");
+    kasld_info("votes:%s", votes);
   }
 
   munmap(fault_page, 4096);
 
   if (total_probe_hits == 0) {
-    fprintf(stderr,
-            "[-] zombieload: no transient execution reached the probe "
-            "array across %d runs; the faulting load inside TSX is aborting "
-            "the transaction before any transient forwarding occurs "
-            "(hypervisor intercept, TSX not truly entering transactional "
-            "mode, or hardware-specific behaviour)\n",
-            MDS_RUNS);
+    kasld_err("zombieload: no transient execution reached the probe "
+              "array across %d runs; the faulting load inside TSX is aborting "
+              "the transaction before any transient forwarding occurs "
+              "(hypervisor intercept, TSX not truly entering transactional "
+              "mode, or hardware-specific behaviour)",
+              MDS_RUNS);
     return kasld_disp_inconclusive(
         "no transient execution reached the probe (TSX aborting)");
   }
 
   if (total_probe_hits < MDS_MIN_HITS) {
-    fprintf(stderr,
-            "[-] zombieload: transient leak chain is not producing "
-            "address-dependent cache fills (%d probe hits across %d runs, "
-            "scattered across offsets; %d required per offset for signal). "
-            "Transient execution appears to be happening but the leaked "
-            "byte is not propagating through the encoding load - CPU may "
-            "be silently hardened against this MDS variant despite being "
-            "reported vulnerable, or the transient window is too narrow "
-            "on this microcode revision\n",
-            total_probe_hits, MDS_RUNS, MDS_MIN_HITS);
+    kasld_err("zombieload: transient leak chain is not producing "
+              "address-dependent cache fills (%d probe hits across %d runs, "
+              "scattered across offsets; %d required per offset for signal). "
+              "Transient execution appears to be happening but the leaked "
+              "byte is not propagating through the encoding load - CPU may "
+              "be silently hardened against this MDS variant despite being "
+              "reported vulnerable, or the transient window is too narrow "
+              "on this microcode revision",
+              total_probe_hits, MDS_RUNS, MDS_MIN_HITS);
     return kasld_disp_inconclusive(
         "leak chain not propagating (CPU may be hardened)");
   }
 
   if (!addr) {
     if (mds_status == 1) {
-      fprintf(stderr, "[-] zombieload: no kernel address found "
-                      "(MDS mitigations likely effective)\n");
+      kasld_err("zombieload: no kernel address found "
+                "(MDS mitigations likely effective)");
       kasld_disposition(DISP_INCONCLUSIVE, NULL,
                         "no kernel address (MDS mitigations likely effective)");
     } else {
-      fprintf(stderr, "[-] zombieload: no kernel address found "
-                      "(signal present but no kernel text pattern detected)\n");
+      kasld_err("zombieload: no kernel address found "
+                "(signal present but no kernel text pattern detected)");
       kasld_disposition(DISP_INCONCLUSIVE, NULL,
                         "no kernel-text pattern in the signal");
     }
@@ -546,15 +571,14 @@ int main(void) {
    * a scatter-minimum vote produces on a dead prefetch channel). Fail closed
    * instead — an uncorroborated timing base is worse than none. */
   if (best_count * 2 <= MDS_RUNS) {
-    fprintf(stderr,
-            "[-] zombieload: runs do not agree on a base (best %d/%d agree); "
-            "the recovered bytes are not converging on one address, so there "
-            "is no corroborated base to report\n",
-            best_count, MDS_RUNS);
+    kasld_err("zombieload: runs do not agree on a base (best %d/%d agree); "
+              "the recovered bytes are not converging on one address, so "
+              "there is no corroborated base to report",
+              best_count, MDS_RUNS);
     return 0;
   }
 
-  fprintf(stderr, "[+] zombieload: kernel text base = 0x%016lx\n", addr);
+  kasld_found("zombieload: kernel text base = 0x%016lx", addr);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_TIMING);
 

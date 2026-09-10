@@ -11,6 +11,21 @@
 # The wire helpers never use a bare printf, so a \bprintf( in a component .c is
 # always a human diagnostic on the machine channel. This check FAILS if any
 # component contains one.
+#
+# The other half of the same standard is that a diagnostic on the HUMAN channel
+# goes through the logger rather than round it. fprintf(stderr, ...), perror()
+# and a direct write to fd 2 all reach the right channel by the wrong route:
+# they carry their "[-] " by hand, so the marker alphabet is copied rather than
+# applied; they cannot be demoted to the verbose-only level; and nothing that
+# changes how diagnostics are emitted can reach them. This check FAILS on those
+# too. Note \bprintf( cannot match inside fprintf( -- the word boundary fails on
+# the f -- so the stderr forms need their own patterns.
+#
+# Scope is the components. The emitter layer in kasld/api.h and the engine's
+# constraint.h write their own rejections with fprintf and must: cli.h includes
+# api.h, so the logger is not available beneath it, and a component-facing
+# header that wants the logger includes cli.h and is held to this rule through
+# the component that includes it.
 # ---
 # <bcoles@gmail.com>
 
@@ -30,6 +45,21 @@ if [ -n "$offenders" ]; then
   printf '%scheck-component-output: FAIL%s — stdout diagnostics; route them to\n' "$RED" "$RESET" >&2
   echo "  stderr via kasld_info / kasld_err / kasld_found (include/kasld/cli.h):" >&2
   for f in $offenders; do echo "    $f" >&2; done
+  exit 1
+fi
+
+bypass=$(cd "$COMP" &&
+  grep -lE 'fprintf\(stderr|[^_[:alnum:]]perror\(|write\((2|STDERR_FILENO),' \
+       ./*.c 2>/dev/null | sed 's#^\./##' | sort -u)
+
+if [ -n "$bypass" ]; then
+  printf '%scheck-component-output: FAIL%s — stderr diagnostics that bypass the\n' "$RED" "$RESET" >&2
+  echo "  levelled logger (include/kasld/cli.h):" >&2
+  for f in $bypass; do echo "    $f" >&2; done
+  printf '  fprintf(stderr, "[-] x\\n")  ->  kasld_err("x")\n' >&2
+  printf '  perror("[-] x")               ->  kasld_errno("x")\n' >&2
+  echo "  A line built across several calls is assembled with snprintf and" >&2
+  echo "  logged once; the logger emits whole lines." >&2
   exit 1
 fi
 

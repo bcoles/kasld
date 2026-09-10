@@ -241,7 +241,7 @@ static unsigned long majority_vote(int cpu_vendor, int batched, int *n_found) {
     npasses = i + 1;
 
     if (verbose)
-      fprintf(stderr, "# pass %d: 0x%lx\n", i, results[i]);
+      kasld_info("# pass %d: 0x%lx", i, results[i]);
 
     /* Batched early-exit: stop once one base holds an unbeatable majority of
      * the pass budget (the remaining passes cannot overturn it), so a clean
@@ -315,9 +315,8 @@ static unsigned long get_kernel_addr_prefetch(void) {
   }
 
   if (pti) {
-    fprintf(stderr,
-            "[-] KPTI is enabled; prefetch side-channel is ineffective\n"
-            "    (kernel pages unmapped from userspace page tables)\n");
+    kasld_err("KPTI is enabled; prefetch side-channel is ineffective\n"
+              "    (kernel pages unmapped from userspace page tables)");
     exit(kasld_disp_mitigation("kpti", "KPTI enabled"));
   }
 

@@ -275,7 +275,19 @@ Two channels, kept separate (`include/kasld/cli.h`):
   | `kasld_info(fmt, …)` | `[.]` | normal progress |
   | `kasld_debug(fmt, …)` | `[.]` | firehose detail — printed only under verbose |
   | `kasld_err(fmt, …)` | `[-]` | failure / data unavailable |
+  | `kasld_errno(fmt, …)` | `[-]` | failure, with `strerror(errno)` appended |
   | `kasld_found(fmt, …)` | `[+]` | a leak was produced |
+
+  Never `fprintf(stderr, …)`, `perror()`, or a write to fd 2. They reach the
+  right channel by the wrong route: the `[-] ` gets copied by hand rather than
+  applied, the line cannot be demoted to the verbose-only level, and nothing
+  that changes how diagnostics are emitted can reach it. `perror("[-] open x")`
+  is `kasld_errno("open x")`. Which errno a probe got is the difference between
+  a source that is not there and one that is refused, so a failed read reported
+  without it makes the reader guess what the component already knew.
+
+  The logger emits whole lines, so a line built across several calls — a table
+  row assembled in a loop — is assembled with `snprintf` and logged once.
 
   The `info`/`debug` split matters: verbose means different things per component
   (a couple of lines for `proc_iomem`, a per-collision firehose for

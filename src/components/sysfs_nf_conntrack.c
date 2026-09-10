@@ -69,7 +69,7 @@ static unsigned long get_kernel_addr_conntrack(void) {
 
   d = kasld_opendir(path);
   if (d == NULL) {
-    perror("[-] opendir");
+    kasld_errno("opendir");
     return 0;
   }
 

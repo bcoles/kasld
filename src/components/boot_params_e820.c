@@ -165,7 +165,7 @@ int main(void) {
   int fd = kasld_open(BOOT_PARAMS_PATH, O_RDONLY);
   if (fd < 0) {
     int saved_errno = errno;
-    perror("[-] open " BOOT_PARAMS_PATH);
+    kasld_errno("open " BOOT_PARAMS_PATH);
     return (saved_errno == EACCES || saved_errno == EPERM)
                ? KASLD_EXIT_NOPERM
                : KASLD_EXIT_UNAVAILABLE;

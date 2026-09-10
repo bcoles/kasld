@@ -87,7 +87,7 @@ static unsigned long get_kernel_addr_mincore(int budget_ms) {
   if (mmap((void *)0x66000000, len, PROT_NONE,
            MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_NORESERVE, -1,
            0) == MAP_FAILED) {
-    perror("[-] mmap");
+    kasld_errno("mmap");
     free(buf);
     return 0;
   }
@@ -117,9 +117,9 @@ static unsigned long get_kernel_addr_mincore(int budget_ms) {
     }
     /* Touch a mishandle with this type mapping */
     if (mincore((void *)0x86000000, 0x1000000, buf)) {
-      perror("[-] mincore");
+      kasld_errno("mincore");
       if (munmap((void *)0x66000000, len))
-        perror("[-] munmap");
+        kasld_errno("munmap");
       free(buf);
       return 0;
     }
@@ -145,7 +145,7 @@ static unsigned long get_kernel_addr_mincore(int budget_ms) {
       /* Kernel address space */
       if (kasld_addr_is_kernel_text(addr)) {
         if (munmap((void *)0x66000000, len))
-          perror("[-] munmap");
+          kasld_errno("munmap");
         free(buf);
         return addr;
       }
@@ -156,7 +156,7 @@ static unsigned long get_kernel_addr_mincore(int budget_ms) {
   }
 
   if (munmap((void *)0x66000000, len))
-    perror("[-] munmap");
+    kasld_errno("munmap");
 
   free(buf);
   kasld_err("kernel base not found in mincore info leak");

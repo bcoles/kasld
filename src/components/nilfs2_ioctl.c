@@ -108,7 +108,7 @@ static int open_nilfs2_fd(void) {
      * not look" apart from "looked and found none": without the mount table
      * this says nothing about whether a nilfs2 mount exists. */
     mounts_exit = kasld_exit_for_errno();
-    perror("[-] fopen /proc/mounts");
+    kasld_errno("fopen /proc/mounts");
     return -2;
   }
 
@@ -156,7 +156,7 @@ static unsigned long try_leak(int nilfs_fd) {
     if (errno == ENOTTY || errno == EINVAL)
       kasld_err("NILFS_IOCTL_GET_SUINFO not supported");
     else
-      perror("[-] ioctl NILFS_IOCTL_GET_SUINFO");
+      kasld_errno("ioctl NILFS_IOCTL_GET_SUINFO");
     if (errno == ENOTTY || errno == EINVAL)
       nilfs_ioctl_unsupported = 1;
     free(buf);

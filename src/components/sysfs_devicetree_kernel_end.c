@@ -61,8 +61,8 @@ int main(void) {
   }
 
   if (!found) {
-    fprintf(stderr, "[-] linux,kernel-end not present (non-PowerPC platform "
-                    "or no DT)\n");
+    kasld_err("linux,kernel-end not present (non-PowerPC platform "
+              "or no DT)");
     return KASLD_EXIT_UNAVAILABLE;
   }
   if (kend == 0) {

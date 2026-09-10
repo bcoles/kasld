@@ -350,10 +350,9 @@ static int create_pileup(void) {
   pthread_attr_destroy(&attr);
 
   if (num_sleepers_created < 256) {
-    fprintf(stderr,
-            "[-] kernelsnitch: only %d sleeper threads created "
-            "(need >= 256)\n",
-            num_sleepers_created);
+    kasld_err("kernelsnitch: only %d sleeper threads created "
+              "(need >= 256)",
+              num_sleepers_created);
     return -1;
   }
 
@@ -449,10 +448,9 @@ static int find_collisions(unsigned long *collisions, int *num_collisions,
   if (stride < KASLD_LAYOUT_GRANULE)
     stride = KASLD_LAYOUT_GRANULE;
 
-  fprintf(stderr,
-          "[.] probe: baseline=%lu cycles, num_probes=%lu, "
-          "hashsize=%u, stride=%lu\n",
-          (unsigned long)baseline, num_probes, hashsize, stride);
+  kasld_info("probe: baseline=%lu cycles, num_probes=%lu, "
+             "hashsize=%u, stride=%lu",
+             (unsigned long)baseline, num_probes, hashsize, stride);
 
   *num_collisions = 0;
 
@@ -492,10 +490,9 @@ static int find_collisions(unsigned long *collisions, int *num_collisions,
     }
   }
 
-  fprintf(stderr,
-          "[.] found %d collision addresses "
-          "(need >= %d for brute-force)\n",
-          *num_collisions, MIN_COLLISIONS);
+  kasld_info("found %d collision addresses "
+             "(need >= %d for brute-force)",
+             *num_collisions, MIN_COLLISIONS);
   return (*num_collisions >= MIN_COLLISIONS) ? 0 : -1;
 }
 
@@ -685,17 +682,15 @@ static unsigned long brute_force_mm(unsigned long *collisions,
   }
 
   if (mm_step != step)
-    fprintf(stderr,
-            "[.] brute-force: %d threads, slab_size=%lu, step=%lu (gcd), "
-            "%lu B iterations (%.1f GiB search range)\n",
-            nthreads, mm_step, step, total_iters,
-            (double)(mm_end - mm_start) / (double)GB);
+    kasld_info("brute-force: %d threads, slab_size=%lu, step=%lu (gcd), "
+               "%lu B iterations (%.1f GiB search range)",
+               nthreads, mm_step, step, total_iters,
+               (double)(mm_end - mm_start) / (double)GB);
   else
-    fprintf(stderr,
-            "[.] brute-force: %d threads, step=%lu, "
-            "%lu B iterations (%.1f GiB search range)\n",
-            nthreads, step, total_iters,
-            (double)(mm_end - mm_start) / (double)GB);
+    kasld_info("brute-force: %d threads, step=%lu, "
+               "%lu B iterations (%.1f GiB search range)",
+               nthreads, step, total_iters,
+               (double)(mm_end - mm_start) / (double)GB);
 
   /* Start progress reporter. Joinable only when pthread_create succeeded;
    * progress is cosmetic, so a creation failure just disables the bar. */
@@ -768,10 +763,9 @@ static unsigned long detect_mm_struct_size(void) {
         if (strcmp(name, "mm_struct") == 0 && objsize >= 512 &&
             objsize <= 4096) {
           fclose(f);
-          fprintf(stderr,
-                  "[.] mm_struct size from /proc/slabinfo: "
-                  "%lu bytes\n",
-                  objsize);
+          kasld_info("mm_struct size from /proc/slabinfo: "
+                     "%lu bytes",
+                     objsize);
           return objsize;
         }
       }
@@ -834,9 +828,9 @@ int main(int argc, char **argv) {
      * refused -- e.g. a future capability gate on it -- and the mitigation
      * genuinely holds. */
     if (pinned < 0 && errno != EBUSY) {
-      fprintf(stderr, "[-] kernelsnitch: CONFIG_FUTEX_PRIVATE_HASH enabled and "
-                      "the global-hash opt-out was refused; attack not "
-                      "possible\n");
+      kasld_err("kernelsnitch: CONFIG_FUTEX_PRIVATE_HASH enabled and "
+                "the global-hash opt-out was refused; attack not "
+                "possible");
       return kasld_disp_mitigation(
           "CONFIG_FUTEX_PRIVATE_HASH",
           "CONFIG_FUTEX_PRIVATE_HASH enabled; global-hash opt-out refused");
@@ -869,8 +863,8 @@ int main(int argc, char **argv) {
   unsigned long collisions[MAX_COLLISIONS];
   int num_collisions = 0;
   if (find_collisions(collisions, &num_collisions, hashsize) < 0) {
-    fprintf(stderr, "[-] kernelsnitch: insufficient collisions; "
-                    "timing signal too noisy?\n");
+    kasld_err("kernelsnitch: insufficient collisions; "
+              "timing signal too noisy?");
     kasld_disposition(DISP_INCONCLUSIVE, NULL,
                       "insufficient collisions (timing too noisy)");
     cleanup_pileup();
@@ -910,14 +904,14 @@ int main(int argc, char **argv) {
      *
      * Tier 1 (step=128): sizes 1024, 1152, 1280, 1536.
      * Tier 2 (step=64):  sizes 1088, 1216, 1344, 1408, 1472. */
-    fprintf(stderr, "[.] tier 1: step=128 (covers sizes "
-                    "1024, 1152, 1280, 1536) ...\n");
+    kasld_info("tier 1: step=128 (covers sizes "
+               "1024, 1152, 1280, 1536) ...");
     result =
         brute_force_mm(collisions, num_collisions, hashsize, 128, phys_mem);
 
     if (!result) {
-      fprintf(stderr, "[.] tier 2: step=64 (covers sizes "
-                      "1088, 1216, 1344, 1408, 1472) ...\n");
+      kasld_info("tier 2: step=64 (covers sizes "
+                 "1088, 1216, 1344, 1408, 1472) ...");
       result =
           brute_force_mm(collisions, num_collisions, hashsize, 64, phys_mem);
     }
@@ -926,8 +920,8 @@ int main(int argc, char **argv) {
   cleanup_pileup();
 
   if (!result) {
-    fprintf(stderr, "[-] kernelsnitch: brute-force failed to find "
-                    "mm_struct address\n");
+    kasld_err("kernelsnitch: brute-force failed to find "
+              "mm_struct address");
     return kasld_disp_inconclusive(
         "brute-force did not find the mm_struct address");
   }

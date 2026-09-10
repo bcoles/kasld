@@ -119,8 +119,8 @@ int main(void) {
     }
   }
   if (!saw_real_addr) {
-    fprintf(stderr, "[-] /proc/iomem appears masked (needs CAP_SYS_ADMIN); "
-                    "addresses read as 0\n");
+    kasld_err("/proc/iomem appears masked (needs CAP_SYS_ADMIN); "
+              "addresses read as 0");
     fclose(f);
     /* Masking is an access restriction (CAP_SYS_ADMIN), not a missing source —
      * report it as access-denied, mirroring proc_kallsyms's kptr_restrict

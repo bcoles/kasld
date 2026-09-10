@@ -127,7 +127,7 @@ int main(void) {
   d = kasld_opendir(base);
   if (!d) {
     int e = errno;
-    perror("[-] opendir");
+    kasld_errno("opendir");
     return (e == EACCES || e == EPERM) ? KASLD_EXIT_NOPERM
                                        : KASLD_EXIT_UNAVAILABLE;
   }

@@ -146,10 +146,9 @@ int main(void) {
     size_cells = (int)kasld_dt_be32(buf);
 
   if (addr_cells < 1 || addr_cells > 2 || size_cells < 1 || size_cells > 2) {
-    fprintf(stderr,
-            "[-] unexpected cell counts: #address-cells=%d, "
-            "#size-cells=%d\n",
-            addr_cells, size_cells);
+    kasld_err("unexpected cell counts: #address-cells=%d, "
+              "#size-cells=%d",
+              addr_cells, size_cells);
     return 0;
   }
 
@@ -163,7 +162,7 @@ int main(void) {
   d = kasld_opendir(path);
   if (!d) {
     int e = errno;
-    perror("[-] opendir");
+    kasld_errno("opendir");
     return (e == EACCES || e == EPERM) ? KASLD_EXIT_NOPERM
                                        : KASLD_EXIT_UNAVAILABLE;
   }

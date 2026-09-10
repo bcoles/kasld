@@ -83,7 +83,7 @@ KASLD_META("method:parsed\n"
 static FILE *spawn_pppd(pid_t *child_out) {
   int pipefd[2];
   if (pipe(pipefd) < 0) {
-    perror("[-] pipe");
+    kasld_errno("pipe");
     return NULL;
   }
 
@@ -115,14 +115,14 @@ static FILE *spawn_pppd(pid_t *child_out) {
   close(pipefd[1]); /* parent doesn't write */
   if (rc != 0) {
     errno = rc;
-    perror("[-] posix_spawnp pppd");
+    kasld_errno("posix_spawnp pppd");
     close(pipefd[0]);
     return NULL;
   }
 
   FILE *f = fdopen(pipefd[0], "r");
   if (!f) {
-    perror("[-] fdopen");
+    kasld_errno("fdopen");
     close(pipefd[0]);
     /* Best-effort reap; child likely terminates shortly after pipe close. */
     waitpid(pid, NULL, 0);
@@ -145,7 +145,7 @@ static unsigned long get_kernel_addr_pppd_kallsyms(void) {
     return 0;
 
   if (fgets(buf, sizeof(buf) - 1, f) == NULL) {
-    perror("[-] fgets");
+    kasld_errno("fgets");
     fclose(f);
     waitpid(pid, NULL, 0);
     return 0;

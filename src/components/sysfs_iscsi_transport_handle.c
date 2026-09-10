@@ -290,7 +290,7 @@ static int trigger_transport_class(void) {
 
   sock_fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ISCSI);
   if (sock_fd < 0) {
-    perror("[-] Failed to get a NETLINK_ISCSI socket");
+    kasld_errno("could not get a NETLINK_ISCSI socket");
     return 0;
   }
   close(sock_fd);

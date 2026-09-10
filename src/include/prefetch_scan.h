@@ -24,6 +24,7 @@
 #endif
 
 #include "cpu.h"
+#include "include/kasld/cli.h"
 #include "sidechannel.h"
 
 #include <stdint.h>
@@ -164,10 +165,10 @@ __attribute__((unused)) static void prefetch_scan_dump(const uint64_t *times,
                                                        uint64_t step,
                                                        const char *stat) {
   size_t idx;
-  fprintf(stderr, "# slot addr %s\n", stat);
+  kasld_info("# slot addr %s", stat);
   for (idx = 0; idx < n; idx++)
-    fprintf(stderr, "%3zu 0x%lx %lu\n", idx, (unsigned long)(base + idx * step),
-            (unsigned long)times[idx]);
+    kasld_info("%3zu 0x%lx %lu", idx, (unsigned long)(base + idx * step),
+               (unsigned long)times[idx]);
 }
 
 static int prefetch_scan_cmp_u64(const void *a, const void *b) {

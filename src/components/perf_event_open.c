@@ -88,7 +88,7 @@ static unsigned long get_kernel_addr_perf(int *exit_hint) {
 
   pid_t child = fork();
   if (child == -1) {
-    perror("[-] fork");
+    kasld_errno("fork");
     return 0;
   }
   if (child == 0) {
@@ -124,7 +124,7 @@ static unsigned long get_kernel_addr_perf(int *exit_hint) {
     kill(child, SIGKILL);
     waitpid(child, NULL, 0);
     errno = e;
-    perror("[-] perf_event_open");
+    kasld_errno("perf_event_open");
     /* EACCES/EPERM = perf_event_paranoid or a seccomp ERRNO filter denied the
      * syscall — report it as an access denial, not a bare no-result. Any other
      * errno (perf not built, no PMU) is a genuine unavailability. */
@@ -145,7 +145,7 @@ static unsigned long get_kernel_addr_perf(int *exit_hint) {
 
   void *base = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
   if (base == MAP_FAILED) {
-    perror("[-] mmap");
+    kasld_errno("mmap");
     close(fd);
     kill(child, SIGKILL);
     waitpid(child, NULL, 0);
@@ -153,7 +153,7 @@ static unsigned long get_kernel_addr_perf(int *exit_hint) {
   }
 
   if (ioctl(fd, PERF_EVENT_IOC_ENABLE, 0) < 0) {
-    perror("[-] PERF_EVENT_IOC_ENABLE");
+    kasld_errno("PERF_EVENT_IOC_ENABLE");
     munmap(base, map_size);
     close(fd);
     kill(child, SIGKILL);

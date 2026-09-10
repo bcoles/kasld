@@ -72,12 +72,12 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
 
   f = kasld_fopen(path, "rb");
   if (f == NULL) {
-    perror("[-] fopen");
+    kasld_errno("fopen");
     return 0;
   }
 
   if (fgets(buff, BUFSIZ, f) == NULL) {
-    perror("[-] fgets");
+    kasld_errno("fgets");
     fclose(f);
     return 0;
   }

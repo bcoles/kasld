@@ -224,12 +224,12 @@ static uint64_t leak_syscall_entry(uint64_t offset) {
    * alone -- what separates them is whether the minimum stands clear of the
    * rest or sits inside the noise, which needs every slot to see. */
   if (debug_mode) {
-    fprintf(stderr, "# entrybleed offset 0x%lx: mean cycles per slot\n",
-            (unsigned long)offset);
+    kasld_info("# entrybleed offset 0x%lx: mean cycles per slot",
+               (unsigned long)offset);
     for (index = 0; index < ARR_SIZE; index++) {
       unsigned long slot = (unsigned long)(SCAN_START + index * STEP);
-      fprintf(stderr, "#   0x%lx %lu%s\n", slot, (unsigned long)data[index],
-              slot == (unsigned long)addr ? "  <- min" : "");
+      kasld_info("#   0x%lx %lu%s", slot, (unsigned long)data[index],
+                 slot == (unsigned long)addr ? "  <- min" : "");
     }
   }
 

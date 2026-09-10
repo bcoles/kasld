@@ -66,7 +66,7 @@ static struct module_range get_addr_proc_modules(void) {
   f = kasld_fopen(path, "r");
 
   if (f == NULL) {
-    perror("[-] fopen");
+    kasld_errno("fopen");
     return range;
   }
 

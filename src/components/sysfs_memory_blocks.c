@@ -83,7 +83,7 @@ int main(void) {
   /* read block size */
   snprintf(path, sizeof(path), "%s/block_size_bytes", base);
   if (kasld_read_file_line(path, buf, sizeof(buf)) < 0) {
-    perror("[-] cannot read block_size_bytes");
+    kasld_errno("cannot read block_size_bytes");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
   }
@@ -100,7 +100,7 @@ int main(void) {
 
   d = kasld_opendir(base);
   if (!d) {
-    perror("[-] opendir");
+    kasld_errno("opendir");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
   }

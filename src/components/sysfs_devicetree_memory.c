@@ -132,10 +132,9 @@ int main(void) {
   }
 
   if (addr_cells < 1 || addr_cells > 2 || size_cells < 1 || size_cells > 2) {
-    fprintf(stderr,
-            "[-] unexpected cell counts: #address-cells=%d, "
-            "#size-cells=%d\n",
-            addr_cells, size_cells);
+    kasld_err("unexpected cell counts: #address-cells=%d, "
+              "#size-cells=%d",
+              addr_cells, size_cells);
     return 0;
   }
 
@@ -147,7 +146,7 @@ int main(void) {
   /* Scan for memory@* directories */
   d = kasld_opendir(root);
   if (!d) {
-    perror("[-] opendir");
+    kasld_errno("opendir");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
   }

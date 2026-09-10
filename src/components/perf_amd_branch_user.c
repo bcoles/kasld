@@ -110,7 +110,7 @@ int main(int argc, char *argv[]) {
 
   pid_t child = fork();
   if (child == -1) {
-    perror("[-] fork");
+    kasld_errno("fork");
     return KASLD_EXIT_UNAVAILABLE;
   }
   if (child == 0) {
@@ -161,7 +161,7 @@ int main(int argc, char *argv[]) {
       return KASLD_EXIT_UNAVAILABLE;
     }
     errno = e;
-    perror("[-] perf_event_open");
+    kasld_errno("perf_event_open");
     return KASLD_EXIT_UNAVAILABLE;
   }
 

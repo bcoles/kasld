@@ -123,14 +123,14 @@ static FILE *open_proc_config(void) {
    * assumed. */
   int pipefd[2];
   if (pipe(pipefd) != 0) {
-    perror("[-] pipe");
+    kasld_errno("pipe");
     close(fd);
     return NULL;
   }
 
   pid_t pid = fork();
   if (pid < 0) {
-    perror("[-] fork");
+    kasld_errno("fork");
     close(pipefd[0]);
     close(pipefd[1]);
     close(fd);
@@ -155,7 +155,7 @@ static FILE *open_proc_config(void) {
   close(fd);
   FILE *proc = fdopen(pipefd[0], "r");
   if (!proc) {
-    perror("[-] fdopen");
+    kasld_errno("fdopen");
     close(pipefd[0]);
     waitpid(pid, NULL, 0);
     return NULL;
@@ -163,7 +163,7 @@ static FILE *open_proc_config(void) {
 
   fp = tmpfile();
   if (!fp) {
-    perror("[-] tmpfile");
+    kasld_errno("tmpfile");
     fclose(proc);
     waitpid(pid, NULL, 0);
     return NULL;

@@ -35,6 +35,7 @@
 #ifndef KASLD_DMESG_H
 #define KASLD_DMESG_H
 
+#include "include/kasld/cli.h"
 #include "syslog.h"
 #include <stdio.h>
 #include <string.h>
@@ -98,8 +99,8 @@ static int dmesg_search(const char *needle, dmesg_match_fn fn, void *ctx) {
     f = kasld_fopen(path, "rb");
     if (f == NULL) {
       if (!had_source) {
-        fprintf(stderr, "[-] dmesg: access denied "
-                        "(klogctl and /var/log/dmesg both inaccessible)\n");
+        kasld_err("dmesg: access denied "
+                  "(klogctl and /var/log/dmesg both inaccessible)");
         return -1;
       }
       return 0;

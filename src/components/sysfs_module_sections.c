@@ -102,7 +102,7 @@ static struct module_range get_module_text_sysfs(void) {
 
   d = kasld_opendir(path);
   if (d == NULL) {
-    perror("[-] opendir");
+    kasld_errno("opendir");
     return range;
   }
 
