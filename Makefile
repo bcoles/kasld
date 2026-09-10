@@ -420,8 +420,32 @@ $(SIDECHANNEL_BINS): $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
 $(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
 	$(call cc-component, $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< $(PTHREAD_LIBS) -o $@)
 
+# Component binaries whose source is gone. A rename or a deletion leaves the old
+# binary behind, and the orchestrator runs every executable it finds in this
+# directory -- so a removed technique keeps running, from a source no longer in
+# the tree, and its results merge with those of whatever replaced it. Neither
+# make nor .DELETE_ON_ERROR sees this: the target is not out of date, it is no
+# longer asked for. BIN_FILES is the set that should exist, so the rest is
+# orphaned.
+#
+# Guarded on BIN_FILES being non-empty, so a source wildcard that came up empty
+# would prune nothing rather than the whole directory. Only regular files
+# directly in the directory are considered, and anything compiling concurrently
+# is in BIN_FILES by construction, so -j is safe.
+.PHONY: prune-components
+prune-components: | $(COMP_DIR)
+ifneq ($(strip $(BIN_FILES)),)
+	@keep=" $(BIN_FILES) "; \
+	for f in "$(COMP_DIR)"/*; do \
+	  [ -f "$$f" ] || continue; \
+	  case "$$keep" in *" $$f "*) continue ;; esac; \
+	  printf '  $(C_TAG)%-5s$(C_RST) %s (source removed)\n' RM "$${f#./}"; \
+	  rm -f "$$f"; \
+	done
+endif
+
 .PHONY: build
-build : check-headers $(BIN_FILES) $(KASLD_BIN)
+build : check-headers prune-components $(BIN_FILES) $(KASLD_BIN)
 
 # -I$(SRC_DIR) so the orchestrator can include the component-side fact headers
 # (task_size.h and target_width.h use the same "include/kasld/..." form the
@@ -1041,6 +1065,7 @@ lint :
 	    $(TEST_DIR)/check-shellcheck \
 	    $(TEST_DIR)/check-fuzz-harnesses \
 	    $(TEST_DIR)/check-make-deps \
+	    $(TEST_DIR)/check-component-prune \
 	    $(TEST_DIR)/check-suite-registry \
 	    $(TEST_DIR)/check-render-model-only \
 	    $(TEST_DIR)/check-render-no-acquire \

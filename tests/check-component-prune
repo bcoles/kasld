@@ -1,0 +1,84 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-component-prune — the component directory holds exactly what the sources
+# imply, and nothing else.
+#
+# The orchestrator discovers components by reading the directory and running every
+# executable it finds, which is what makes the drop-in model work: adding a source
+# needs no Makefile edit. The same property means a component whose source is
+# renamed or deleted keeps running from its leftover binary, emitting facts that
+# then merge with those of whatever replaced it. Nothing in make's model catches
+# it — the target is not out of date, it is simply never asked for again — so the
+# build prunes the difference against BIN_FILES.
+#
+# This guard holds that rule to both halves of its job, because either failure is
+# silent. Removing too little leaves the orphan running; removing too much would
+# delete a live component's binary, or an arch-gated component's stamp, and the
+# build would look fine while a technique quietly stopped being available.
+#
+# The stamp case is why the prune matches regular files rather than executables:
+# a component whose source says "#error Architecture is not supported" leaves an
+# empty, non-executable stamp so the failing compile is not retried, and a renamed
+# gated component would otherwise leave that stamp uncollected forever.
+#
+# Nothing is compiled here. `make prune-components` only reads the directory, so
+# the guard stages one into a scratch BUILD_DIR and costs a directory scan.
+#
+# Usage: tests/check-component-prune   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+fail() {
+  printf '%scheck-component-prune: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  exit 1
+}
+
+WORK=$(mktemp -d) || exit 1
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+# Creates the per-arch component directory; compiles nothing.
+if ! make -C "$ROOT" prune-components BUILD_DIR="$WORK" >"$WORK/log" 2>&1; then
+  sed 's/^/  /' "$WORK/log" >&2
+  fail "make prune-components failed"
+fi
+
+COMP=$(find "$WORK" -type d -name components 2>/dev/null | head -1)
+[ -n "$COMP" ] || fail "no components directory was created under BUILD_DIR"
+
+# A name the sources DO provide, so BIN_FILES carries it, staged both ways: as a
+# built binary and as an arch-gate stamp. Neither may be removed.
+live=$(find "$ROOT/src/components" -maxdepth 1 -name '*.c' | sort | head -1)
+[ -n "$live" ] || fail "no component sources found"
+live=$(basename "$live" .c)
+: >"$COMP/$live" || fail "could not stage a live component"
+chmod +x "$COMP/$live"
+
+# Names the sources do NOT provide: an executable orphan and a stamp orphan.
+: >"$COMP/zz_orphan_binary"
+chmod +x "$COMP/zz_orphan_binary"
+: >"$COMP/zz_orphan_stamp"
+
+if ! make -C "$ROOT" prune-components BUILD_DIR="$WORK" >"$WORK/log2" 2>&1; then
+  sed 's/^/  /' "$WORK/log2" >&2
+  fail "make prune-components failed on the staged directory"
+fi
+
+[ -e "$COMP/$live" ] ||
+  fail "the prune removed $live, whose source is present — a live component"
+[ ! -e "$COMP/zz_orphan_binary" ] ||
+  fail "an executable with no source survived the prune; the orchestrator runs it"
+[ ! -e "$COMP/zz_orphan_stamp" ] ||
+  fail "a stamp with no source survived the prune"
+
+printf '%scheck-component-prune: OK%s (orphans dropped, live components kept)\n' \
+  "$GREEN" "$RESET"
