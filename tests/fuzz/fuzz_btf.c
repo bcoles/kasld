@@ -1,4 +1,4 @@
-// libFuzzer harness for btf_struct_page_size's BTF reader — btf_struct_size()
+// libFuzzer harness for btf_facts's BTF reader — btf_struct_size()
 // walks a binary blob (a fixed header carrying section offsets/lengths, then a
 // type section whose records each carry kind-specific trailing data, then a
 // string section) to find sizeof(struct page).
@@ -14,7 +14,7 @@
 
 int btf_struct_page_main(int argc, char **argv);
 #define main btf_struct_page_main
-#include "../../src/components/btf_struct_page_size.c"
+#include "../../src/components/btf_facts.c"
 #undef main
 
 #include <stddef.h>

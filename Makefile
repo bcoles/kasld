@@ -615,7 +615,7 @@ $(TEST_TEXT_ORDER_BIN): $(TEST_DIR)/test_text_order.c $(HDRS) | $(TEST_OBJ_DIR)
 # fixtures under a temporary KASLD_SYSROOT. No .c sources to link.
 TEST_KIMG_BIN := $(TEST_OBJ_DIR)/test_kernel_image
 
-$(TEST_KIMG_BIN): $(TEST_DIR)/test_kernel_image.c $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_KIMG_BIN): $(TEST_DIR)/test_kernel_image.c $(SRC_DIR)/components/kernel_image_facts.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kernel_image.c -o $@
 
@@ -644,10 +644,10 @@ $(TEST_DMESG_BIN): $(TEST_DIR)/test_dmesg_layout.c $(SRC_DIR)/components/dmesg_m
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_layout.c -o $@
 
-# BTF reader parser test: btf_struct_page_size's struct-size parser, exercised
+# BTF reader parser test: btf_facts's struct-size parser, exercised
 # by #including the component (its main renamed) against hand-built BTF blobs.
 TEST_BTF_BIN := $(TEST_OBJ_DIR)/test_btf
-$(TEST_BTF_BIN): $(TEST_DIR)/test_btf.c $(SRC_DIR)/components/btf_struct_page_size.c $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_BTF_BIN): $(TEST_DIR)/test_btf.c $(SRC_DIR)/components/btf_facts.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_btf.c -o $@
 

@@ -69,7 +69,7 @@
 #   ksymoff --vmemmap 0xffffea0000000000 --phys2page 0x34600000
 #
 # Physical translation assumes 4 KiB pages and a 64-byte struct page; override
-# with --page-shift / --page-size (KASLD's `page_size` and `btf_struct_page_size`
+# with --page-shift / --page-size (KASLD's `page_size` and `btf_facts`
 # facts report both for the target).
 #
 # Caveat: assumes a SINGLE KASLR slide — i.e. canonical (source/link-order)

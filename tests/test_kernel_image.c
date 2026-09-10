@@ -17,6 +17,14 @@
 
 #include "../src/include/kasld/kernel_image.h"
 
+/* The component is driven too, for the classification it returns when no reader
+ * answered: which of "denied" and "absent" applies is the only thing a run with
+ * no size can still say about the host. */
+int kernel_image_facts_main(void);
+#define main kernel_image_facts_main
+#include "../src/components/kernel_image_facts.c"
+#undef main
+
 #include "test_harness.h"
 #include "test_sysroot.h"
 
@@ -33,6 +41,24 @@ static void wr(const char *name, const void *buf, size_t n) {
   char abs[TH_SYSROOT_MAX];
   snprintf(abs, sizeof(abs), "/boot/%s", name);
   th_sysroot_write_n(abs, buf, n);
+}
+
+/* The component keys its /boot paths on the release, and under a sysroot the
+ * release comes from the capture's own /proc/version rather than from the host
+ * reading it. Staging that line fixes the release for these tests, so the
+ * fixture names do not depend on whatever kernel this suite is compiled or run
+ * on. */
+#define STAGED_RELEASE "6.8.0-kasldtest"
+static void stage_capture_identity(void) {
+  th_sysroot_write("/proc/version",
+                   "Linux version " STAGED_RELEASE
+                   " (b@h) (gcc) #1 SMP Thu Jan 1 00:00:00 UTC 2026\n");
+}
+
+static void rm_boot(const char *name) {
+  char abs[TH_SYSROOT_MAX];
+  snprintf(abs, sizeof(abs), "/boot/%s", name);
+  th_sysroot_rm(abs);
 }
 
 /* Write head bytes then extend the file to `total` bytes (sparse). */
@@ -362,6 +388,42 @@ static void test_rejections(void) {
   assert(kasld_image_size_from_gzip("tiny") == 0);
 }
 
+/* No artefact at all: absent, which is how the host is laid out, not a gate. */
+static void test_component_absent_artefact_is_unavailable(void) {
+  stage_capture_identity();
+  rm_boot("vmlinuz-" STAGED_RELEASE);
+  rm_boot("Image-" STAGED_RELEASE);
+  rm_boot("System.map-" STAGED_RELEASE);
+  assert(kernel_image_facts_main() == KASLD_EXIT_UNAVAILABLE);
+}
+
+/* Readable, but too small for any reader to make a size of: neither denied nor
+ * absent, so neither class is claimed. */
+static void test_component_readable_but_unparsed_is_neither(void) {
+  stage_capture_identity();
+  wr("vmlinuz-" STAGED_RELEASE, "not a kernel", 12);
+  assert(kernel_image_facts_main() == 0);
+  rm_boot("vmlinuz-" STAGED_RELEASE);
+}
+
+/* Present and unreadable is this host's hardening, and must not be reported as
+ * a missing artefact. Root bypasses the mode bits, so the assertion is made
+ * only where the denial can actually occur. */
+static void test_component_denied_artefact_is_noperm(void) {
+  char p[TH_SYSROOT_MAX];
+  stage_capture_identity();
+  wr("vmlinuz-" STAGED_RELEASE, "not a kernel", 12);
+  th_sysroot_stage_path("/boot/vmlinuz-" STAGED_RELEASE, p, sizeof(p));
+  assert(chmod(p, 0) == 0);
+  if (geteuid() == 0) {
+    printf("      (skipped: root reads regardless of mode)\n");
+  } else {
+    assert(kernel_image_facts_main() == KASLD_EXIT_NOPERM);
+  }
+  assert(chmod(p, 0644) == 0);
+  rm_boot("vmlinuz-" STAGED_RELEASE);
+}
+
 int main(void) {
   th_sysroot_init("kernel_image");
 
@@ -383,6 +445,10 @@ int main(void) {
   RUN(test_vmlinuz_elf_rejected_as_lb);
   RUN(test_stat_denied_content);
   RUN(test_btf_section_length);
+  BEGIN_CATEGORY("component classification");
+  RUN(test_component_absent_artefact_is_unavailable);
+  RUN(test_component_readable_but_unparsed_is_neither);
+  RUN(test_component_denied_artefact_is_noperm);
   BEGIN_CATEGORY("rejections");
   RUN(test_rejections);
   return TEST_DONE();

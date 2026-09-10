@@ -21,6 +21,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/kernel_image.h"
 
 #include <errno.h>
 #include <stdint.h>
@@ -159,6 +160,19 @@ int main(int argc, char **argv) {
   size_t len = 0;
   unsigned char *buf = read_all(f, &len);
   fclose(f);
+
+  /* The section's length bounds the kernel image size from below: .BTF is
+   * emitted inside RO_DATA(), which every architecture's linker script places
+   * between _text and _end. It is the weakest such bound and the only one with
+   * no gate at all -- no /boot, no kptr_restrict, no dmesg -- so it answers in
+   * a container where nothing else does. Stated before the type parse, since a
+   * table this component cannot walk still has a length. */
+  unsigned long isize = kasld_image_size_from_btf();
+  if (isize) {
+    kasld_info("BTF section length: %lu bytes", isize);
+    kasld_emit_scalar(SF_IMAGE_SIZE_MIN, isize, CONF_PARSED);
+  }
+
   if (!buf)
     return KASLD_EXIT_UNAVAILABLE;
 

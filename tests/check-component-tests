@@ -81,7 +81,6 @@ dmesg_riscv_relocation
 efi_present
 hibernation_nokaslr
 ioctl_mmio_phys
-kernel_image_facts
 kernel_notes_buildid
 mali_timeline
 page_size

@@ -1,6 +1,6 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Parser unit tests for btf_struct_page_size's BTF reader. The component is
+// Parser unit tests for btf_facts's BTF reader. The component is
 // #included with its main renamed so the static btf_struct_size() parser is in
 // scope; we drive it with hand-built BTF blobs (the real
 // /sys/kernel/btf/vmlinux is multi-MB and absent on the build host). Covers: a
@@ -9,9 +9,9 @@
 // ---
 // <bcoles@gmail.com>
 
-int btf_struct_page_main(int argc, char **argv);
-#define main btf_struct_page_main
-#include "../src/components/btf_struct_page_size.c"
+int btf_facts_main(int argc, char **argv);
+#define main btf_facts_main
+#include "../src/components/btf_facts.c"
 #undef main
 
 #include "test_harness.h"

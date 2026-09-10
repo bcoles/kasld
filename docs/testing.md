@@ -78,7 +78,7 @@ that `make test` builds and runs is `TEST_ALL_BINS` in the Makefile.
 | `test_align` | the text-base floor helpers (`kasld_floor_aligned_suboffset` / `kasld_floor_text_base`) | `api.h` (header-only) |
 | `test_text_order` | the kernel-text ordering classifier (`classify_text_order`) | `text_order.h` (header-only) |
 | `test_dmesg_layout` | the riscv `print_vm_layout` dump parser | `components/dmesg_mem_init_kernel_layout.c` (`#include`d, `main` renamed) |
-| `test_btf` | the BTF struct-size reader behind `btf_struct_page_size` | `components/btf_struct_page_size.c` (`#include`d, `main` renamed) |
+| `test_btf` | the BTF struct-size reader behind `btf_facts` | `components/btf_facts.c` (`#include`d, `main` renamed) |
 
 After the drivers, `make test` runs `tests/check-render-width`: it renders the
 built `kasld` binary and asserts every line of the output it lays out stays
@@ -1027,7 +1027,7 @@ libFuzzer harnesses (with AddressSanitizer + UndefinedBehaviorSanitizer)
 for the five pure string→struct parsers the orchestrator runs against
 attacker-influenced input — `parse_hex`, `capture_result`, `capture_scalar`,
 `parse_meta`, `parse_disposition` — plus `fuzz_btf`, which walks the binary BTF
-type info in `btf_struct_page_size.c` (kernel-provided input rather than an
+type info in `btf_facts.c` (kernel-provided input rather than an
 attacker surface, but the most intricate binary parser in the tree), and
 `fuzz_render`, which drives the report model built from a resolved engine state
 the way a format reads it. The Makefile

@@ -8,7 +8,7 @@ attacker-influenced input (component stdout, ELF section payload, dmesg) in the
 privileged orchestrator process, so a bug there is a real exposure surface.
 
 `fuzz_btf` walks the binary BTF type info in
-`src/components/btf_struct_page_size.c`: kernel-provided input rather than an
+`src/components/btf_facts.c`: kernel-provided input rather than an
 attacker surface, but the most intricate binary parser in the tree, so it is
 fuzzed for over-read / overflow / unbounded-loop safety. `fuzz_render` picks up
 where the parsers stop, building the report model from a script of constraints
