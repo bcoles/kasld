@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 /* Write n bytes to <sysroot>/boot/<name>. */
 static void wr(const char *name, const void *buf, size_t n) {
@@ -289,6 +290,57 @@ static void test_vmlinuz_elf_rejected_as_lb(void) {
   assert(kasld_image_size_from_vmlinuz("elfblob") == 0);
 }
 
+/* The stat reader answers only where the CONTENT cannot be read: a file the
+ * readers above can open belongs to them. Both halves are asserted, because a
+ * reader that answered unconditionally would pass the denied half alone.
+ *
+ * The denied half is skipped under a uid that bypasses the mode bits, where the
+ * open succeeds and the reader correctly declines -- the condition cannot be
+ * staged there at all, and asserting the readable half is all that remains. */
+static void test_stat_denied_content(void) {
+  uint8_t head[4] = {0x42, 0x42, 0x42, 0x42}; /* a blob, not an ELF */
+  char p[TH_SYSROOT_MAX];
+
+  wr_sized("vmlinuz-denied", head, 4, 2 * 1024 * 1024);
+  th_sysroot_stage_path("/boot/vmlinuz-denied", p, sizeof(p));
+  assert(kasld_image_size_from_stat("denied") == 0);
+
+  if (geteuid() == 0) {
+    printf("    (denied half skipped: this uid bypasses the mode bits)\n");
+    return;
+  }
+  assert(chmod(p, 0) == 0);
+#if BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT
+  assert(kasld_image_size_from_stat("denied") == 2u * 1024 * 1024);
+#else
+  /* The /boot artefact is an ELF on this architecture, so its size bounds
+   * nothing and the reader is compiled out. */
+  assert(kasld_image_size_from_stat("denied") == 0);
+#endif
+  assert(chmod(p, 0600) == 0);
+}
+
+/* The .BTF section's length. Unlike every other reader this one takes no
+ * release: the path is fixed, and only the file's size is consulted. */
+static void test_btf_section_length(void) {
+  char p[TH_SYSROOT_MAX];
+  FILE *f;
+
+  th_sysroot_stage_path("/sys/kernel/btf/vmlinux", p, sizeof(p));
+  f = fopen(p, "wb");
+  assert(f);
+  assert(fseek(f, 3 * 1024 * 1024 - 1, SEEK_SET) == 0);
+  assert(fputc(0, f) != EOF);
+  fclose(f);
+  assert(kasld_image_size_from_btf() == 3u * 1024 * 1024);
+
+  /* Below the plausibility floor, and absent: nothing either way. */
+  th_sysroot_write_n("/sys/kernel/btf/vmlinux", "x", 1);
+  assert(kasld_image_size_from_btf() == 0);
+  th_sysroot_rm("/sys/kernel/btf/vmlinux");
+  assert(kasld_image_size_from_btf() == 0);
+}
+
 /* Non-kernel bytes match nothing; a value below KIMG_MIN_BYTES is discarded. */
 static void test_rejections(void) {
   uint8_t junk[128];
@@ -329,6 +381,8 @@ int main(void) {
   RUN(test_gzip_zboot);
   RUN(test_vmlinuz_compressed_lb);
   RUN(test_vmlinuz_elf_rejected_as_lb);
+  RUN(test_stat_denied_content);
+  RUN(test_btf_section_length);
   BEGIN_CATEGORY("rejections");
   RUN(test_rejections);
   return TEST_DONE();

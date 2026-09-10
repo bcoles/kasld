@@ -674,6 +674,15 @@ $(TEST_KASLRDIS_BIN): $(TEST_DIR)/test_dmesg_kaslr_disabled.c $(SRC_DIR)/compone
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_kaslr_disabled.c -o $@
 
+# dmesg_mem_sizes parser: #includes the component (main renamed), driven over a
+# staged KASLD_SYSROOT /var/log/dmesg to assert the section sum is emitted only
+# when every figure is present, that "cma-reserved" is not read as "reserved",
+# and that a reserved figure below the section total yields neither bound.
+TEST_MEMSIZES_BIN := $(TEST_OBJ_DIR)/test_dmesg_mem_sizes
+$(TEST_MEMSIZES_BIN): $(TEST_DIR)/test_dmesg_mem_sizes.c $(SRC_DIR)/components/dmesg_mem_sizes.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_mem_sizes.c -o $@
+
 # sysfs_devicetree_memory covering completeness: #includes the component (main
 # renamed), driven over a staged KASLD_SYSROOT binary device tree to assert a
 # complete map emits hull+extents, a buffer-filling reg withholds the map, and
@@ -907,6 +916,7 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_BACKTRACE_BIN) \
   $(TEST_BOOTCFG_BIN) \
   $(TEST_KASLRDIS_BIN) \
+  $(TEST_MEMSIZES_BIN) \
   $(TEST_DTMEM_BIN) \
   $(TEST_SOCKPTR_BIN) \
   $(TEST_TIMERLIST_BIN) \

@@ -45,6 +45,7 @@ INCLUDES=$ROOT/src/include
 #   dmesg_cma_reserved:86          a MiB count (decimal)
 #   dmesg_crashkernel:128,137      sizes in MB (decimal)
 #   dmesg_ex_handler_msr:197       a within-symbol offset, not an address
+#   dmesg_mem_sizes:107            section sizes in KiB (decimal)
 #   dmesg_last_pfn:80              a PFN, kept in unsigned long long on purpose
 #   proc_pid_syscall:161           a register, kept in unsigned long long
 #   sysfs_iommu_reserved_regions:157  a directory index (decimal)
@@ -53,6 +54,7 @@ ALLOW="dmesg_backtrace
 dmesg_cma_reserved
 dmesg_crashkernel
 dmesg_ex_handler_msr
+dmesg_mem_sizes
 dmesg_last_pfn
 proc_pid_syscall
 sysfs_iommu_reserved_regions"
