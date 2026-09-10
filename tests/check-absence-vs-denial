@@ -10,10 +10,17 @@
 # hardening, and the report counts it as such.
 #
 # open(), access(), stat() and opendir() report both by failing, and the caller
-# can only tell them apart through errno. A mandatory access control policy
-# makes this routine rather than rare — under SELinux a denied path fails
-# lookup, so it presents exactly as a missing one — and deciding UNAVAILABLE
-# without looking records the target's policy as its build.
+# can only tell them apart through errno. Deciding UNAVAILABLE without looking
+# records the target's policy as its build.
+#
+# Consulting errno is what separates the two, because the kernel does answer
+# the question — SELinux denies with EACCES rather than hiding the path. What
+# it does NOT answer is a procfs mounted hidepid=2, where a denial on another
+# task's entry returns ENOENT by design (fs/proc/base.c: "If a process may not
+# stat() a file, it shouldn't be seen in procfs at all"; hidepid=1 returns
+# EPERM instead). There a denial is indistinguishable from an absence at the
+# syscall boundary and no amount of care in a component recovers it, which is
+# the reason this is a floor rather than a proof.
 #
 # This check fails when a component reaches an UNAVAILABLE-class verdict from a
 # failed probe without consulting errno anywhere. It cannot prove the errno is
