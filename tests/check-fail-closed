@@ -43,6 +43,8 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 . "$ROOT/tests/lib/qemu-target.sh"
 # shellcheck source=tests/lib/host-build.sh
 . "$ROOT/tests/lib/host-build.sh"
+# shellcheck source=tests/lib/component-artifacts.sh
+. "$ROOT/tests/lib/component-artifacts.sh"
 
 BUILD_DIR=${BUILD_DIR:-$ROOT/build}
 QEMU_DIR=${QEMU_DIR:-}
@@ -152,12 +154,24 @@ fi
 
 wait
 
+# A target given a COMPONENTS selection holds as many components as it was asked
+# for, so its count cannot speak to whether this sweep is reaching them. Every
+# target is still swept -- a crash is a crash wherever it happens -- but only
+# the full ones are counted towards the scope floor.
 nswept=0
+nfull=0
+nselected=0
 ntargets=0
 : >"$TMP/crashes"
 for l in $labels; do
   ntargets=$((ntargets + 1))
-  nswept=$((nswept + $(cat "$TMP/$l.n" 2>/dev/null || echo 0)))
+  cnt=$(cat "$TMP/$l.n" 2>/dev/null || echo 0)
+  nswept=$((nswept + cnt))
+  if [ -f "$(component_manifest "$BUILD_DIR/$l/components")" ]; then
+    nselected=$((nselected + 1))
+  else
+    nfull=$((nfull + cnt))
+  fi
   cat "$TMP/$l.crash" >>"$TMP/crashes" 2>/dev/null
 done
 
@@ -171,7 +185,13 @@ if [ -s "$TMP/crashes" ]; then
   exit 1
 fi
 
-guard_scope "check-fail-closed" "$nswept" 60
+if [ "$nfull" -eq 0 ] && [ "$nselected" -gt 0 ]; then
+  printf '%scheck-fail-closed: SKIP%s (every target was built with a COMPONENTS selection; %d components exited cleanly)\n' \
+    "$YELLOW" "$RESET" "$nswept"
+  exit 0
+fi
+
+guard_scope "check-fail-closed" "$nfull" 60
 
 note=
 [ -n "$skipped" ] && note=$(printf '; no qemu for:%s' "$skipped")

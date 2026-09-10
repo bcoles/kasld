@@ -109,5 +109,8 @@ current, where a hand-maintained per-component table would drift.
   kasld -s 'prefetch,entrybleed,zombieload,databounce,echoload,mincore,perf_*,bpf_*'
   ```
 
-  This is a manual, per-run choice. A packaged quiet profile (a curated
-  high-yield, low-footprint component set) does not exist today.
+  This is a manual, per-run choice. Where the build is under the operator's
+  control, `make COMPONENTS='...'` applies the same glob at build time, and the
+  components left out are not on the target at all rather than present and
+  unused. Neither lever is a curated profile: a packaged quiet set (a chosen
+  high-yield, low-footprint selection) does not exist today.

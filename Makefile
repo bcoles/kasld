@@ -298,8 +298,51 @@ ENGINE_OBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(ENGINE_CORE_SRCS)
 
 # Leak components: standalone binaries in src/components/
 COMP_SRC_DIR := $(SRC_DIR)/components
-SRC_FILES := $(wildcard $(COMP_SRC_DIR)/*.c)
+ALL_SRC_FILES := $(wildcard $(COMP_SRC_DIR)/*.c)
+
+# COMPONENTS selects which of them this build produces, as glob patterns matched
+# against component names -- the vocabulary the --skip flag already uses, so one
+# spelling covers both what is built and what is run. Comma- or space-separated;
+# unset builds every component, which is the default.
+#
+#     make cross COMPONENTS='dmesg_*,sysfs_devicetree_*,proc_*'
+#
+# For a board image the component tree is most of the payload, and a technique
+# that cannot fire on the target is dead weight in it. Selecting at build time
+# rather than deleting afterwards also cuts the compile, which is the larger
+# saving when the build fans out across architectures.
+#
+# A pattern matching nothing is a hard error rather than an empty selection: the
+# whole point is a tree holding exactly what was asked for, and the failure mode
+# to design against is a typo silently shipping the half that did match. Both
+# checks run at parse time, before anything is compiled.
+KASLD_COMMA := ,
+COMPONENT_PATTERNS := $(subst $(KASLD_COMMA), ,$(COMPONENTS))
+ifneq ($(strip $(COMPONENT_PATTERNS)),)
+# A pattern is a component name, so a '/' in one would let $(wildcard) reach
+# outside COMP_SRC_DIR and name a target the component rules cannot build.
+kasld_comp_paths := $(foreach p,$(COMPONENT_PATTERNS),$(if $(findstring /,$(p)),\
+    $(error COMPONENTS: '$(p)' is a path; patterns name components, e.g. 'dmesg_*')))
+kasld_comp_empty := $(foreach p,$(COMPONENT_PATTERNS),\
+    $(if $(wildcard $(COMP_SRC_DIR)/$(p).c),,\
+    $(error COMPONENTS: no component matches '$(p)')))
+SRC_FILES := $(sort $(foreach p,$(COMPONENT_PATTERNS),\
+    $(wildcard $(COMP_SRC_DIR)/$(p).c)))
+else
+SRC_FILES := $(ALL_SRC_FILES)
+endif
+
 BIN_FILES := $(patsubst $(COMP_SRC_DIR)/%.c,$(COMP_DIR)/%,$(SRC_FILES))
+ALL_BIN_FILES := $(patsubst $(COMP_SRC_DIR)/%.c,$(COMP_DIR)/%,$(ALL_SRC_FILES))
+
+# The selection this tree was built with, recorded for whatever inspects the
+# tree later. A filtered build is a smaller inventory, and a guard asking "did
+# every component build" has to ask it of the selection -- from an invocation of
+# its own, which carries no COMPONENTS. Written under obj/, the one directory
+# neither install nor the release packaging copies, so it cannot reach a shipped
+# tree; removed when there is no selection, so a tree rebuilt without one does
+# not answer from the last.
+COMPONENT_MANIFEST := $(OBJ_DIR)/components.selected
 
 # Side-channel components opt out of optimization by carrying the marker
 # KASLD_BUILD_NO_OPTIMIZE in their source header; they are discovered by grep so
@@ -428,6 +471,14 @@ $(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
 # longer asked for. BIN_FILES is the set that should exist, so the rest is
 # orphaned.
 #
+# A COMPONENTS selection reaches the directory the same way. Leaving the
+# deselected binaries in place would ship them anyway, from an earlier build,
+# which is the one outcome a build-time selection exists to prevent -- so the
+# two reasons a binary goes are reported apart rather than both reading as a
+# vanished source. Deleting them is also what makes the next unfiltered build
+# whole again: an absent target is one make rebuilds, with nothing tracking the
+# selection it was last given.
+#
 # Guarded on BIN_FILES being non-empty, so a source wildcard that came up empty
 # would prune nothing rather than the whole directory. Only regular files
 # directly in the directory are considered, and anything compiling concurrently
@@ -435,17 +486,33 @@ $(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
 .PHONY: prune-components
 prune-components: | $(COMP_DIR)
 ifneq ($(strip $(BIN_FILES)),)
-	@keep=" $(BIN_FILES) "; \
+	@keep=" $(BIN_FILES) "; known=" $(ALL_BIN_FILES) "; \
 	for f in "$(COMP_DIR)"/*; do \
 	  [ -f "$$f" ] || continue; \
 	  case "$$keep" in *" $$f "*) continue ;; esac; \
-	  printf '  $(C_TAG)%-5s$(C_RST) %s (source removed)\n' RM "$${f#./}"; \
+	  case "$$known" in \
+	    *" $$f "*) why='not selected' ;; \
+	    *) why='source removed' ;; \
+	  esac; \
+	  printf '  $(C_TAG)%-5s$(C_RST) %s (%s)\n' RM "$${f#./}" "$$why"; \
 	  rm -f "$$f"; \
 	done
 endif
 
+# Record the selection, or clear a record the current build has outgrown. Not a
+# prerequisite of anything, so nothing rebuilds on it; it describes the tree
+# rather than feeding it.
+.PHONY: component-manifest
+component-manifest: | $(OBJ_DIR)
+ifeq ($(strip $(COMPONENT_PATTERNS)),)
+	@rm -f '$(COMPONENT_MANIFEST)'
+else
+	@printf '%s\n' $(patsubst $(COMP_SRC_DIR)/%.c,%,$(SRC_FILES)) \
+	    > '$(COMPONENT_MANIFEST)'
+endif
+
 .PHONY: build
-build : check-headers prune-components $(BIN_FILES) $(KASLD_BIN)
+build : check-headers prune-components component-manifest $(BIN_FILES) $(KASLD_BIN)
 
 # -I$(SRC_DIR) so the orchestrator can include the component-side fact headers
 # (task_size.h and target_width.h use the same "include/kasld/..." form the
@@ -1329,6 +1396,13 @@ uninstall :
 # unchanged, so this check reported OK while --explain was gutted to nothing. The
 # two assertions after it hold the sections themselves, against whatever the
 # packaging pipeline did -- ours or a distro's.
+#
+# The explain floor is a fraction of the components actually discovered, not a
+# fixed number: a tree built with a COMPONENTS selection installs fewer of them,
+# and a fixed floor would read that as a strip having eaten the sections. What
+# it is really watching for takes the count to zero, so a fraction still catches
+# it. The hardening floor stays absolute -- that report's fixed sections carry
+# it well past twenty however few components are installed.
 installcheck :
 	@bin="$(DESTDIR)$(PREFIX)/bin/kasld"; \
 	if [ ! -x "$$bin" ]; then \
@@ -1345,9 +1419,11 @@ installcheck :
 	  echo "  expected component binaries in $(DESTDIR)$(PREFIX)/libexec/kasld/" >&2; \
 	  exit 1; \
 	fi; \
+	need=$$((n / 2)); [ "$$need" -ge 1 ] || need=1; \
 	e=$$("$$bin" --explain 2>/dev/null | grep -c 'Reads\|Parses\|Probes\|Searches'); \
-	if [ "$$e" -lt 20 ]; then \
-	  echo "installcheck: FAIL - --explain yielded $$e technique lines" >&2; \
+	if [ "$$e" -lt "$$need" ]; then \
+	  echo "installcheck: FAIL - --explain yielded $$e technique lines," \
+	       "expected at least $$need for $$n components" >&2; \
 	  echo "  the .kasld_explain section is missing from the installed components;" >&2; \
 	  echo "  a strip that removes ELF sections, not just symbols, will do this" >&2; \
 	  exit 1; \
@@ -1609,6 +1685,8 @@ help:
 	@echo "      CFLAGS=flags    Compiler flags"
 	@echo "      LDFLAGS=flags   Linker flags"
 	@echo "      PREFIX=path     Install prefix (default: /usr/local)"
+	@echo "      COMPONENTS=pat  Build only matching components (glob,"
+	@echo "                      comma-separated; default: all)"
 	@echo "      V=1             Verbose build (show full command lines)"
 	@echo "      COLOR=1|0       Force colored tags on/off (default: auto by tty)"
 	@echo

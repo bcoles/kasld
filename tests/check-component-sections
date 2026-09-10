@@ -34,6 +34,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # shellcheck source=tests/lib/guard-scope.sh
 . "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/component-artifacts.sh
+. "$ROOT/tests/lib/component-artifacts.sh"
 
 if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
@@ -47,10 +49,19 @@ command -v readelf >/dev/null 2>&1 || {
   exit 0
 }
 
-bad=; nchecked=0; ntriples=0
+# Every binary present is checked, whatever the build was asked for. Only the
+# scope floor below distinguishes the trees: a build given a COMPONENTS
+# selection holds as many components as it was asked for and no more, so its
+# count says nothing about whether this walk is finding them.
+bad=; nchecked=0; nfull=0; ntriples=0; nselected=0
 for d in "$ROOT"/build/*/components; do
   [ -d "$d" ] || continue
   ntriples=$((ntriples + 1))
+  if [ -f "$(component_manifest "$d")" ]; then
+    selected=1; nselected=$((nselected + 1))
+  else
+    selected=
+  fi
   triple=$(basename "$(dirname "$d")")
   for f in "$d"/*; do
     # Empty files are the architecture-gated stamp, not a component binary.
@@ -58,6 +69,7 @@ for d in "$ROOT"/build/*/components; do
       continue
     fi
     nchecked=$((nchecked + 1))
+    [ -n "$selected" ] || nfull=$((nfull + 1))
     for sec in .kasld_meta .kasld_explain; do
       # Section present AND non-zero size; a zero-size section exists and says
       # nothing, which reads the same as absent at runtime. The "[ 5]" index
@@ -86,7 +98,13 @@ if [ -n "$bad" ]; then
   exit 1
 fi
 
-guard_scope "check-component-sections" "$nchecked" 50
+if [ "$nfull" -eq 0 ] && [ "$nselected" -gt 0 ]; then
+  printf '%scheck-component-sections: SKIP%s (every build was given a COMPONENTS selection; %s binaries carried both sections)\n' \
+    "$YELLOW" "$RESET" "$nchecked"
+  exit 0
+fi
+
+guard_scope "check-component-sections" "$nfull" 50
 
 printf '%scheck-component-sections: OK%s (%s binaries across %s build(s) carry both sections)\n' \
   "$GREEN" "$RESET" "$nchecked" "$ntriples"

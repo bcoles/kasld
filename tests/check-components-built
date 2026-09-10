@@ -63,12 +63,14 @@ done
   exit 0
 }
 
-# Word splitting is the interface: the helper returns three counts followed by
-# the names of any component with no artefact.
+# Word splitting is the interface: the helper returns four counts followed by
+# the names of any component with no artefact. `nexam` is what this build was
+# asked for and `nsrc` what the source directory holds -- equal unless the build
+# was given a COMPONENTS selection.
 # shellcheck disable=SC2046
 set -- $(component_artifacts "$ROOT/src/components" "$COMP")
-nbuilt=$1; nskipped=$2; nsrc=$3
-shift 3
+nbuilt=$1; nskipped=$2; nexam=$3; nsrc=$4
+shift 4
 missing=$*
 
 if [ -n "$missing" ]; then
@@ -81,7 +83,15 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+# The floor is judged on the source directory, not on the selection: it exists
+# to catch a glob that stopped matching, and a selection of three components is
+# a deliberate answer rather than an empty scope.
 guard_scope "check-components-built" "$nsrc" 50
 
-printf '%scheck-components-built: OK%s (%s built, %s architecture-gated, %s sources)\n' \
-  "$GREEN" "$RESET" "$nbuilt" "$nskipped" "$nsrc"
+if [ "$nexam" -eq "$nsrc" ]; then
+  printf '%scheck-components-built: OK%s (%s built, %s architecture-gated, %s sources)\n' \
+    "$GREEN" "$RESET" "$nbuilt" "$nskipped" "$nsrc"
+else
+  printf '%scheck-components-built: OK%s (%s built, %s architecture-gated, %s of %s sources selected)\n' \
+    "$GREEN" "$RESET" "$nbuilt" "$nskipped" "$nexam" "$nsrc"
+fi

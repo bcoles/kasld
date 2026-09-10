@@ -95,8 +95,8 @@ fi
 # Word splitting is the interface; see the helper.
 # shellcheck disable=SC2046
 set -- $(component_artifacts "$ROOT/src/components" "$COMP")
-nbuilt=$1; ngated=$2; nsrc=$3
-shift 3
+nbuilt=$1; ngated=$2; nexam=$3; nsrc=$4
+shift 4
 missing=$*
 
 if [ -n "$missing" ]; then
@@ -114,7 +114,14 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
+# Judged on the source directory rather than the selection; see the same note in
+# check-components-built.
 guard_scope "check-clang-build" "$nsrc" 50
 
-printf '%scheck-clang-build: OK%s (%s: %s built, %s architecture-gated, %s sources)\n' \
-  "$GREEN" "$RESET" "$CC_CLANG" "$nbuilt" "$ngated" "$nsrc"
+if [ "$nexam" -eq "$nsrc" ]; then
+  printf '%scheck-clang-build: OK%s (%s: %s built, %s architecture-gated, %s sources)\n' \
+    "$GREEN" "$RESET" "$CC_CLANG" "$nbuilt" "$ngated" "$nsrc"
+else
+  printf '%scheck-clang-build: OK%s (%s: %s built, %s architecture-gated, %s of %s sources selected)\n' \
+    "$GREEN" "$RESET" "$CC_CLANG" "$nbuilt" "$ngated" "$nexam" "$nsrc"
+fi

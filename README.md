@@ -191,6 +191,28 @@ make print-deps   # list build dependencies (libs + per-component flags)
 make help         # show all targets and options
 ```
 
+`COMPONENTS` restricts a build to the components matching a glob, so a target
+that can only ever run a handful of techniques ships only those. Patterns name
+components and are comma- or space-separated, in the same form the `--skip` flag
+takes; a pattern matching nothing stops the build rather than silently
+narrowing it. Unset, every component is built.
+
+```
+make cross COMPONENTS='dmesg_*,sysfs_devicetree_*,devicetree_facts,proc_*'
+```
+
+Components are most of the installed size, so a selection is the lever for a
+small rootfs — and it cuts the build in proportion, which is the larger saving
+across seventeen targets.
+
+Like `CC`, the selection belongs to the invocation rather than to the tree: an
+`install` or `install-strip` run without it rebuilds and installs everything, so
+pass it to those too.
+
+```
+make install-strip COMPONENTS='dmesg_*,proc_*' DESTDIR=/staging PREFIX=/usr
+```
+
 `make print-deps` reports the required toolchain, the two optional libraries
 (`pthread`, `zlib`) with their auto-detection result for the current compiler,
 and the per-component compile/link flag exceptions — enough to populate a
