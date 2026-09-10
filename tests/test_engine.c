@@ -2009,13 +2009,20 @@ static void test_initrd_phys_exclude(void) {
   const rule_fn rules[] = {rule_initrd_phys_exclude};
   engine_run(&e, rules, 1);
 
-  /* A C_EXCLUDE constraint on Q_PHYS_IMAGE_BASE was emitted. */
-  int found = 0;
+  /* A C_EXCLUDE constraint on Q_PHYS_IMAGE_BASE was emitted, and both its
+   * edges are tight. A base one below the band puts the image's last byte at
+   * istart - 1, flush under the initrd but not inside it, so that base stays
+   * legal; a base at iend puts the image's first byte on the initrd's last, so
+   * the band must reach it. An edge off by one either forbids a placement the
+   * kernel can make or admits one it cannot. */
+  const struct constraint *hole = NULL;
   for (int i = 0; i < e.n_constraints; i++)
     if (e.constraints[i].q == Q_PHYS_IMAGE_BASE &&
         e.constraints[i].op == C_EXCLUDE)
-      found = 1;
-  assert(found);
+      hole = &e.constraints[i];
+  assert(hole);
+  assert(hole->value == istart - ksize + 1);
+  assert(hole->value2 == iend);
 
   /* The hole is interior (edges unchanged) but removes candidate positions:
    * slots with the carved hole < slots over the bare interval. */
@@ -2078,12 +2085,17 @@ static void test_cmdline_phys_exclude(void) {
  * occupy (crashkernel, MMIO, ...) carves a forbidden band out of the candidate
  * set; a plain-RAM extent of the same shape does NOT. */
 
-__attribute__((unused)) static int has_phys_exclude(const struct engine *e) {
+__attribute__((unused)) static const struct constraint *
+find_phys_exclude(const struct engine *e) {
   for (int i = 0; i < e->n_constraints; i++)
     if (e->constraints[i].q == Q_PHYS_IMAGE_BASE &&
         e->constraints[i].op == C_EXCLUDE)
-      return 1;
-  return 0;
+      return &e->constraints[i];
+  return NULL;
+}
+
+__attribute__((unused)) static int has_phys_exclude(const struct engine *e) {
+  return find_phys_exclude(e) != NULL;
 }
 
 static void test_phys_reservation_exclude(void) {
@@ -2111,7 +2123,13 @@ static void test_phys_reservation_exclude(void) {
   crash.conf = CONF_PARSED;
   evidence_add(&e.ev, &crash);
   engine_run(&e, rules, 1);
-  assert(has_phys_exclude(&e));
+  /* Both edges tight, for the same reason as the initrd band: a base at
+   * rstart - ksize ends flush below the reservation without touching it, and a
+   * base at rend starts on the reservation's last byte. */
+  const struct constraint *hole = find_phys_exclude(&e);
+  assert(hole);
+  assert(hole->value == rstart - ksize + 1);
+  assert(hole->value2 == rend);
   const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
   assert(quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, e.constraints,
                         e.n_constraints, KASLR_PHYS_ALIGN) <

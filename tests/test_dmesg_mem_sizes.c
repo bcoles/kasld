@@ -38,7 +38,8 @@ static char cap[8192];
  * reserved is 58888K = 0x3982000. */
 #define REAL_LINE                                                              \
   "Memory: 956920K/1048576K available (11132K kernel code, 1380K rwdata, "     \
-  "4916K rodata, 4096K init, 379K bss, 58888K reserved, 32768K cma-reserved)\n"
+  "4916K rodata, 4096K init, 379K bss, 58888K reserved, 32768K "               \
+  "cma-reserved)\n"
 
 static void stage_dmesg(const char *text) {
   th_sysroot_write("/var/log/dmesg", text);

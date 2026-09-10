@@ -135,7 +135,7 @@ static void test_swiotlb_single_range(void) {
               "0x00000000bbed0000-0x00000000bfed0000] (64MB)\n");
   run_capture(swiotlb_main);
   assert(
-      strstr(cap, "swiotlb pos=base conf=parsed lo=0xbbed0000 hi=0xbfed0000") !=
+      strstr(cap, "swiotlb pos=base conf=parsed lo=0xbbed0000 hi=0xbfecffff") !=
       NULL);
 }
 
@@ -152,13 +152,13 @@ static void test_crashkernel_two_disjoint_bands(void) {
   run_capture(crashkernel_main);
   assert(
       strstr(cap,
-             "crashkernel pos=base conf=parsed lo=0x27e00000 hi=0x3fe00000") !=
+             "crashkernel pos=base conf=parsed lo=0x27e00000 hi=0x3fdfffff") !=
       NULL);
   assert(strstr(cap,
-                "crashkernel pos=base conf=parsed lo=0x4000000 hi=0x8000000") !=
+                "crashkernel pos=base conf=parsed lo=0x4000000 hi=0x7ffffff") !=
          NULL);
   /* the collapsed span [low.lo, high.hi] must never be emitted */
-  assert(strstr(cap, "lo=0x4000000 hi=0x3fe00000") == NULL);
+  assert(strstr(cap, "lo=0x4000000 hi=0x3fdfffff") == NULL);
 }
 
 /* --- dmesg_cma_reserved: per-pool range computed from the MiB size (both the

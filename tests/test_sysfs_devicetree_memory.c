@@ -139,7 +139,7 @@ static void test_complete_map_emits_hull_and_extents(void) {
   rm_memory_node("memory@1");
 
   /* Both edges known → a single bounded range (pos=base carrying lo and hi). */
-  assert(strstr(cap, "ram pos=base conf=parsed lo=0x40000000 hi=0xa0000000") !=
+  assert(strstr(cap, "ram pos=base conf=parsed lo=0x40000000 hi=0x9fffffff") !=
          NULL);
   assert(strstr(cap, "ram pos=extent") != NULL);
 }

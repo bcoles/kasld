@@ -191,16 +191,18 @@ int main(void) {
       if (base_addr < lo)
         lo = base_addr;
 
-      unsigned long end = base_addr + size;
-      if (end > hi)
-        hi = end;
+      /* Inclusive last address of the bank, shared by the hull below and the
+       * per-bank extents so the two cannot drift apart. */
+      unsigned long bank_hi = base_addr + size - 1;
+      if (bank_hi > hi)
+        hi = bank_hi;
 
       /* Stash the extent; emitted after the map is confirmed complete. On
        * overflow the extent set is incomplete, but lo/hi stay exact (every
        * node was read in full), so keep tracking the hull. */
       if (n_ext < MAX_BANKS) {
         ext_lo[n_ext] = base_addr;
-        ext_hi[n_ext] = end - 1;
+        ext_hi[n_ext] = bank_hi;
         n_ext++;
       } else {
         overflow = 1;

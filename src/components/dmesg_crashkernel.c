@@ -99,6 +99,13 @@ static int on_reserved(const char *line, void *ctx) {
   if (!kasld_addr_parse(q + 3, 16, &end, &endptr))
     return 1;
 
+  /* The reservation is printed as base and base + size, so the second figure
+   * is the byte after the band; an extent is stored inclusive. An empty or
+   * inverted band is not a reservation. */
+  if (end <= start)
+    return 1;
+  end--;
+
   if (start && (!r->lo || start < r->lo))
     r->lo = start;
   if (end > r->hi)
@@ -108,7 +115,7 @@ static int on_reserved(const char *line, void *ctx) {
    * each line's [start, end] as its own bounded range rather than collapsing
    * to one [min, max] span (which would wrongly forbid the usable RAM in the
    * gap between them). Each band drives phys_reservation_exclude on its own. */
-  if (start && end > start)
+  if (start)
     kasld_result_range(KASLD_TYPE_PHYS, REGION_CRASHKERNEL, start, end, NULL,
                        CONF_PARSED);
 
@@ -146,6 +153,10 @@ static int on_reserving(const char *line, void *ctx) {
       kasld_add_ovf(start, size_bytes, &end))
     return 1;
 
+  /* start + size names the byte after the band; store the inclusive last one.
+   * size_mb is non-zero above, so the band cannot be empty. */
+  end--;
+
   if (start && (!r->lo || start < r->lo))
     r->lo = start;
   if (end > r->hi)
@@ -153,7 +164,7 @@ static int on_reserving(const char *line, void *ctx) {
 
   /* Per-region band (memory + low-memory variants are disjoint); see
    * on_reserved() for why each line is emitted separately, not collapsed. */
-  if (start && end > start)
+  if (start)
     kasld_result_range(KASLD_TYPE_PHYS, REGION_CRASHKERNEL, start, end, NULL,
                        CONF_PARSED);
 

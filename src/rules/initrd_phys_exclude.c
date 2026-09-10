@@ -2,12 +2,15 @@
 //
 // Rule: initrd forbidden zone (physical base exclusion).
 //
-// The bootloader-supplied initrd occupies [initrd_start, initrd_end). The
-// kernel placement code never selects a base whose image [base, base + size)
-// overlaps it, so the physical base is forbidden in
+// The bootloader-supplied initrd occupies the inclusive extent [lo, hi]. The
+// kernel placement code never selects a base whose image
+// [base, base + size - 1] overlaps it, so the physical base is forbidden in
 //
-//   (initrd_start - kernel_size, initrd_end)   i.e. the inclusive integer hole
-//   [initrd_start - kernel_size + 1, initrd_end - 1]
+//   [lo - kernel_size + 1, hi]
+//
+// A base one below that band puts the image's last byte at lo - 1, flush
+// against the initrd but not inside it, so the band starts one above; a base at
+// hi puts the image's first byte on the initrd's last, so the band ends there.
 //
 // emitted as a C_EXCLUDE on Q_PHYS_IMAGE_BASE. Rather than invalidating leaked
 // results that land in the initrd, it removes the forbidden band from the
@@ -63,9 +66,9 @@ int rule_initrd_phys_exclude(const struct evidence_set *ev,
   if (ksize == 0 || isrc == 0)
     return 0;
 
-  /* base forbidden in [istart - ksize + 1, iend - 1]; clamp the low end. */
+  /* base forbidden in [istart - ksize + 1, iend]; clamp the low end. */
   unsigned long hole_lo = (istart > ksize) ? (istart - ksize + 1) : 0;
-  unsigned long hole_hi = iend - 1;
+  unsigned long hole_hi = iend;
   if (hole_hi < hole_lo)
     return 0;
 

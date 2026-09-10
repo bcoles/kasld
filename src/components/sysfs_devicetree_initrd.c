@@ -139,6 +139,9 @@ int main(void) {
   kasld_info("initrd physical start: 0x%016lx", start);
 
   if (end && end > start) {
+    /* `linux,initrd-end` names the byte after the initrd — the kernel takes
+     * the size as end - start — while an extent is stored inclusive. */
+    end--;
     kasld_info("initrd physical end:   0x%016lx", end);
     kasld_result_range(KASLD_TYPE_PHYS, REGION_INITRD, start, end, NULL,
                        CONF_PARSED);

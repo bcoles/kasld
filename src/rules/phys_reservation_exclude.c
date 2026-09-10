@@ -15,7 +15,10 @@
 // A leaked extent [lo, hi] of any such region therefore forbids the physical
 // base from the band whose image would overlap it:
 //
-//   base forbidden in [lo - kernel_size + 1, hi - 1]
+//   base forbidden in [lo - kernel_size + 1, hi]
+//
+// Both edges are tight: a base at lo - kernel_size ends flush below the region
+// without touching it, and a base at hi starts on the region's last byte.
 //
 // the same shape as initrd_phys_exclude. One C_EXCLUDE per forbidden extent;
 // interior holes compose into the hole-aware slot count without moving the
@@ -71,9 +74,9 @@ int rule_phys_reservation_exclude(const struct evidence_set *ev,
     if (!is_phys_kernel_forbidden_region(o->eff_region))
       continue;
 
-    /* base forbidden in [lo - ksize + 1, hi - 1]; clamp the low end. */
+    /* base forbidden in [lo - ksize + 1, hi]; clamp the low end. */
     unsigned long hole_lo = (o->lo > ksize) ? (o->lo - ksize + 1) : 0;
-    unsigned long hole_hi = o->hi - 1;
+    unsigned long hole_hi = o->hi;
     if (hole_hi < hole_lo)
       continue;
 

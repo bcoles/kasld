@@ -692,6 +692,15 @@ $(TEST_DTMEM_BIN): $(TEST_DIR)/test_sysfs_devicetree_memory.c $(SRC_DIR)/compone
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_devicetree_memory.c -o $@
 
+# sysfs_devicetree_initrd extent boundary: #includes the component (main
+# renamed), driven over a staged KASLD_SYSROOT chosen node to assert the
+# exclusive linux,initrd-end property becomes an inclusive extent, and that an
+# absent or degenerate end publishes the start alone.
+TEST_DTINITRD_BIN := $(TEST_OBJ_DIR)/test_sysfs_devicetree_initrd
+$(TEST_DTINITRD_BIN): $(TEST_DIR)/test_sysfs_devicetree_initrd.c $(SRC_DIR)/components/sysfs_devicetree_initrd.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_devicetree_initrd.c -o $@
+
 # proc_net_sock_ptr hashed-pointer rejection: the component is #included (main
 # renamed) so its classify_sock_ptr() is unit-tested, and it is driven over a
 # staged KASLD_SYSROOT /proc/net/unix to assert the batch-decline + real-emit.
@@ -918,6 +927,7 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_KASLRDIS_BIN) \
   $(TEST_MEMSIZES_BIN) \
   $(TEST_DTMEM_BIN) \
+  $(TEST_DTINITRD_BIN) \
   $(TEST_SOCKPTR_BIN) \
   $(TEST_TIMERLIST_BIN) \
   $(TEST_KALLSYMS_BIN) \

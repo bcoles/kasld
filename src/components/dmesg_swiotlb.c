@@ -87,6 +87,12 @@ static int on_mapped(const char *line, void *ctx) {
   if (!kasld_addr_parse(endptr + 1, 16, &end, &endptr) || !end)
     return 1;
 
+  /* The pool's end is recorded as start + bytes, so the printed figure is the
+   * byte after it; an extent is stored inclusive. */
+  if (end <= start)
+    return 1;
+  end--;
+
   if (!r->lo || start < r->lo)
     r->lo = start;
   if (end > r->hi)
@@ -115,6 +121,11 @@ static int on_placing(const char *line, void *ctx) {
   unsigned long end;
   if (!kasld_addr_parse(q + 4, 16, &end, &endptr) || !end)
     return 1;
+
+  /* Same convention as the modern line: one past the last byte. */
+  if (end <= start)
+    return 1;
+  end--;
 
   if (!r->lo || start < r->lo)
     r->lo = start;
