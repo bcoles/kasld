@@ -126,6 +126,53 @@ static void test_addr_width_refusal(void) {
     assert(strstr(cap, "81a00000") == NULL);
 }
 
+/* The distance between the lowest and highest kernel row bounds the image size
+ * from below, since both endpoints are interior to it. */
+static void test_text_span_bounds_image_size(void) {
+  unsigned long T = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  unsigned long lo = T, hi = T + 0x800000; /* 8 MiB apart */
+  char fx[512];
+  snprintf(fx, sizeof(fx), "%lx func_lo\n%lx func_hi\n", lo, hi);
+  stage(fx);
+  run_capture();
+  assert(strstr(cap, "image_size_min conf=parsed value=0x800000") != NULL);
+}
+
+/* A module row above the highest kernel row must not stretch the span: a module
+ * address lies outside the image, so counting one would put the bound over the
+ * true footprint. ftrace's own tag is what separates them. */
+static void test_module_row_does_not_inflate_span(void) {
+  unsigned long T = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  unsigned long lo = T, hi = T + 0x800000, m = T + 0x900000;
+  char fx[512];
+  snprintf(fx, sizeof(fx), "%lx func_lo\n%lx func_hi\n%lx some_func [nfsd]\n",
+           lo, hi, m);
+  stage(fx);
+  run_capture();
+  assert(strstr(cap, "image_size_min conf=parsed value=0x800000") != NULL);
+}
+
+/* Two adjacent call sites bound nothing: a span under the plausibility floor is
+ * a sparse table, not a tiny kernel. */
+static void test_span_below_floor_not_emitted(void) {
+  unsigned long T = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  char fx[512];
+  snprintf(fx, sizeof(fx), "%lx func_lo\n%lx func_hi\n", T, T + 0x1000);
+  stage(fx);
+  run_capture();
+  assert(strstr(cap, "image_size_min") == NULL);
+}
+
+/* One row is a single point, not an extent. */
+static void test_single_row_emits_no_span(void) {
+  unsigned long T = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  char fx[512];
+  snprintf(fx, sizeof(fx), "%lx only_func\n", T);
+  stage(fx);
+  run_capture();
+  assert(strstr(cap, "image_size_min") == NULL);
+}
+
 int main(void) {
   th_sysroot_init("tracefs_aff_addrs");
 
@@ -136,5 +183,10 @@ int main(void) {
   RUN(test_non_text_and_malformed_ignored);
   BEGIN_CATEGORY("address width");
   RUN(test_addr_width_refusal);
+  BEGIN_CATEGORY("image-size lower bound from the text span");
+  RUN(test_text_span_bounds_image_size);
+  RUN(test_module_row_does_not_inflate_span);
+  RUN(test_span_below_floor_not_emitted);
+  RUN(test_single_row_emits_no_span);
   return TEST_DONE();
 }

@@ -24,6 +24,16 @@
 // whenever CONFIG_DYNAMIC_FTRACE is set — nearly every distro kernel — and
 // lists thousands of functions, so the bound is both reliable and tight.
 //
+// The distance between the lowest and highest kernel row also bounds the image
+// SIZE from below. A core record's ip is an mcount call site registered from
+// __start_mcount_loc..__stop_mcount_loc, so it lies inside [_text, _end); the
+// lowest and highest are therefore both interior, and their distance is
+// strictly under the footprint. Module rows are excluded by ftrace's own tag,
+// since a module address is outside the image and would inflate the span. The
+// bound is loose — text ends well below _end — but it carries no kptr_restrict
+// gate, so it answers on a host where every /boot and kallsyms source is
+// masked, which is the vantage where the size still binds.
+//
 // Leak primitive:
 //   Data leaked:      kernel/module function virtual addresses (fentry sites)
 //   Kernel subsystem: kernel/trace — the dyn_ftrace record table
@@ -46,6 +56,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/kernel_image.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -59,8 +70,10 @@ KASLD_EXPLAIN(
     "discloses real kernel addresses where /proc/kallsyms would be masked. The "
     "file is mode 0440 under tracefs (gid=-mountable), so it can be readable "
     "without root on systems set up for unprivileged tracing. Each address is "
-    "an interior point bounding the kernel text base. Unlike printk_formats, "
-    "the table is populated whenever CONFIG_DYNAMIC_FTRACE is set.");
+    "an interior point bounding the kernel text base, and the span between the "
+    "lowest and highest is a lower bound on the kernel image size. Unlike "
+    "printk_formats, the table is populated whenever CONFIG_DYNAMIC_FTRACE is "
+    "set.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -244,6 +257,15 @@ int main(int argc, char **argv) {
     if (text_hi != text_lo)
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, text_hi,
                           "ftrace_avail", CONF_PARSED);
+
+    /* Both endpoints are interior to the image, so their distance is under the
+     * footprint. A span below the plausibility floor says the table was too
+     * sparse to bound anything, not that the kernel is tiny. */
+    unsigned long span = text_hi - text_lo;
+    if (span >= KIMG_MIN_BYTES) {
+      kasld_info("ftrace call-site span: %lu bytes", span);
+      kasld_emit_scalar(SF_IMAGE_SIZE_MIN, span, CONF_PARSED);
+    }
   }
   if (have_mod) {
     kasld_info("module function addresses: 0x%lx-0x%lx", mod_lo, mod_hi);
