@@ -297,6 +297,32 @@ const char *default_base_remark(unsigned long def, unsigned long lo,
  * so the decimal is noise. Shared by every format that prints a grid. */
 const char *kasld_grain(unsigned long align, char *buf, size_t sz);
 
+/* The address vocabulary the readout and the map share instead of keeping one
+ * each: un-padded right-aligned hex, sized to the widest address a column
+ * actually draws. Two blocks rendering the same address two ways is a
+ * difference a reader reads as meaning. */
+int readout_hex_digits(unsigned long v);
+
+/* Report-model types used by the prototypes below; the full definitions live in
+ * kasld/report.h, which the renderers include directly. */
+struct kasld_report;
+struct kasld_report_quantity;
+
+/* The denominator a residual is stated against, as a raw count. One definition,
+ * because three formats stating "N of M" against different M is a difference a
+ * reader reads as disagreement about the target. */
+unsigned long kasld_entropy_top(const struct kasld_report_quantity *it);
+
+/* Residual entropy in bits, against the baseline where one is modelled. One
+ * definition, because the shape of the phrase is a claim: a bare "N bits"
+ * states that no baseline exists, and a missing "~" states that ceil(log2)
+ * rounded nothing. A format that composes its own is a format that can assert
+ * either of those by accident. */
+const char *kasld_entropy_phrase(int bits, int bits_top,
+                                 unsigned long candidates, unsigned long top,
+                                 char *buf, size_t bufsz);
+const char *readout_addr(unsigned long v, int digits, char *buf, size_t sz);
+
 /* The two grades, and the displacement note a concrete base carries. Shared
  * vocabulary: every format states the same word for the same claim. */
 #define GRADE_LIKELY "likely"

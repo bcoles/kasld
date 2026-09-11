@@ -47,6 +47,7 @@ FIELDS='vtext|ptext|vstext|pstext|vslide|pslide|vslots|pslots|vbits|pbits|vbits_
 ALLOW='
 src/render.c 0
 src/render/text.c 0
+src/render/map.c 0
 src/render/json.c 0
 src/render/markdown.c 0
 src/render/oneline.c 0

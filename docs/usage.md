@@ -404,6 +404,14 @@ KASLR analysis:
   Direct map entropy:   ~15 of 15 bits
 
 ----------------------------------------
+Candidates within each resolved window (to scale):
+
+  Direct Map Base  29355 candidates · ~15 of 15 bits · 1 GiB grain
+    0xffff880000000000 │████████████████████████████████████████████████│ 0xffffa4aa80000000
+
+  Module Region Base  1025 candidates · ~11 bits · 4 KiB grain
+    0xffffffffc0000000 │████████████████████████████████████████████████│ 0xffffffffc0400000
+
 Virtual address space (decoupled, not to scale):
 
   0xffffffffffffffff
@@ -524,7 +532,10 @@ set: the engine carves sub-ranges out of the interior, and `slots` already
 counts only what survives. Where any were carved, `excluded` lists the ranges
 the report retains and `excluded_total` says how many there were — so a
 consumer can tell a truncated list from a complete one, and can skip addresses
-already ruled out rather than working through the whole hull. The readout notes
+already ruled out rather than working through the whole hull. The ranges are
+disjoint and ascending — several forbidden regions commonly rule out
+overlapping bands of bases, and those are merged into the holes they describe
+before being reported — so they can be measured or summed directly. The readout notes
 that they exist, `-v` and the markdown report list them.
 
 So `inferred*` is the guaranteed window and `likely*` is the speculative

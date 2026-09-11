@@ -46,6 +46,7 @@ ACQUIRE='kasld_access|kasld_open|kasld_opendir|kasld_fopen|kasld_stat|kasld_read
 ALLOW='
 src/render.c 0
 src/render/text.c 0
+src/render/map.c 0
 src/render/json.c 0
 src/render/markdown.c 0
 src/render/oneline.c 0

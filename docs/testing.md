@@ -74,7 +74,7 @@ that `make test` builds and runs is `TEST_ALL_BINS` in the Makefile.
 | `test_engine` | every rule in `src/rules/` over synthetic evidence | engine core + all rules |
 | `test_engine_integration` | the full production rule registry against leak-bearing evidence | engine core + `engine_rules.c` + all rules |
 | `test_kasld` | orchestrator internals (parse, merge, anchor select), the engine→layout projection, the environment gatherer, region_info | `orchestrator.c` / `capture.c` / `discard.c` / `meta.c` / `environment.c` / `region_info.c` under `-DKASLD_TESTING` |
-| `test_render` | the renderers (text / json / markdown / oneline / hardening) | `render.c` / `render/*.c` under `-DKASLD_TESTING` |
+| `test_render` | the renderers (text / json / markdown / oneline / hardening / map) | `render.c` / `render/*.c` under `-DKASLD_TESTING` |
 | `test_align` | the text-base floor helpers (`kasld_floor_aligned_suboffset` / `kasld_floor_text_base`) | `api.h` (header-only) |
 | `test_text_order` | the kernel-text ordering classifier (`classify_text_order`) | `text_order.h` (header-only) |
 | `test_dmesg_layout` | the riscv `print_vm_layout` dump parser | `components/dmesg_mem_init_kernel_layout.c` (`#include`d, `main` renamed) |
@@ -166,6 +166,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | Guard | Asserts |
 |-------|---------|
 | `check-rule-registry` | every `src/rules/*.c` is registered exactly once in `engine_rules.c` (an unregistered rule compiles but never runs) and is exercised by a dedicated test — by name in `test_engine.c`, or via the integration-tested allowlist |
+| `check-render-registry` | every `src/render/*.c` is compiled into both renderer test binaries — the Makefile globs that directory while `test_kasld.c` and `test_render.c` name each file, so a renderer missing from a list still ships but contributes no coverage |
 | `check-self-edges` | no engine rule reads `est[Q]` and writes `Q` (a "self-edge") outside the reviewed allowlist — each such rule needs a soundness test |
 | `check-extent-callers` | only reviewed whole-map components call `kasld_result_extent` (the covering-completeness contract; a partial map would carve a false gap) |
 | `check-discard-accounting` | the shipped binary counts discards exactly with its worker pool running — N components × M bad wire records must total N×M in N kinds † |

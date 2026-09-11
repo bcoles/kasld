@@ -261,9 +261,11 @@ RENDER_SRC     := $(SRC_DIR)/render.c
 # engine nor a renderer -- it is the seam between them, and the only place that
 # decides what a run reports.
 REPORT_SRC     := $(SRC_DIR)/report.c
-# Per-output-mode renderer translation units. The wildcard means adding a new
-# mode (e.g. src/render/yaml.c) needs no Makefile edit; the cross-file glue
-# (shared helpers, per-mode entry points) lives in include/kasld/render_internal.h.
+# Renderer translation units: one per output mode (text, json, markdown,
+# oneline) plus the SECTION renderers a mode includes rather than replaces
+# (hardening, map). The wildcard means adding either kind (e.g. src/render/
+# yaml.c) needs no Makefile edit; the cross-file glue (shared helpers, entry
+# points) lives in include/kasld/render_internal.h.
 RENDER_MODE_SRCS := $(wildcard $(SRC_DIR)/render/*.c)
 RENDER_MODE_OBJS := $(patsubst $(SRC_DIR)/render/%.c,$(OBJ_DIR)/render_%.o,$(RENDER_MODE_SRCS))
 REGIONS_SRC    := $(SRC_DIR)/region_info.c
@@ -1069,6 +1071,7 @@ LINT_RUNNER := $(TEST_DIR)/run-guards
 lint :
 	@$(LINT_RUNNER) \
 	    $(TEST_DIR)/check-rule-registry \
+	    $(TEST_DIR)/check-render-registry \
 	    $(TEST_DIR)/check-self-edges \
 	    $(TEST_DIR)/check-extent-callers \
 	    $(TEST_DIR)/check-covering-consumers \

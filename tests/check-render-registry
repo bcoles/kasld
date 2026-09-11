@@ -1,0 +1,88 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-render-registry — every renderer translation unit is compiled into both
+# renderer test binaries.
+#
+# The Makefile decides what gets BUILT from src/render/ with a wildcard
+# (RENDER_MODE_SRCS), while tests/test_kasld.c and tests/test_render.c each
+# carry a hand-written list of `#include "../src/render/<name>.c"` lines. The
+# include pattern is deliberate -- it is what puts a renderer's static helpers
+# in scope under -DKASLD_TESTING -- but nothing tied the two sides together.
+#
+# A renderer missing from a test's list still links into the product and still
+# passes every other guard. Whether its absence is noticed is luck: it fails at
+# link time only if some OTHER included renderer calls into it. A section
+# renderer nothing else calls would compile clean, ship, and contribute exactly
+# zero coverage to test_render, while `make test` printed a clean tally -- the
+# failure presenting as a PASS, which is the shape check-suite-registry was
+# written for and this directory sits outside of.
+#
+# Checked in BOTH directions, per test binary: every file in src/render/ appears
+# in the list, and every name in the list is a file that exists. The second
+# direction is what catches a renderer that was renamed or removed, where the
+# stale include breaks the build for a reason that reads as unrelated.
+#
+# src/render.c is deliberately out of scope: it is one named file rather than a
+# globbed set, so there is no directory for it to drift against.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
+cd "$ROOT" || exit 2
+
+TESTS='tests/test_kasld.c tests/test_render.c'
+
+# The renderers on disk. An empty set means the glob matched nothing, which
+# would make every membership test below vacuously true -- the state a moved
+# directory produces, and a passing guard is the wrong answer to it.
+renderers=$(find src/render -maxdepth 1 -name '*.c' -exec basename {} \; \
+  2>/dev/null | sort)
+if [ -z "$renderers" ]; then
+  guard_fail "no renderers found under src/render/ (did the directory move?)"
+  exit 1
+fi
+
+fail=0
+n=0
+
+for t in $TESTS; do
+  if [ ! -f "$t" ]; then
+    guard_fail "$t not found"
+    fail=1
+    continue
+  fi
+  included=$(sed -n 's|^[[:space:]]*#include[[:space:]]*"\.\./src/render/\([A-Za-z0-9_]*\.c\)".*|\1|p' \
+    "$t" | sort)
+
+  for r in $renderers; do
+    if ! printf '%s\n' "$included" | grep -qx "$r"; then
+      printf '  %sFAIL%s: %s does not include src/render/%s\n' \
+        "$RED" "$RESET" "$t" "$r" >&2
+      printf '        add #include "../src/render/%s" -- without it that\n' \
+        "$r" >&2
+      printf '        renderer is absent from this binary and untested.\n' >&2
+      fail=1
+    fi
+  done
+
+  for i in $included; do
+    if [ ! -f "src/render/$i" ]; then
+      printf '  %sFAIL%s: %s includes src/render/%s, which does not exist\n' \
+        "$RED" "$RESET" "$t" "$i" >&2
+      fail=1
+    fi
+  done
+  n=$((n + 1))
+done
+
+[ "$fail" -eq 0 ] || exit 1
+
+# shellcheck disable=SC2086  # word-split the list into argv to count via $#
+set -- $renderers
+guard_ok "$# renderers in $n test binaries"

@@ -162,6 +162,68 @@ const char *kasld_grain(unsigned long align, char *buf, size_t sz) {
   return buf;
 }
 
+/* Hex digits an address occupies, so a column can be sized to its contents. */
+int readout_hex_digits(unsigned long v) {
+  int n = 0;
+  do {
+    n++;
+    v >>= 4;
+  } while (v);
+  return n;
+}
+
+/* An address right-aligned to `digits` hex digits, never zero-padded: relative
+ * magnitude stays legible, and a 16 MiB physical address does not wear the
+ * costume of a 64-bit kernel pointer. The padding is written directly rather
+ * than through a runtime "%*s" width, which no bound can be proved through. */
+const char *readout_addr(unsigned long v, int digits, char *buf, size_t sz) {
+  char t[32];
+  int n = snprintf(t, sizeof(t), "0x%lx", v);
+  int want = (digits < 0 ? 0 : digits) + 2;
+  int pad = want - n;
+  if (sz == 0)
+    return buf;
+  if (pad < 0)
+    pad = 0;
+  if ((size_t)pad > sz - 1)
+    pad = (int)(sz - 1);
+  memset(buf, ' ', (size_t)pad);
+  snprintf(buf + pad, sz - (size_t)pad, "%s", t);
+  return buf;
+}
+
+/* A candidate count whose log2 is exact, so ceil(log2) rounded nothing: the "~"
+ * that marks a rounded bit-count is then wrong and is dropped. */
+static int count_is_exact_pow2(unsigned long v) {
+  return v != 0 && (v & (v - 1)) == 0;
+}
+
+/* Residual entropy, against the entropy the window started with where that
+ * baseline is known: "5 bits" alone says nothing about how much was recovered.
+ * The count is the exact figure; bits is ceil(log2) of it and rounds, so each
+ * bit-count carries a "~" unless its candidate count is an exact power of two.
+ */
+const char *kasld_entropy_phrase(int bits, int bits_top,
+                                 unsigned long candidates, unsigned long top,
+                                 char *buf, size_t bufsz) {
+  /* Stated whenever a baseline exists, equal figures included, so that a bare
+   * "N bits" means no baseline is modelled -- the same rule the Layout table's
+   * Candidates cell follows. `bits_top > 0` is what separates "no baseline"
+   * from one that happens to be zero. A baseline below the residual is not one
+   * this line can stand on, and is withheld rather than inverted. */
+  if (bits_top > 0 && bits_top >= bits) {
+    /* Both figures are shown, so the mark is dropped only when neither rounded.
+     */
+    const char *mark =
+        count_is_exact_pow2(candidates) && count_is_exact_pow2(top) ? "" : "~";
+    snprintf(buf, bufsz, "%s%d of %d bits", mark, bits, bits_top);
+  } else {
+    const char *mark = count_is_exact_pow2(candidates) ? "" : "~";
+    snprintf(buf, bufsz, "%s%d bits", mark, bits);
+  }
+  return buf;
+}
+
 /* The displacement of a base from the un-randomized one it was drawn against,
  * as a trailing note on the address rather than a column: it is the same value
  * in another coordinate system, and only a concrete base has one. */
@@ -383,17 +445,25 @@ static void layout_add(const char *quantity, const char *basis,
 /* The set a row narrows: the kernel's own randomization window for a proven
  * row, and the proven row's own count for the speculative one beneath it.
  * Determined by which grade the row carries, so no caller chooses it. */
+/* What the proven row narrows depends on the KIND of quantity. An interval
+ * narrows the window the kernel randomizes over, and where the architecture
+ * models no such window there is no denominator to state -- a region base is
+ * bounded by structure rather than by a randomization range. A set narrows the
+ * values the architecture admits, and that count is its denominator: "1 of 2"
+ * says one of the two paging levels this target could be running.
+ *
+ * Shared so the readout, the map and the row model cannot state a residual
+ * against three different denominators. Mirrors report.c's own choice for
+ * `top_bits`. */
+unsigned long kasld_entropy_top(const struct kasld_report_quantity *it) {
+  return it->guaranteed.shape == RSHAPE_SET ? it->search_top : it->entropy_top;
+}
+
 static unsigned long layout_row_top(const struct kasld_report_quantity *it,
                                     const char *basis) {
   if (strcmp(basis, GRADE_GUARANTEED) != 0)
     return it->guaranteed.candidates;
-  /* What the proven row narrows depends on the KIND of quantity. An interval
-   * narrows the window the kernel randomizes over, and where the architecture
-   * models no such window there is no denominator to state -- a region base is
-   * bounded by structure rather than by a randomization range. A set narrows
-   * the values the architecture admits, and that count is its denominator: "1
-   * of 2" says one of the two paging levels this target could be running. */
-  return it->guaranteed.shape == RSHAPE_SET ? it->search_top : it->entropy_top;
+  return kasld_entropy_top(it);
 }
 
 /* The slide note for a row, or NULL.

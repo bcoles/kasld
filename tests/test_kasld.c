@@ -40,6 +40,7 @@
 #include "../src/render.c"
 #include "../src/render/hardening.c"
 #include "../src/render/json.c"
+#include "../src/render/map.c"
 #include "../src/render/markdown.c"
 #include "../src/report.c"
 

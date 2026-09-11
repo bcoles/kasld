@@ -41,6 +41,7 @@
 #pragma GCC diagnostic pop
 #include "../src/render/hardening.c"
 #include "../src/render/json.c"
+#include "../src/render/map.c"
 #include "../src/render/markdown.c"
 #include "../src/render/oneline.c"
 #include "../src/render/text.c"
@@ -2233,6 +2234,132 @@ static void test_render_phys_map_descends_strictly(void) {
 /* --map draws the address-space diagram without --verbose, which is the whole
  * point of the flag: the diagram is a view of the resolved layout, not run
  * narration, so it must be reachable without the per-component stream. */
+/* bar_cell_of must land inside the grid for every window it can be handed, and
+ * must not wrap. The product `off * BAR_CELLS` overflows on a window spanning
+ * most of the address space -- a page_offset hull does -- and a wrapped product
+ * places the mark at an arbitrary cell, which reads as a positive claim about
+ * where the answer is. Driven at the widest span rather than a realistic one:
+ * the realistic spans are exactly the ones that do not exercise the reduction.
+ */
+static void test_render_map_bar_cell_never_overflows(void) {
+  unsigned long wide = ULONG_MAX;
+  unsigned prev = 0;
+
+  assert(bar_cell_of(0, wide) == 0);
+  assert(bar_cell_of(wide, wide) == BAR_CELLS - 1);
+  assert(bar_cell_of(wide / 2, wide) < BAR_CELLS);
+
+  /* Monotone: a higher address never maps to an earlier cell. Stepped across
+   * the whole span so the reduction loop runs at every magnitude. */
+  for (int i = 0; i <= 64; i++) {
+    unsigned long off = (wide / 64) * (unsigned long)i;
+    unsigned cell = bar_cell_of(off, wide);
+    assert(cell < BAR_CELLS);
+    assert(cell >= prev);
+    prev = cell;
+  }
+
+  /* A span narrower than the grid still resolves, and a degenerate one does
+   * not divide by zero. */
+  assert(bar_cell_of(0, 0) == 0);
+  assert(bar_cell_of(3, 4) < BAR_CELLS);
+}
+
+/* The carving rule rounds INWARD: a cell is drawn as ruled out only where a
+ * hole covers the whole of it. A hole narrower than one cell must therefore
+ * leave the bar solid and be reported as undrawn, because shading its cell
+ * would state that candidates its neighbours hold are ruled out -- the display
+ * form of over-narrowing, and unsound in the one direction this tool must
+ * never be wrong in.
+ *
+ * Both halves are asserted from one staging, changing only the hole's width,
+ * so a bar that never draws a hole at all cannot pass the first half alone. */
+static void test_render_map_bar_rounds_holes_inward(void) {
+  struct summary s;
+  unsigned long lo = layout.virt_kaslr_text_min;
+  unsigned long hi = layout.virt_kaslr_text_max;
+  unsigned long span, cell;
+  const char *carved = kasld_glyph("\xe2\x96\x91", ".");
+
+  if (hi <= lo)
+    return; /* architecture pins the image base; no window to draw */
+  span = hi - lo;
+  cell = span / BAR_CELLS;
+  if (cell < 4)
+    return; /* window narrower than the grid; the rule is vacuous */
+
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  memset(&t_stage, 0, sizeof(t_stage));
+  t_stage.vslots = 60;
+  verbose = 0;
+  map_mode = 1;
+  set_render_mode(0, 0, 0);
+
+  /* Narrower than one cell: nothing carved, and the omission is stated. */
+  t_excl_total = 1;
+  t_excl_lo = lo + cell * 8;
+  t_excl_hi = t_excl_lo + cell / 2;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Candidates within each resolved window") != NULL);
+  assert(strstr(render_cap, carved) == NULL);
+  assert(strstr(render_cap, "narrower than one cell") != NULL);
+
+  /* Wide enough to cover whole cells: now it is drawn. */
+  t_excl_hi = t_excl_lo + cell * 6;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, carved) != NULL);
+
+  stage_likely_reset();
+  map_mode = 0;
+}
+
+/* The likely window is annotated on its own line, never shaded into the bar.
+ * A window naming ONE address is marked with a caret and that address; a wider
+ * one is bracketed and left to the counts, so the line cannot outgrow the
+ * column budget on a 64-bit target. */
+static void test_render_map_bar_likely_is_a_span(void) {
+  struct summary s;
+  unsigned long lo = layout.virt_kaslr_text_min;
+  unsigned long hi = layout.virt_kaslr_text_max;
+  unsigned long span;
+
+  if (hi <= lo)
+    return;
+  span = hi - lo;
+  if (span / BAR_CELLS < 4)
+    return;
+
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  memset(&t_stage, 0, sizeof(t_stage));
+  t_stage.vslots = 60;
+  t_stage.vtop_slots = 500;
+  verbose = 0;
+  map_mode = 1;
+  set_render_mode(0, 0, 0);
+
+  /* A range: bracketed, and the edges stay out of the annotation. */
+  t_vlikely_lo = lo + span / 4;
+  t_vlikely_hi = lo + span / 2;
+  t_vlikely_slots = 12;
+  capture_stdout(wrap_render_summary, &s);
+  {
+    const char *bar = strstr(render_cap, "Candidates within each resolved");
+    assert(bar != NULL);
+    assert(strstr(bar, kasld_glyph("\xe2\x94\x94", "[")) != NULL);
+  }
+
+  stage_likely_reset();
+  map_mode = 0;
+}
+
 static void test_render_map_flag(void) {
   struct summary s;
   reset_results();
@@ -5677,6 +5804,9 @@ int main(void) {
   RUN(test_render_map_directmap_base_from_engine);
   RUN(test_render_map_directmap_extent_derived);
   RUN(test_render_map_overlapped_band_states_its_ceiling);
+  RUN(test_render_map_bar_cell_never_overflows);
+  RUN(test_render_map_bar_rounds_holes_inward);
+  RUN(test_render_map_bar_likely_is_a_span);
   RUN(test_render_map_flag);
   RUN(test_render_footer_hint_is_last);
   RUN(test_render_phys_map_descends_strictly);
