@@ -382,9 +382,9 @@ int estimate_finset_value(const struct quantity_def *qd,
  * ------------------------------------------------------------------------ */
 
 /* Priority order for greedy acceptance: confidence DESC, then independent
- * corroboration (lineage_count) DESC, then intrinsic content (value ASC, op)
- * for capture-order-independent determinism, with id as the final tiebreak.
- * Returns <0 if a should come before b. */
+ * corroboration (lineage_count) DESC, then intrinsic content (value, value2,
+ * op) for capture-order-independent determinism, with id as the final
+ * tiebreak. Returns <0 if a should come before b. */
 static int prio_before(const struct constraint *a, const struct constraint *b) {
   if (a->conf != b->conf)
     return (int)b->conf - (int)a->conf; /* higher conf first */
@@ -393,14 +393,24 @@ static int prio_before(const struct constraint *a, const struct constraint *b) {
   /* Tie-break on intrinsic content, NOT emission id: id reflects component
    * capture order, which is non-deterministic under parallel execution — so an
    * equal-(conf,lineage) conflict would otherwise resolve differently between a
-   * parallel run and a sequential (--verbose) one. value-then-op is a total,
-   * capture-order-independent order; the direction is arbitrary (equal-
-   * confidence conflicts have no more-correct side — confidence is the real
-   * lever), but it makes the resolved estimate a pure function of the
-   * constraint SET. id remains the final fallback for otherwise-identical
-   * duplicates. */
+   * parallel run and a sequential (--verbose) one. value-then-value2-then-op is
+   * a total, capture-order-independent order; the direction is arbitrary
+   * (equal-confidence conflicts have no more-correct side — confidence is the
+   * real lever), but it makes the resolved estimate a pure function of the
+   * constraint SET.
+   *
+   * value2 is part of that content, not bookkeeping: it is the second operand
+   * of the two ops that take one — the exclusion's upper edge and the stride's
+   * modulus — so C_EXCLUDE [a, x] and [a, y] differ in what they remove while
+   * agreeing on every earlier key. Ordering them by id alone would hand that
+   * pair back to capture order, which is the one thing this comparison exists
+   * to keep out. What remains tied after value2 agrees on op, value and value2
+   * as well, so the two meet identically and only the binding id recorded
+   * against the edge can differ; id settles that and keeps the order total. */
   if (a->value != b->value)
     return (a->value < b->value) ? -1 : 1;
+  if (a->value2 != b->value2)
+    return (a->value2 < b->value2) ? -1 : 1;
   if (a->op != b->op)
     return (int)a->op - (int)b->op;
   if (a->id != b->id)
