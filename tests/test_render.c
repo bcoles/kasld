@@ -2153,6 +2153,11 @@ static void test_render_footer_hint_is_last(void) {
 /* Reads a physical-map boundary line -- an address alone on its line, with at
  * most the speculative tag after it. Leak rows carry a `[tag] name` suffix and
  * are inside a band, not edges of one, so they are rejected here. */
+/* A BOUNDARY line of the map: an address joined to the rail by one of the
+ * junctions that mark an edge between bands. The tick junction is deliberately
+ * rejected -- it marks a single address INSIDE a band, and those are not edges.
+ * Keying on the junction rather than on what follows the address also admits
+ * the bottom bookend, which carries a trailing note. */
 static int map_boundary_addr(const char *line, unsigned long *out) {
   const char *p = line;
   while (*p == ' ')
@@ -2163,9 +2168,16 @@ static int map_boundary_addr(const char *line, unsigned long *out) {
   unsigned long v = strtoul(p + 2, &end, 16);
   if (end == p + 2)
     return 0;
-  while (*end == ' ')
-    end++;
-  if (*end != '\0' && strncmp(end, GRADE_LIKELY, sizeof(GRADE_LIKELY) - 1) != 0)
+  if (*end != ' ')
+    return 0;
+  end++;
+  size_t arm = strlen(RAIL_ARM);
+  if (strncmp(end, RAIL_ARM, arm) != 0)
+    return 0;
+  end += arm;
+  if (strncmp(end, RAIL_EDGE, strlen(RAIL_EDGE)) != 0 &&
+      strncmp(end, RAIL_TOP, strlen(RAIL_TOP)) != 0 &&
+      strncmp(end, RAIL_BOTTOM, strlen(RAIL_BOTTOM)) != 0)
     return 0;
   *out = v;
   return 1;
@@ -2357,6 +2369,90 @@ static void test_render_map_bar_likely_is_a_span(void) {
   }
 
   stage_likely_reset();
+  map_mode = 0;
+}
+
+/* A band drawn solid states that the region was observed there. A band is
+ * usually a WINDOW -- the kernel-text band is the engine's resolved image-base
+ * bounds -- so a run that has seen no address inside one must draw it light:
+ * solid would claim the region occupies a span it may merely lie somewhere
+ * within, which is the display form of over-narrowing.
+ *
+ * Driven from one staging with the observation added, so a map that drew every
+ * band light could not pass the first half alone.
+ */
+static void test_render_map_unobserved_band_is_not_solid(void) {
+  struct summary s;
+  const char *solid = RAIL_SOLID;
+  const char *light = RAIL_BAND;
+  unsigned long base = layout.virt_kaslr_text_min;
+
+  if (!base || layout.virt_kaslr_text_min == layout.virt_kaslr_text_max)
+    return; /* the architecture pins the image base; no window to draw */
+
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  memset(&t_stage, 0, sizeof(t_stage));
+  t_stage.vslots = 60;
+  verbose = 0;
+  map_mode = 1;
+  set_render_mode(0, 0, 0);
+
+  /* Nothing observed anywhere: every band is admissible extent only, so no
+   * band may be filled solid. */
+  capture_stdout(wrap_render_summary, &s);
+  {
+    const char *map = strstr(render_cap, "Virtual address space");
+    assert(map != NULL);
+    assert(strstr(map, light) != NULL); /* bands are drawn at all */
+    assert(strstr(map, solid) == NULL);
+  }
+
+  /* One leaked kernel-text address, and the kernel-text band turns solid.
+   *
+   * Asserted on THAT band's own row rather than on the block as a whole: a
+   * search for the glyph anywhere passes on any architecture that already
+   * draws some other band solid, and would have missed the band the evidence
+   * was staged for. On the coupled architectures the row is the nested
+   * `> kernel text` entry inside the direct map, which is the case that
+   * matters -- the text band is always nested there. */
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_TEXT;
+  r->lo = base + (layout.virt_kaslr_text_max - base) / 2;
+  r->set_mask = LO_SET;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  add_origin(r, "synthetic_test");
+  r->method_set = 1u << KM_PARSED;
+
+  capture_stdout(wrap_render_summary, &s);
+  {
+    const char *map = strstr(render_cap, "Virtual address space");
+    const char *row, *nl;
+    assert(map != NULL);
+    row = strstr(map, "kernel text");
+    assert(row != NULL);
+    /* Back up to the start of that line, then look for the fill within it. */
+    while (row > map && row[-1] != '\n')
+      row--;
+    nl = strchr(row, '\n');
+    assert(nl != NULL);
+    {
+      char line[256];
+      size_t len = (size_t)(nl - row);
+      if (len >= sizeof(line))
+        len = sizeof(line) - 1;
+      memcpy(line, row, len);
+      line[len] = '\0';
+      assert(strstr(line, solid) != NULL);
+    }
+  }
+
+  reset_results();
   map_mode = 0;
 }
 
@@ -2634,7 +2730,7 @@ static void test_render_map_phys_buckets_partition(void) {
   char hex[32];
   /* Un-padded (the map right-aligns rather than zero-fills); the two trailing
    * spaces plus `[` still anchor this to a leak row, not a bare bookend. */
-  snprintf(hex, sizeof(hex), "0x%lx  [", ktext);
+  snprintf(hex, sizeof(hex), "0x%lx %s%s  [", ktext, RAIL_ARM, RAIL_TICK);
   int seen = 0;
   for (const char *p = strstr(blk, hex); p; p = strstr(p + 1, hex))
     seen++;
@@ -2781,7 +2877,7 @@ static void test_render_map_draws_topmost_band_ceiling(void) {
         len = sizeof(line) - 1;
       memcpy(line, l, len);
       line[len] = '\0';
-      assert(line[0] == '\0' || strstr(line, ". . .") != NULL ||
+      assert(line[0] == '\0' || strstr(line, " gap") != NULL ||
              strstr(line, "^ extent unknown") != NULL);
     }
     l = nl ? nl + 1 : NULL;
@@ -5804,6 +5900,7 @@ int main(void) {
   RUN(test_render_map_directmap_base_from_engine);
   RUN(test_render_map_directmap_extent_derived);
   RUN(test_render_map_overlapped_band_states_its_ceiling);
+  RUN(test_render_map_unobserved_band_is_not_solid);
   RUN(test_render_map_bar_cell_never_overflows);
   RUN(test_render_map_bar_rounds_holes_inward);
   RUN(test_render_map_bar_likely_is_a_span);

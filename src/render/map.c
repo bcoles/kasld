@@ -54,6 +54,12 @@ struct map_region {
    * edge. Every initialiser states it positionally, so a new region cannot
    * inherit the claim by omission. */
   int extent_derived;
+  /* 1 = something proves the region is present in this band -- an address
+   * observed inside it, or a base the engine pinned. 0 = the band states where
+   * the region MAY lie and nothing has been seen there. Stated positionally
+   * for the same reason `extent_derived` is: a new band that claims occupancy
+   * by omission would draw an unproven window as solidly as a measured one. */
+  int occupied;
 };
 
 /* Total order, so the column is byte-identical run to run. Regions really can
@@ -80,10 +86,69 @@ static int map_addr_w(int w, unsigned long v) {
   return n > w ? n : w;
 }
 
-/* One address bookend at the map's left margin. */
-static void print_map_addr(int w, unsigned long v, const char *tail) {
+/* The rail: a rule down the column, drawn beside every line, saying what is at
+ * that height. A column of addresses with indented text beneath each one is a
+ * list that a reader assembles into a picture; the rail draws the picture. The
+ * one bit it carries that nothing else does is occupancy -- solid where a
+ * region sits, dashed where nothing is claimed -- which the old form expressed
+ * only as the difference between a label and a gap sentence.
+ *
+ * Every glyph has a one-column ASCII twin, so --ascii degrades the drawing
+ * rather than losing it. The two junctions are deliberately distinct: a
+ * boundary is an edge between bands, a tick is a single address inside one,
+ * and both now sit in the same address column, where nothing else would tell
+ * them apart.
+ *
+ * The fill carries a THIRD thing, which is what a band drawn solid would
+ * otherwise overstate. A band is usually a WINDOW -- kernel text is drawn from
+ * the engine's resolved image-base bounds -- so filling it solid says the
+ * region occupies all of it, when what is known is that the region lies
+ * somewhere inside. Weight says which: solid where something was observed to
+ * be in the band, light where the band is only admissible extent, dashed where
+ * nothing claims the span at all.
+ *
+ * Weight, not density, and deliberately: the bars above use density for a
+ * different question (a candidate still possible against one ruled out), and
+ * the pale glyph of that ladder would mean "possible" there and "unproven"
+ * here, a few lines apart in one screen.
+ *
+ * The fill is one statement about the WHOLE band. A band's rows are its label
+ * and leak lines, not a proportional slice of its span, so shading part of a
+ * band would invent a vertical scale the column does not have and invite the
+ * reader to take row position for address position. */
+#define RAIL_SOLID kasld_glyph("\xe2\x96\x88", "#")  /* full block */
+#define RAIL_BAND kasld_glyph("\xe2\x94\x82", "|")   /* light vertical */
+#define RAIL_GAP kasld_glyph("\xe2\x95\x8e", ":")    /* dashed vertical */
+#define RAIL_TOP kasld_glyph("\xe2\x94\x90", "+")    /* down-and-left */
+#define RAIL_BOTTOM kasld_glyph("\xe2\x94\x98", "+") /* up-and-left */
+#define RAIL_EDGE kasld_glyph("\xe2\x94\xa4", "+")   /* band boundary */
+#define RAIL_TICK kasld_glyph("\xe2\x94\xbc", "*")   /* address inside a band */
+#define RAIL_ARM kasld_glyph("\xe2\x94\x80", "-")    /* address-to-rail arm */
+
+/* Where the rail sits, in display columns: the two-space margin, the address
+ * column (w hex digits plus "0x"), then the arm. Body lines pad to it. */
+static int rail_col(int w) { return 2 + w + 2 + 2; }
+
+/* A body line's prefix: blank through the address column, then the rail. The
+ * caller writes its text after the two spaces this leaves. */
+static void print_rail(int w, const char *glyph) {
+  printf("%*s%s  ", rail_col(w), "", glyph);
+}
+
+/* One address bookend at the map's left margin, joined to the rail.
+ * `junction` is the glyph the rail wears at this height; NULL draws the
+ * address alone, for the lines that stand outside the rail. */
+static void print_map_addr_j(int w, unsigned long v, const char *junction,
+                             const char *tail) {
   char ab[40];
-  printf("  %s%s\n", readout_addr(v, w, ab, sizeof(ab)), tail ? tail : "");
+  printf("  %s", readout_addr(v, w, ab, sizeof(ab)));
+  if (junction)
+    printf(" %s%s", RAIL_ARM, junction);
+  printf("%s\n", tail ? tail : "");
+}
+
+static void print_map_addr(int w, unsigned long v, const char *tail) {
+  print_map_addr_j(w, v, RAIL_EDGE, tail);
 }
 
 /* One downward boundary transition in the virtual column: the
@@ -99,15 +164,16 @@ static void print_map_addr(int w, unsigned long v, const char *tail) {
  * drawn at all and the reader takes the map's top for the band's own end --
  * e.g. kernel text appearing to run to 0xffffffffffffffff on arm64 while the
  * readout states an image-base window that ends far below. */
-static int print_map_boundary(const char *indent, int w, unsigned long above,
+static int print_map_boundary(int w, unsigned long above,
                               const struct map_region *below) {
   /* `above - below->end > 1` rather than `below->end + 1 < above`: the latter
    * wraps when the band ends at the top of the address space. */
   if (above - below->end > 1) {
     char hbuf[32];
     unsigned long gap = above - below->end - 1;
-    printf("%s%s. . .  %s gap  . . .%s\n", indent, c(C_DIM),
-           kasld_grain(gap, hbuf, sizeof(hbuf)), c(C_RESET));
+    print_rail(w, RAIL_GAP);
+    printf("%s%s gap%s\n", c(C_DIM), kasld_grain(gap, hbuf, sizeof(hbuf)),
+           c(C_RESET));
   }
   /* A base-only region with no leak to widen it has no known ceiling, so there
    * is no upper boundary to draw. Printing its base here would repeat the
@@ -116,7 +182,8 @@ static int print_map_boundary(const char *indent, int w, unsigned long above,
    * band's own label does not go on to say the same thing a second time in
    * different words. */
   if (below->base_only && below->start == below->end) {
-    printf("%s%s^ extent unknown%s\n", indent, c(C_DIM), c(C_RESET));
+    print_rail(w, RAIL_GAP);
+    printf("%s^ extent unknown%s\n", c(C_DIM), c(C_RESET));
     return 1;
   }
   print_map_addr(w, below->end, NULL);
@@ -266,16 +333,20 @@ static void print_virtual_layout(void) {
                                      0,
                                      MR_MODULES,
                                      MR_NONE,
-                                     0};
-  regions[n++] = (struct map_region){layout.virt_image_base_min,
-                                     layout.virt_image_base_max,
-                                     "kernel text",
-                                     vtext_lo,
-                                     vtext_hi,
                                      0,
-                                     MR_KERNEL_TEXT,
-                                     text_in_directmap ? MR_DIRECTMAP : MR_NONE,
-                                     0};
+                                     vmod_lo != 0};
+  regions[n++] =
+      (struct map_region){layout.virt_image_base_min,
+                          layout.virt_image_base_max,
+                          "kernel text",
+                          vtext_lo,
+                          vtext_hi,
+                          0,
+                          MR_KERNEL_TEXT,
+                          text_in_directmap ? MR_DIRECTMAP : MR_NONE,
+                          0,
+                          vtext_lo != 0 || layout.virt_image_base_min ==
+                                               layout.virt_image_base_max};
 
   /* The direct map is shown whenever its base is known. Use the base as both
      start and end — the mapping begins there, but its true extent is
@@ -285,10 +356,16 @@ static void print_virtual_layout(void) {
      the two are genuinely indistinguishable and nothing is contained. */
   if (dmap_base &&
       (text_in_directmap || dmap_base != layout.virt_image_base_min)) {
-    regions[n++] =
-        (struct map_region){dmap_base,    dmap_end, "direct map",
-                            vdmap_lo,     vdmap_hi, !dmap_extent_derived,
-                            MR_DIRECTMAP, MR_NONE,  dmap_extent_derived};
+    regions[n++] = (struct map_region){dmap_base,
+                                       dmap_end,
+                                       "direct map",
+                                       vdmap_lo,
+                                       vdmap_hi,
+                                       !dmap_extent_derived,
+                                       MR_DIRECTMAP,
+                                       MR_NONE,
+                                       dmap_extent_derived,
+                                       vdmap_lo != 0 || dmap_base_pinned};
   }
 
   /* A band must contain the region it names, so it must contain every address
@@ -366,8 +443,6 @@ static void print_virtual_layout(void) {
    * ~50% lines vs the previous ASCII-box format and preserves every
    * piece of data (region boundaries, leak addresses, gap sizes, pinned
    * annotation). All output is ASCII-only for terminal portability. */
-  const char *INDENT = "      ";
-
   /* Use the highest of virt_kernel_vas_end and all region.end values so the top
    * label is never below a visible region boundary. virt_kernel_vas_end can be
    * tightened by the virt_page_offset_max inference feedback loop (it reflects
@@ -392,18 +467,23 @@ static void print_virtual_layout(void) {
     w = map_addr_w(w, regions[i].leak_hi);
   }
 
-  print_map_addr(w, map_top, NULL);
+  print_map_addr_j(w, map_top, RAIL_TOP, NULL);
 
   /* The highest band's ceiling: no band sits above it to print the shared
    * bookend, so draw it here or it never appears and the map silently claims
    * the region reaches the top of the address space. */
+  /* Whether the VAS-floor footer will print. It draws the column's last line
+   * and closes the rail; where the lowest band starts AT the floor it is
+   * suppressed, and the closing glyph has to move to that band's own floor or
+   * the rail ends on an edge with nothing below it. */
+  int has_footer = (nb == 0 || layout.virt_kernel_vas_start < bands[0].start);
   int open_top = 0;
   /* The topmost band always has its ceiling on screen: either the boundary
    * below draws it, or it coincides with the map's own top line, which was
    * just printed. Nothing sits above it to overlap it. */
   int ceiling_drawn = 1;
   if (nb > 0 && map_top > bands[nb - 1].end)
-    open_top = print_map_boundary(INDENT, w, map_top, &bands[nb - 1]);
+    open_top = print_map_boundary(w, map_top, &bands[nb - 1]);
 
   for (int i = nb - 1; i >= 0; i--) {
     struct map_region *r = &bands[i];
@@ -422,21 +502,32 @@ static void print_virtual_layout(void) {
      * The floor's provenance is the other half. It is a proven address only
      * when the engine pinned the quantity; where it holds a window, the drawn
      * floor is that window's low end and the label must not promote it. */
-    char tail[64];
+    const char *fill = r->occupied ? RAIL_SOLID : RAIL_BAND;
+    char tail[96];
+    /* One parenthesis, however many things there are to say. Each clause was
+     * composed independently and they met on the line, so a band that had both
+     * a provenance note and nothing observed ended "(base guaranteed; extent
+     * unknown) (no leak)" -- two brackets the reader has to join up, where the
+     * clauses inside one already read as a list. A pinned band is the
+     * exception and states only that: its bookends say the rest, and the
+     * absence of a leak beside a proven single address is not a caveat. */
+    const char *nl = (r->leak_lo || pinned) ? "" : "; no leak";
     tail[0] = '\0';
     if (r->base_only)
-      snprintf(tail, sizeof(tail), " (base %s%s)",
+      snprintf(tail, sizeof(tail), " (base %s%s%s)",
                r->id == MR_DIRECTMAP && !dmap_base_pinned ? "is a lower bound"
                                                           : "guaranteed",
-               open_top ? "" : "; extent unknown");
+               open_top ? "" : "; extent unknown", nl);
     else if (r->extent_derived)
       /* Says where the ceiling came from. It is not a leak and not a bound the
        * engine holds; it is arithmetic on the resolved base, and the reader is
        * told so rather than left to assume the region was observed end to end.
        */
-      snprintf(tail, sizeof(tail), " (base guaranteed; extent derived)");
+      snprintf(tail, sizeof(tail), " (base guaranteed; extent derived%s)", nl);
     else if (pinned)
       snprintf(tail, sizeof(tail), " (pinned)");
+    else if (nl[0])
+      snprintf(tail, sizeof(tail), " (no leak)");
     open_top = 0;
 
     /* Region label line(s). Leak addresses, if any, fold inline.
@@ -446,24 +537,27 @@ static void print_virtual_layout(void) {
     char a1[40], a2[40];
     if (r->leak_lo) {
       if (r->leak_hi && r->leak_hi != r->leak_lo) {
-        printf("%s%s%s\n", INDENT, r->label, tail);
-        printf("%s  leak hi: %s\n", INDENT,
-               readout_addr(r->leak_hi, w, a1, sizeof(a1)));
-        printf("%s  leak lo: %s\n", INDENT,
-               readout_addr(r->leak_lo, w, a1, sizeof(a1)));
+        print_rail(w, fill);
+        printf("%s%s\n", r->label, tail);
+        print_rail(w, fill);
+        printf("  leak hi: %s\n", readout_addr(r->leak_hi, w, a1, sizeof(a1)));
+        print_rail(w, fill);
+        printf("  leak lo: %s\n", readout_addr(r->leak_lo, w, a1, sizeof(a1)));
       } else {
-        printf("%s%s%s -- leak %s\n", INDENT, r->label, tail,
+        print_rail(w, fill);
+        printf("%s%s -- leak %s\n", r->label, tail,
                readout_addr(r->leak_lo, w, a1, sizeof(a1)));
       }
     } else if (pinned) {
-      printf("%s%s%s\n", INDENT, r->label, tail);
+      print_rail(w, fill);
+      printf("%s%s\n", r->label, tail);
     } else {
       /* tail carries here too: a base-only band whose bookends come from
        * a contained region now has a drawn ceiling, and that ceiling is the
        * contained region's reach, not a measurement of this one's. Dropping the
        * disclaimer would let the drawn edge read as the region's extent. */
-      printf("%s%s%s %s(no leak)%s\n", INDENT, r->label, tail, c(C_DIM),
-             c(C_RESET));
+      print_rail(w, fill);
+      printf("%s%s%s%s\n", c(C_DIM), r->label, tail, c(C_RESET));
     }
 
     /* A band the one above it OVERLAPS has no bookend to carry its top edge:
@@ -482,12 +576,13 @@ static void print_virtual_layout(void) {
        * unsaid, which is where the edge sits. */
       unsigned long shown =
           (r->leak_hi && r->leak_hi != r->leak_lo) ? r->leak_hi : r->leak_lo;
+      print_rail(w, fill);
       if (shown == r->end)
-        printf("%s  %s^ top edge lies inside the band above%s\n", INDENT,
-               c(C_DIM), c(C_RESET));
+        printf("  %s^ top edge lies inside the band above%s\n", c(C_DIM),
+               c(C_RESET));
       else
-        printf("%s  %sextends to %s  (inside the band above)%s\n", INDENT,
-               c(C_DIM), readout_addr(r->end, w, a1, sizeof(a1)), c(C_RESET));
+        printf("  %sextends to %s  (inside the band above)%s\n", c(C_DIM),
+               readout_addr(r->end, w, a1, sizeof(a1)), c(C_RESET));
     }
 
     /* Regions mapped through this one, drawn inside its bookends with their own
@@ -502,27 +597,41 @@ static void print_virtual_layout(void) {
       const struct map_region *sub = &regions[j];
       if (sub->parent != r->id)
         continue;
+      /* A nested region's rows take the STRONGER of the two occupancies at
+       * that height. Both regions are present there -- kernel text is mapped
+       * through the direct map, not instead of it -- and the fill answers
+       * whether anything is proven present, so an observed sub-region shows
+       * as such even inside a container nothing has been seen in. Taking the
+       * container's fill alone discards the only evidence that matters here:
+       * on a coupled architecture the text band is ALWAYS nested, so a leaked
+       * text address could not turn anything solid. */
+      const char *subfill =
+          (sub->occupied || r->occupied) ? RAIL_SOLID : RAIL_BAND;
+      print_rail(w, subfill);
       if (sub->start == sub->end)
-        printf("%s  > %s  %s\n", INDENT, sub->label,
+        printf("  > %s  %s\n", sub->label,
                readout_addr(sub->start, w, a1, sizeof(a1)));
       else
-        printf("%s  > %s  %s - %s\n", INDENT, sub->label,
+        printf("  > %s  %s - %s\n", sub->label,
                readout_addr(sub->start, w, a1, sizeof(a1)),
                readout_addr(sub->end, w, a2, sizeof(a2)));
+      print_rail(w, subfill);
       if (sub->leak_hi && sub->leak_hi != sub->leak_lo) {
-        printf("%s      leak hi: %s\n", INDENT,
+        printf("      leak hi: %s\n",
                readout_addr(sub->leak_hi, w, a1, sizeof(a1)));
-        printf("%s      leak lo: %s\n", INDENT,
+        print_rail(w, subfill);
+        printf("      leak lo: %s\n",
                readout_addr(sub->leak_lo, w, a1, sizeof(a1)));
       } else if (sub->leak_lo) {
-        printf("%s      leak: %s\n", INDENT,
+        printf("      leak: %s\n",
                readout_addr(sub->leak_lo, w, a1, sizeof(a1)));
       } else {
-        printf("%s      %s(no leak)%s\n", INDENT, c(C_DIM), c(C_RESET));
+        printf("      %s(no leak)%s\n", c(C_DIM), c(C_RESET));
       }
     }
 
-    print_map_addr(w, r->start, NULL);
+    print_map_addr_j(w, r->start,
+                     (i == 0 && !has_footer) ? RAIL_BOTTOM : RAIL_EDGE, NULL);
 
     /* Gap to the next (lower) band, if any. The gap address bookend
      * (the next band's `end`) is printed after the separator.
@@ -540,7 +649,7 @@ static void print_virtual_layout(void) {
      * above. */
     ceiling_drawn = (i > 0 && bands[i - 1].end <= r->start);
     if (i > 0 && bands[i - 1].end < r->start)
-      open_top = print_map_boundary(INDENT, w, r->start, &bands[i - 1]);
+      open_top = print_map_boundary(w, r->start, &bands[i - 1]);
   }
 
   /* Only print virt_kernel_vas_start as a footer when it is genuinely below the
@@ -552,8 +661,9 @@ static void print_virtual_layout(void) {
     if (nb > 0 && bands[0].start > layout.virt_kernel_vas_start + 1) {
       char hbuf[32];
       unsigned long gap = bands[0].start - layout.virt_kernel_vas_start;
-      printf("%s%s. . .  %s gap  . . .%s\n", INDENT, c(C_DIM),
-             kasld_grain(gap, hbuf, sizeof(hbuf)), c(C_RESET));
+      print_rail(w, RAIL_GAP);
+      printf("%s%s gap%s\n", c(C_DIM), kasld_grain(gap, hbuf, sizeof(hbuf)),
+             c(C_RESET));
     }
     /* Annotate the kernel VAS floor: what lies below it is not a KASLR target
      * (and not inferred here). On 64-bit a non-canonical hole separates the
@@ -563,7 +673,7 @@ static void print_virtual_layout(void) {
                             : "user space below";
     char foot[96];
     snprintf(foot, sizeof(foot), "  %s(%s)%s", c(C_DIM), below, c(C_RESET));
-    print_map_addr(w, layout.virt_kernel_vas_start, foot);
+    print_map_addr_j(w, layout.virt_kernel_vas_start, RAIL_BOTTOM, foot);
   }
   printf("\n");
 }
@@ -571,8 +681,6 @@ static void print_virtual_layout(void) {
 /* Render the physical half of the memory map: DRAM buckets, the phys text-base
  * window split, and any above/below-DRAM buckets. */
 static void print_physical_layout(void) {
-  const char *INDENT = "      ";
-
   /* Physical memory map — unified view of all physical leaks */
   unsigned long ptext =
       section_consensus(KASLD_TYPE_PHYS, "text", REGION_UNKNOWN);
@@ -837,6 +945,13 @@ static void print_physical_layout(void) {
     top_is_estimate = 0;
   }
 
+  /* Whether DRAM's placement rests on a leak rather than on the architecture's
+   * own floor and an unbounded ceiling. Without one, dram_lo/dram_hi are
+   * PHYS_OFFSET and ULONG_MAX -- a partition of the column, not a region
+   * something reported -- and the band must not be drawn as though RAM had
+   * been observed there. */
+  int dram_observed = have_ram_base || have_ram_top;
+
   /* Build a flat list of buckets, top to bottom. `footer_addr` is the
    * boundary label printed after the bucket (= bottom edge). `text_only`
    * gates the bucket to kernel-image-region leaks (the virt layout's
@@ -848,6 +963,11 @@ static void print_physical_layout(void) {
     unsigned long lo, hi;
     unsigned long footer_addr;
     int text_only;
+    /* As on a virtual band: 1 where the span is proven to be what it is
+     * named -- DRAM whose edges something leaked, or a text window narrowed to
+     * one address -- 0 where it is a partition of the column rather than an
+     * observed region. Stated positionally at every construction. */
+    int occupied;
   } buckets[5];
   int nbuckets = 0;
 
@@ -864,14 +984,14 @@ static void print_physical_layout(void) {
       }
     }
     if (any_above_dram)
-      buckets[nbuckets++] = (struct phys_bucket){"above DRAM", ram_top + 1,
-                                                 ULONG_MAX, ram_top, 0};
+      buckets[nbuckets++] = (struct phys_bucket){
+          "above DRAM", ram_top + 1, ULONG_MAX, ram_top, 0, 0};
   }
 
   if (!show_phys_window) {
     /* Single in-DRAM bucket spanning the whole DRAM range. */
-    buckets[nbuckets++] =
-        (struct phys_bucket){"in DRAM", dram_lo, dram_hi, dram_lo, 0};
+    buckets[nbuckets++] = (struct phys_bucket){
+        "in DRAM", dram_lo, dram_hi, dram_lo, 0, dram_observed};
   } else {
     /* In-DRAM above text window. Clipped at ram_top (no longer ULONG_MAX).
      * Named by its position around the text window: the two in-DRAM bands are
@@ -887,18 +1007,26 @@ static void print_physical_layout(void) {
     unsigned long band_hi = dram_hi < top_label ? dram_hi : top_label;
     if (band_hi > whi)
       buckets[nbuckets++] = (struct phys_bucket){"in DRAM, above kernel text",
-                                                 whi + 1, band_hi, whi, 0};
+                                                 whi + 1,
+                                                 band_hi,
+                                                 whi,
+                                                 0,
+                                                 dram_observed};
     /* Text window, clipped into DRAM (a window edge outside DRAM belongs to
      * the above-/below-DRAM band, not to this one). */
     buckets[nbuckets++] =
-        (struct phys_bucket){"phys kernel text", wlo, whi, wlo, 1};
+        (struct phys_bucket){"phys kernel text", wlo, whi, wlo, 1, wlo == whi};
     /* In-DRAM below text window. Clipped at ram_base (no longer PHYS_OFFSET).
      * When the window's lower edge is at or below dram_lo, wlo == dram_lo and
      * the window band already carries dram_lo as its footer — the trailing
      * label collapses with no separate band. */
     if (wlo > dram_lo)
       buckets[nbuckets++] = (struct phys_bucket){"in DRAM, below kernel text",
-                                                 dram_lo, wlo - 1, dram_lo, 0};
+                                                 dram_lo,
+                                                 wlo - 1,
+                                                 dram_lo,
+                                                 0,
+                                                 dram_observed};
   }
 
   /* Below-DRAM bucket: leaks whose address < ram_base. Only emitted when
@@ -914,9 +1042,12 @@ static void print_physical_layout(void) {
       }
     }
     if (any_below_dram)
-      buckets[nbuckets++] =
-          (struct phys_bucket){"below DRAM", (unsigned long)PHYS_OFFSET,
-                               ram_base - 1, (unsigned long)PHYS_OFFSET, 0};
+      buckets[nbuckets++] = (struct phys_bucket){"below DRAM",
+                                                 (unsigned long)PHYS_OFFSET,
+                                                 ram_base - 1,
+                                                 (unsigned long)PHYS_OFFSET,
+                                                 0,
+                                                 0};
   }
 
   /* Finalise the ceiling: it must dominate every edge the column goes on to
@@ -952,7 +1083,8 @@ static void print_physical_layout(void) {
    * thing the same way rather than coining "(estimated)" two blocks further
    * down the same screen. */
   if (top_label)
-    print_map_addr(w, top_label, top_is_estimate ? "  likely" : NULL);
+    print_map_addr_j(w, top_label, RAIL_TOP,
+                     top_is_estimate ? "  likely" : NULL);
   else
     printf("  %*s  (end of RAM unknown)\n", w + 2, "0x?");
 
@@ -969,7 +1101,9 @@ static void print_physical_layout(void) {
       any = 1;
       break;
     }
-    printf("%s%s\n", INDENT, bk->header);
+    const char *fill = bk->occupied ? RAIL_SOLID : RAIL_BAND;
+    print_rail(w, fill);
+    printf("%s\n", bk->header);
     if (any) {
       /* Cap repetitive same-region entries (an MMIO-heavy host can have dozens
        * of pci_mmio BARs, which bury the layout — the Results section already
@@ -997,20 +1131,29 @@ static void print_physical_layout(void) {
         enum kasld_region rg = ppts[i].region;
         if (total[rg] > PHYS_MAP_REGION_CAP && shown[rg] >= PHYS_MAP_REGION_CAP)
           continue; /* tail of an over-cap region — summarised below */
-        char ab[40];
-        printf("%s  %s  %s\n", INDENT,
-               readout_addr(ppts[i].addr, w, ab, sizeof(ab)), ppts[i].label);
+        char lb[160];
+        /* The entry's address joins the column every other address is in, and
+         * the tick says it is a point inside the band rather than an edge of
+         * one. Drawn at its own indent, as it was, it sat in a second address
+         * column right-aligned to a different width, so two kinds of address
+         * could not be read as one axis. */
+        snprintf(lb, sizeof(lb), "  %s", ppts[i].label);
+        print_map_addr_j(w, ppts[i].addr, RAIL_TICK, lb);
         shown[rg]++;
       }
       for (enum kasld_region rg = 0; rg < REGION__COUNT; rg++)
-        if (total[rg] > PHYS_MAP_REGION_CAP)
-          printf("%s  %s... %d more %s region%s%s\n", INDENT, c(C_DIM),
+        if (total[rg] > PHYS_MAP_REGION_CAP) {
+          print_rail(w, fill);
+          printf("  %s... %d more %s region%s%s\n", c(C_DIM),
                  total[rg] - PHYS_MAP_REGION_CAP, kasld_region_wire(rg),
                  (total[rg] - PHYS_MAP_REGION_CAP) == 1 ? "" : "s", c(C_RESET));
+        }
     } else {
-      printf("%s  %s(no leak)%s\n", INDENT, c(C_DIM), c(C_RESET));
+      print_rail(w, fill);
+      printf("  %s(no leak)%s\n", c(C_DIM), c(C_RESET));
     }
-    print_map_addr(w, bk->footer_addr, NULL);
+    print_map_addr_j(w, bk->footer_addr,
+                     b == nbuckets - 1 ? RAIL_BOTTOM : RAIL_EDGE, NULL);
   }
 
   printf("\n");

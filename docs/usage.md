@@ -414,35 +414,35 @@ Candidates within each resolved window (to scale):
 
 Virtual address space (decoupled, not to scale):
 
-  0xffffffffffffffff
-      . . .  1020 MiB gap  . . .
-  0xffffffffc0401000
-      modules
-        leak hi: 0xffffffffc0401000
-        leak lo: 0xffffffffc0400000
-  0xffffffffc0400000
-      . . .  794 MiB gap  . . .
-  0xffffffff8ea00000
-      kernel text (pinned) -- leak 0xffffffff8ea00000
-  0xffffffff8ea00000
-      . . .  120 TiB gap  . . .
-      ^ extent unknown
-      direct map (base is a lower bound)
-  0xffff880000000000
-      . . .  63.9 PiB gap  . . .
-  0xff00000000000000  (user space + non-canonical hole below)
+  0xffffffffffffffff ─┐
+                      ╎  1020 MiB gap
+  0xffffffffc0401000 ─┤
+                      █  modules
+                      █    leak hi: 0xffffffffc0401000
+                      █    leak lo: 0xffffffffc0400000
+  0xffffffffc0400000 ─┤
+                      ╎  794 MiB gap
+  0xffffffff8ea00000 ─┤
+                      █  kernel text (pinned) -- leak 0xffffffff8ea00000
+  0xffffffff8ea00000 ─┤
+                      ╎  120 TiB gap
+                      ╎  ^ extent unknown
+                      │  direct map (base is a lower bound)
+  0xffff880000000000 ─┤
+                      ╎  63.9 PiB gap
+  0xff00000000000000 ─┘  (user space + non-canonical hole below)
 
 Physical address space (not to scale):
 
-  0x3ffdefff
-      in DRAM
-        0x3ee04000  [dram] initrd
-        0x1bdb3000  [bss] kernel_bss:kernel_bss
-        0x1b200000  [data] kernel_data:kernel_data
-        0x19600000  [text] kernel
-           0x20000  [dram] cmdline
-            0x1000  [dram] ram
-         0x0
+  0x3ffdefff ─┐
+              █  in DRAM
+  0x3ee04000 ─┼  [dram] initrd
+  0x1bdb3000 ─┼  [bss] kernel_bss:kernel_bss
+  0x1b200000 ─┼  [data] kernel_data:kernel_data
+  0x19600000 ─┼  [text] kernel
+     0x20000 ─┼  [dram] cmdline
+      0x1000 ─┼  [dram] ram
+         0x0 ─┘
 ```
 
 </details>
