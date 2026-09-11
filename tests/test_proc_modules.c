@@ -67,15 +67,15 @@ static void test_emits_module_addresses_as_samples(void) {
   stage_modules(fx);
   int rc;
   TH_RUN_COMPONENT(rc, proc_modules_main());
-  assert(rc == 0);
-  assert(th_cap_field_is("sample", lo));
-  assert(th_cap_field_is("sample", hi));
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_field_is("sample", lo));
+  TH_CHECK(th_cap_field_is("sample", hi));
   /* Structural region, not the band. */
-  assert(strstr(th_cap, "V module ") != NULL ||
-         strstr(th_cap, "V module:") != NULL);
-  assert(strstr(th_cap, "module_band") == NULL);
-  assert(!th_cap_field_is("lo", lo));
-  assert(strstr(th_cap, "conf=parsed") != NULL);
+  TH_CHECK(strstr(th_cap, "V module ") != NULL ||
+           strstr(th_cap, "V module:") != NULL);
+  TH_CHECK(strstr(th_cap, "module_band") == NULL);
+  TH_CHECK(!th_cap_field_is("lo", lo));
+  TH_CHECK(strstr(th_cap, "conf=parsed") != NULL);
 }
 
 /* kptr_restrict masks every address to zero. The file is present and parses
@@ -92,8 +92,8 @@ static void test_masked_addresses_emit_nothing(void) {
                 "overlay 151552 1 - Live 0x0000000000000000\n");
   int rc;
   TH_RUN_COMPONENT(rc, proc_modules_main());
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* An address outside the module band is not a module base however it got onto
@@ -113,9 +113,9 @@ static void test_out_of_band_address_is_ignored(void) {
   stage_modules(fx);
   int rc;
   TH_RUN_COMPONENT(rc, proc_modules_main());
-  assert(rc == 0);
-  assert(th_cap_field_is("sample", lo));
-  assert(!th_cap_field_is("sample", stray));
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_field_is("sample", lo));
+  TH_CHECK(!th_cap_field_is("sample", stray));
 }
 
 /* One module gives one observation, not the same address twice as a
@@ -129,12 +129,12 @@ static void test_single_module_emits_one_sample(void) {
   stage_modules(fx);
   int rc;
   TH_RUN_COMPONENT(rc, proc_modules_main());
-  assert(rc == 0);
+  TH_CHECK(rc == 0);
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", lo);
   const char *first = strstr(th_cap, want);
-  assert(first != NULL);
-  assert(strstr(first + 1, want) == NULL);
+  TH_CHECK(first != NULL);
+  TH_CHECK(strstr(first + 1, want) == NULL);
 }
 
 /* No modules loaded: the file exists and is empty of addresses, so the
@@ -143,8 +143,8 @@ static void test_no_modules_emits_nothing(void) {
   stage_modules("");
   int rc;
   TH_RUN_COMPONENT(rc, proc_modules_main());
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* A line with no address at all must not stop the scan reaching the ones that
@@ -161,8 +161,8 @@ static void test_addressless_line_does_not_end_the_scan(void) {
   stage_modules(fx);
   int rc;
   TH_RUN_COMPONENT(rc, proc_modules_main());
-  assert(rc == 0);
-  assert(th_cap_field_is("sample", lo));
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_field_is("sample", lo));
 }
 
 int main(void) {

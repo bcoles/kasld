@@ -49,7 +49,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_ms_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -83,8 +83,8 @@ static void run_capture(void) {
 static void test_real_line_both_bounds(void) {
   stage_dmesg(REAL_LINE);
   run_capture();
-  assert(strstr(cap, "image_size_min conf=parsed value=0x1563c00") != NULL);
-  assert(strstr(cap, "image_size_max conf=parsed value=0x3982000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x1563c00") != NULL);
+  TH_CHECK(strstr(cap, "image_size_max conf=parsed value=0x3982000") != NULL);
 }
 
 /* A figure the component does not consume must not disturb the ones it does:
@@ -94,8 +94,8 @@ static void test_unknown_field_is_ignored(void) {
               "4916K rodata, 4096K init, 379K bss, 58888K reserved, "
               "0K cma-reserved, 4096K highmem)\n");
   run_capture();
-  assert(strstr(cap, "image_size_min conf=parsed value=0x1563c00") != NULL);
-  assert(strstr(cap, "image_size_max conf=parsed value=0x3982000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x1563c00") != NULL);
+  TH_CHECK(strstr(cap, "image_size_max conf=parsed value=0x3982000") != NULL);
 }
 
 /* One section missing makes the sum a partial total, which bounds nothing. The
@@ -104,8 +104,8 @@ static void test_partial_line_yields_no_lower_bound(void) {
   stage_dmesg("Memory: 1K/2K available (11132K kernel code, 1380K rwdata, "
               "4096K init, 379K bss, 58888K reserved)\n");
   run_capture();
-  assert(strstr(cap, "image_size_min") == NULL);
-  assert(strstr(cap, "image_size_max conf=parsed value=0x3982000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
+  TH_CHECK(strstr(cap, "image_size_max conf=parsed value=0x3982000") != NULL);
 }
 
 /* "cma-reserved" is a different quantity and must not be read as "reserved":
@@ -114,8 +114,8 @@ static void test_cma_reserved_is_not_reserved(void) {
   stage_dmesg("Memory: 1K/2K available (11132K kernel code, 1380K rwdata, "
               "4916K rodata, 4096K init, 379K bss, 32768K cma-reserved)\n");
   run_capture();
-  assert(strstr(cap, "image_size_min conf=parsed value=0x1563c00") != NULL);
-  assert(strstr(cap, "image_size_max") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x1563c00") != NULL);
+  TH_CHECK(strstr(cap, "image_size_max") == NULL);
 }
 
 /* Every page the image occupies is reserved when the line is printed, so a
@@ -126,8 +126,8 @@ static void test_contradiction_yields_nothing(void) {
   stage_dmesg("Memory: 1K/2K available (11132K kernel code, 1380K rwdata, "
               "4916K rodata, 4096K init, 379K bss, 100K reserved)\n");
   run_capture();
-  assert(strstr(cap, "image_size_min") == NULL);
-  assert(strstr(cap, "image_size_max") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
+  TH_CHECK(strstr(cap, "image_size_max") == NULL);
 }
 
 /* A sum under the plausibility floor is a misparse, not a very small kernel. */
@@ -135,15 +135,15 @@ static void test_implausible_total_discarded(void) {
   stage_dmesg("Memory: 1K/2K available (1K kernel code, 1K rwdata, 1K rodata, "
               "1K init, 1K bss, 58888K reserved)\n");
   run_capture();
-  assert(strstr(cap, "image_size_min") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
 }
 
 /* No such line: nothing claimed. */
 static void test_absent_line(void) {
   stage_dmesg("[    0.000000] Linux version 4.19.325\n");
   run_capture();
-  assert(strstr(cap, "image_size_min") == NULL);
-  assert(strstr(cap, "image_size_max") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
+  TH_CHECK(strstr(cap, "image_size_max") == NULL);
 }
 
 int main(void) {

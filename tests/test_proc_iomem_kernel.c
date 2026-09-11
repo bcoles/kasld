@@ -41,21 +41,21 @@ static void test_emits_each_kernel_extent(void) {
   th_sysroot_write("/proc/iomem", IOMEM_REAL);
   int rc;
   TH_RUN_COMPONENT(rc, proc_iomem_kernel_main());
-  assert(rc == 0);
+  TH_CHECK(rc == 0);
   /* Both edges on the wire, as a range, at parsed confidence. The image base
    * is the one the engine pins Q_PHYS_IMAGE_BASE from, so its low edge is the
    * value that matters. */
-  assert(strstr(th_cap, "lo=0x1bc00000") != NULL);
-  assert(strstr(th_cap, "hi=0x1d336cef") != NULL);
+  TH_CHECK(strstr(th_cap, "lo=0x1bc00000") != NULL);
+  TH_CHECK(strstr(th_cap, "hi=0x1d336cef") != NULL);
   /* Region AND name, as one token. Each line carries both, and they read alike
    * here, so matching the name alone would still pass with every label mapped
    * to the wrong region. */
-  assert(strstr(th_cap, "kernel_image:kernel_code") != NULL);
-  assert(strstr(th_cap, "kernel_data:kernel_data") != NULL);
-  assert(strstr(th_cap, "kernel_bss:kernel_bss") != NULL);
-  assert(strstr(th_cap, "conf=parsed") != NULL);
+  TH_CHECK(strstr(th_cap, "kernel_image:kernel_code") != NULL);
+  TH_CHECK(strstr(th_cap, "kernel_data:kernel_data") != NULL);
+  TH_CHECK(strstr(th_cap, "kernel_bss:kernel_bss") != NULL);
+  TH_CHECK(strstr(th_cap, "conf=parsed") != NULL);
   /* Physical, never virtual: these are __pa_symbol() values. */
-  assert(strstr(th_cap, "V ") == NULL);
+  TH_CHECK(strstr(th_cap, "V ") == NULL);
 }
 
 /* Masked by the absence of CAP_SYS_ADMIN: every address reads as zero. The
@@ -67,10 +67,10 @@ static void test_masked_file_emits_nothing(void) {
                                   "  00000000-00000000 : Kernel bss\n");
   int rc;
   TH_RUN_COMPONENT(rc, proc_iomem_kernel_main());
-  assert(th_cap[0] == '\0');
+  TH_CHECK(th_cap[0] == '\0');
   /* Access denied, not source absent: the file is there and the caller lacks
    * the capability that fills it in. */
-  assert(rc == KASLD_EXIT_NOPERM);
+  TH_CHECK(rc == KASLD_EXIT_NOPERM);
 }
 
 /* A single real address anywhere in the scanned prefix proves the file is not
@@ -81,8 +81,8 @@ static void test_partial_zeros_are_not_masking(void) {
                                   "  1bc00000-1d336cef : Kernel code\n");
   int rc;
   TH_RUN_COMPONENT(rc, proc_iomem_kernel_main());
-  assert(rc == 0);
-  assert(strstr(th_cap, "lo=0x1bc00000") != NULL);
+  TH_CHECK(rc == 0);
+  TH_CHECK(strstr(th_cap, "lo=0x1bc00000") != NULL);
 }
 
 /* An arch that publishes no kernel extents: the labels never match, so the
@@ -92,8 +92,8 @@ static void test_no_kernel_labels_emits_nothing(void) {
                                   "c0000000-c0003fff : PCI Bus 0000:00\n");
   int rc;
   TH_RUN_COMPONENT(rc, proc_iomem_kernel_main());
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* Only the three exact labels name a region. A prefix or a longer label is a
@@ -106,8 +106,8 @@ static void test_label_match_is_exact(void) {
                                   "  1f047000-1f5fffff : kernel code\n");
   int rc;
   TH_RUN_COMPONENT(rc, proc_iomem_kernel_main());
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* Lines that must not reach the wire: a reversed range, a missing separator,
@@ -126,11 +126,11 @@ static void test_malformed_lines_are_skipped(void) {
                    "  2a000000-2b000000 : Kernel bss\n");
   int rc;
   TH_RUN_COMPONENT(rc, proc_iomem_kernel_main());
-  assert(rc == 0);
-  assert(strstr(th_cap, "kernel_image:") == NULL);
-  assert(strstr(th_cap, "kernel_data:") == NULL);
-  assert(strstr(th_cap, "kernel_bss:kernel_bss") != NULL);
-  assert(strstr(th_cap, "lo=0x2a000000") != NULL);
+  TH_CHECK(rc == 0);
+  TH_CHECK(strstr(th_cap, "kernel_image:") == NULL);
+  TH_CHECK(strstr(th_cap, "kernel_data:") == NULL);
+  TH_CHECK(strstr(th_cap, "kernel_bss:kernel_bss") != NULL);
+  TH_CHECK(strstr(th_cap, "lo=0x2a000000") != NULL);
 }
 
 /* No file at all is a missing source, distinct from a masked one. */
@@ -140,8 +140,8 @@ static void test_absent_file_is_unavailable(void) {
   unlink(full);
   int rc;
   TH_RUN_COMPONENT(rc, proc_iomem_kernel_main());
-  assert(rc == KASLD_EXIT_UNAVAILABLE);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 int main(void) {

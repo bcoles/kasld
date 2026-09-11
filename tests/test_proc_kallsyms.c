@@ -42,9 +42,9 @@ static void stage_kallsyms(const char *text) {
   char path[320];
   th_sysroot_stage_path("/proc/kallsyms", path, sizeof(path));
   int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   size_t n = strlen(text);
-  assert(write(fd, text, n) == (ssize_t)n);
+  TH_CHECK(write(fd, text, n) == (ssize_t)n);
   close(fd);
 }
 
@@ -52,7 +52,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_ks_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -86,9 +86,9 @@ static void test_masked_kallsyms_is_denied(void) {
                  "0000000000000000 T _text\n"
                  "0000000000000000 T _etext\n");
   run_capture();
-  assert(last_rc == KASLD_EXIT_NOPERM);
-  assert(strstr(cap, "V kernel_image") == NULL);
-  assert(strstr(cap, "V kernel_text") == NULL);
+  TH_CHECK(last_rc == KASLD_EXIT_NOPERM);
+  TH_CHECK(strstr(cap, "V kernel_image") == NULL);
+  TH_CHECK(strstr(cap, "V kernel_text") == NULL);
 }
 
 /* A readable table yields the image base at its full width. */
@@ -99,10 +99,10 @@ static void test_readable_kallsyms_emits_base(void) {
            base, base, base + 0x100000);
   stage_kallsyms(text);
   run_capture();
-  assert(last_rc != KASLD_EXIT_NOPERM);
+  TH_CHECK(last_rc != KASLD_EXIT_NOPERM);
   char want[64];
   snprintf(want, sizeof(want), "lo=%#lx", base);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 }
 
 /* _text and _end are the image's outer edges, so their distance is the
@@ -115,8 +115,8 @@ static void test_text_to_end_is_the_exact_footprint(void) {
            b + 0x1000, b + 0x400000, b + 0x800000);
   stage_kallsyms(text);
   run_capture();
-  assert(strstr(cap, "image_size_min conf=parsed value=0x800000") != NULL);
-  assert(strstr(cap, "image_size_max conf=parsed value=0x800000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x800000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_max conf=parsed value=0x800000") != NULL);
 }
 
 /* _stext and _etext lie inside the image, so their distance understates the
@@ -128,8 +128,8 @@ static void test_inner_symbols_bound_from_below_only(void) {
   snprintf(text, sizeof(text), "%lx T _stext\n%lx T _etext\n", b, b + 0x600000);
   stage_kallsyms(text);
   run_capture();
-  assert(strstr(cap, "image_size_min conf=parsed value=0x600000") != NULL);
-  assert(strstr(cap, "image_size_max") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x600000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_max") == NULL);
 }
 
 /* _text present but _end absent: the high edge falls back to _etext, which is
@@ -143,8 +143,8 @@ static void test_text_without_end_bounds_from_below_only(void) {
   snprintf(text, sizeof(text), "%lx T _text\n%lx T _etext\n", b, b + 0x600000);
   stage_kallsyms(text);
   run_capture();
-  assert(strstr(cap, "image_size_min conf=parsed value=0x600000") != NULL);
-  assert(strstr(cap, "image_size_max") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x600000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_max") == NULL);
 }
 
 /* The symmetric case: _end present but _text absent, so the low edge falls back
@@ -155,8 +155,8 @@ static void test_end_without_text_bounds_from_below_only(void) {
   snprintf(text, sizeof(text), "%lx T _stext\n%lx B _end\n", b, b + 0x600000);
   stage_kallsyms(text);
   run_capture();
-  assert(strstr(cap, "image_size_min conf=parsed value=0x600000") != NULL);
-  assert(strstr(cap, "image_size_max") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x600000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_max") == NULL);
 }
 
 /* Outer edges a page apart are not a kernel; the shared plausibility floor
@@ -167,8 +167,8 @@ static void test_footprint_below_floor_not_emitted(void) {
   snprintf(text, sizeof(text), "%lx T _text\n%lx B _end\n", b, b + 0x1000);
   stage_kallsyms(text);
   run_capture();
-  assert(strstr(cap, "image_size_min") == NULL);
-  assert(strstr(cap, "image_size_max") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
+  TH_CHECK(strstr(cap, "image_size_max") == NULL);
 }
 
 /* A 64-bit table read by a narrower build. The addresses cannot be
@@ -180,11 +180,11 @@ static void test_too_wide_addresses_are_not_truncated(void) {
                  "ffffffff83204c4b T _etext\n");
   run_capture();
   if (sizeof(kasld_addr_t) >= 8) {
-    assert(strstr(cap, "lo=0xffffffff81a00000") != NULL);
+    TH_CHECK(strstr(cap, "lo=0xffffffff81a00000") != NULL);
   } else {
     /* The truncation this pins: the low half of _text. */
-    assert(strstr(cap, "81a00000") == NULL);
-    assert(strstr(cap, "V kernel_image") == NULL);
+    TH_CHECK(strstr(cap, "81a00000") == NULL);
+    TH_CHECK(strstr(cap, "V kernel_image") == NULL);
   }
 }
 
@@ -195,7 +195,7 @@ static void test_too_wide_is_not_reported_as_restricted(void) {
                  "ffffffff81a00000 T _text\n");
   run_capture();
   if (sizeof(kasld_addr_t) < 8)
-    assert(last_rc != KASLD_EXIT_NOPERM);
+    TH_CHECK(last_rc != KASLD_EXIT_NOPERM);
 }
 
 int main(void) {

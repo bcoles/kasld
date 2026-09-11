@@ -73,7 +73,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_bc_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -107,11 +107,11 @@ static void test_unkeyed_config_is_heuristic(void) {
   run_capture();
   rm_file("/boot/config");
 
-  assert(strstr(cap, "text_order conf=heuristic") != NULL);
-  assert(strstr(cap, "virt_kaslr_disabled conf=heuristic") != NULL);
-  assert(strstr(cap, "phys_kaslr_disabled conf=heuristic") != NULL);
+  TH_CHECK(strstr(cap, "text_order conf=heuristic") != NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled conf=heuristic") != NULL);
+  TH_CHECK(strstr(cap, "phys_kaslr_disabled conf=heuristic") != NULL);
   /* No fact from an unkeyed source may reach the guaranteed floor. */
-  assert(strstr(cap, "conf=parsed") == NULL);
+  TH_CHECK(strstr(cap, "conf=parsed") == NULL);
 }
 
 /* The release-keyed /boot/config-$(uname -r) is authoritative for the running
@@ -124,9 +124,9 @@ static void test_keyed_config_is_parsed(void) {
   run_capture();
   rm_file(keyed);
 
-  assert(strstr(cap, "text_order conf=parsed") != NULL);
-  assert(strstr(cap, "virt_kaslr_disabled conf=parsed") != NULL);
-  assert(strstr(cap, "conf=heuristic") == NULL);
+  TH_CHECK(strstr(cap, "text_order conf=parsed") != NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled conf=parsed") != NULL);
+  TH_CHECK(strstr(cap, "conf=heuristic") == NULL);
 }
 
 /* With BOTH present, the keyed path wins (tried first) — the unkeyed file must
@@ -141,8 +141,8 @@ static void test_keyed_beats_unkeyed(void) {
   rm_file(keyed);
   rm_file("/boot/config");
 
-  assert(strstr(cap, "text_order conf=parsed") != NULL);
-  assert(strstr(cap, "conf=heuristic") == NULL);
+  TH_CHECK(strstr(cap, "text_order conf=parsed") != NULL);
+  TH_CHECK(strstr(cap, "conf=heuristic") == NULL);
 }
 
 /* A config carrying NEITHER token states nothing about the option, so the
@@ -160,9 +160,9 @@ static void test_partial_config_asserts_nothing(void) {
 
   /* The file was found and parsed. Without this the absences below would hold
    * just as well for a run that never read a config at all. */
-  assert(strstr(cap, "physical_start") != NULL);
-  assert(strstr(cap, "virt_kaslr_disabled") == NULL);
-  assert(strstr(cap, "phys_kaslr_disabled") == NULL);
+  TH_CHECK(strstr(cap, "physical_start") != NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled") == NULL);
+  TH_CHECK(strstr(cap, "phys_kaslr_disabled") == NULL);
 }
 
 int main(void) {

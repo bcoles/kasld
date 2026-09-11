@@ -66,7 +66,7 @@ static void run_capture(int (*fn)(void)) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_bpe820_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -106,16 +106,17 @@ static void test_boot_params_e820_covering(void) {
 
   /* covering: each RAM entry as a pos=extent record; the addr-0 entry included
    * (a skipped extent would fabricate a false gap). */
-  assert(strstr(cap, "ram pos=extent conf=parsed lo=0x0 hi=0xfffff") != NULL);
-  assert(strstr(cap, "ram pos=extent conf=parsed lo=0x100000 hi=0xbfffffff") !=
-         NULL);
-  assert(strstr(cap, "ram pos=extent conf=parsed lo=0x100000000 "
-                     "hi=0x13fffffff") != NULL);
+  TH_CHECK(strstr(cap, "ram pos=extent conf=parsed lo=0x0 hi=0xfffff") != NULL);
+  TH_CHECK(
+      strstr(cap, "ram pos=extent conf=parsed lo=0x100000 hi=0xbfffffff") !=
+      NULL);
+  TH_CHECK(strstr(cap, "ram pos=extent conf=parsed lo=0x100000000 "
+                       "hi=0x13fffffff") != NULL);
   /* the reserved entry is not part of the RAM map */
-  assert(strstr(cap, "0xe0000000") == NULL);
+  TH_CHECK(strstr(cap, "0xe0000000") == NULL);
   /* envelope still emitted: lowest non-zero RAM start + highest RAM end */
-  assert(strstr(cap, "ram pos=base conf=parsed lo=0x100000") != NULL);
-  assert(strstr(cap, "ram pos=top conf=parsed hi=0x13fffffff") != NULL);
+  TH_CHECK(strstr(cap, "ram pos=base conf=parsed lo=0x100000") != NULL);
+  TH_CHECK(strstr(cap, "ram pos=top conf=parsed hi=0x13fffffff") != NULL);
 }
 
 /* ACPI data (type 3) and ACPI NVS (type 4) entries are emitted as forbidden
@@ -131,13 +132,14 @@ static void test_boot_params_e820_acpi_bands(void) {
   stage_zeropage(4);
   run_capture(bpe820_main);
 
-  assert(strstr(cap, "acpi_table pos=base conf=parsed lo=0xbffe0000 "
-                     "hi=0xbfffffff") != NULL);
-  assert(strstr(cap,
-                "acpi_nvs pos=base conf=parsed lo=0xbf000000 hi=0xbf00ffff") !=
-         NULL);
+  TH_CHECK(strstr(cap, "acpi_table pos=base conf=parsed lo=0xbffe0000 "
+                       "hi=0xbfffffff") != NULL);
+  TH_CHECK(
+      strstr(cap,
+             "acpi_nvs pos=base conf=parsed lo=0xbf000000 hi=0xbf00ffff") !=
+      NULL);
   /* the sub-KASLR_PHYS_MIN ACPI band is not emitted */
-  assert(strstr(cap, "lo=0x1000 hi=0x1fff") == NULL);
+  TH_CHECK(strstr(cap, "lo=0x1000 hi=0x1fff") == NULL);
 }
 
 int main(void) {

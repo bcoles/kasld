@@ -166,6 +166,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | Guard | Asserts |
 |-------|---------|
 | `check-rule-registry` | every `src/rules/*.c` is registered exactly once in `engine_rules.c` (an unregistered rule compiles but never runs) and is exercised by a dedicated test — by name in `test_engine.c`, or via the integration-tested allowlist |
+| `check-test-checks` | no test check is written with `assert()`, which the preprocessor removes wherever `NDEBUG` is defined — a suite of removable checks reports a full pass on a broken tree, and `NDEBUG` reaches the tests through `CFLAGS`. Checks use `TH_CHECK` |
 | `check-render-registry` | every `src/render/*.c` is compiled into both renderer test binaries — the Makefile globs that directory while `test_kasld.c` and `test_render.c` name each file, so a renderer missing from a list still ships but contributes no coverage |
 | `check-self-edges` | no engine rule reads `est[Q]` and writes `Q` (a "self-edge") outside the reviewed allowlist — each such rule needs a soundness test |
 | `check-extent-callers` | only reviewed whole-map components call `kasld_result_extent` (the covering-completeness contract; a partial map would carve a false gap) |

@@ -68,12 +68,12 @@ static void wr_sized(const char *name, const uint8_t *head, size_t headn,
   snprintf(abs, sizeof(abs), "/boot/%s", name);
   th_sysroot_stage_path(abs, p, sizeof(p));
   FILE *f = fopen(p, "wb");
-  assert(f);
+  TH_CHECK(f);
   if (headn)
-    assert(fwrite(head, 1, headn, f) == headn);
+    TH_CHECK(fwrite(head, 1, headn, f) == headn);
   if (total > (long)headn) {
-    assert(fseek(f, total - 1, SEEK_SET) == 0);
-    assert(fputc(0, f) != EOF);
+    TH_CHECK(fseek(f, total - 1, SEEK_SET) == 0);
+    TH_CHECK(fputc(0, f) != EOF);
   }
   fclose(f);
 }
@@ -99,7 +99,7 @@ static void test_image_header(void) {
   b[58] = 0x4d;
   b[59] = 0x64; /* "ARM\x64" => 0x644d5241 */
   wr("Image-hdr", b, sizeof(b));
-  assert(kasld_image_size_from_header("hdr") == 24u * 1024 * 1024);
+  TH_CHECK(kasld_image_size_from_header("hdr") == 24u * 1024 * 1024);
 }
 
 /* x86 bzImage setup header: "HdrS" at 0x202, protocol >= 2.10, init_size at
@@ -115,7 +115,7 @@ static void test_bzimage(void) {
   put_le(b + 0x206, 0x020f, 2);            /* version 2.15 (>= 2.10) */
   put_le(b + 0x260, 60u * 1024 * 1024, 4); /* init_size */
   wr("vmlinuz-bz", b, sizeof(b));
-  assert(kasld_image_size_from_bzimage("bz") == 60u * 1024 * 1024);
+  TH_CHECK(kasld_image_size_from_bzimage("bz") == 60u * 1024 * 1024);
 }
 
 /* The other two setup-header fields the same read yields.
@@ -139,23 +139,23 @@ static void test_bzimage_align_and_relocatable(void) {
   b[0x234] = 1;
   put_le(b + 0x260, 60u * 1024 * 1024, 4);
   wr("vmlinuz-hdrfields", b, sizeof(b));
-  assert(kasld_read_bzimage_hdr("hdrfields", &size, &align, &reloc) == 1);
-  assert(size == 60u * 1024 * 1024);
-  assert(align == 0x400000);
-  assert(reloc == 1);
+  TH_CHECK(kasld_read_bzimage_hdr("hdrfields", &size, &align, &reloc) == 1);
+  TH_CHECK(size == 60u * 1024 * 1024);
+  TH_CHECK(align == 0x400000);
+  TH_CHECK(reloc == 1);
 
   b[0x234] = 0;
   wr("vmlinuz-hdrnoreloc", b, sizeof(b));
   reloc = -1;
-  assert(kasld_read_bzimage_hdr("hdrnoreloc", NULL, NULL, &reloc) == 1);
-  assert(reloc == 0);
+  TH_CHECK(kasld_read_bzimage_hdr("hdrnoreloc", NULL, NULL, &reloc) == 1);
+  TH_CHECK(reloc == 0);
 
   /* Absent image: nothing is claimed, and the caller's tri-state is untouched
    * so an unreadable header cannot read as a non-relocatable kernel. */
   reloc = -1;
   align = 0;
-  assert(kasld_read_bzimage_hdr("hdrmissing", NULL, &align, &reloc) == 0);
-  assert(reloc == -1 && align == 0);
+  TH_CHECK(kasld_read_bzimage_hdr("hdrmissing", NULL, &align, &reloc) == 0);
+  TH_CHECK(reloc == -1 && align == 0);
 }
 
 /* Each field answers for its own protocol version, and for no other.
@@ -181,10 +181,10 @@ static void test_bzimage_fields_gate_on_their_own_version(void) {
   /* 2.09: alignment and relocatable are carried, init_size is not. */
   put_le(b + 0x206, 0x0209, 2);
   wr("vmlinuz-hdr209", b, sizeof(b));
-  assert(kasld_read_bzimage_hdr("hdr209", &size, &align, &reloc) == 1);
-  assert(size == 0);
-  assert(align == 0x200000);
-  assert(reloc == 0);
+  TH_CHECK(kasld_read_bzimage_hdr("hdr209", &size, &align, &reloc) == 1);
+  TH_CHECK(size == 0);
+  TH_CHECK(align == 0x200000);
+  TH_CHECK(reloc == 0);
 
   /* 2.04: none of the three exists yet. The zero at 0x234 is setup code, and
    * must read as "cannot tell" rather than "not relocatable". */
@@ -193,10 +193,10 @@ static void test_bzimage_fields_gate_on_their_own_version(void) {
   reloc = 1;
   put_le(b + 0x206, 0x0204, 2);
   wr("vmlinuz-hdr204", b, sizeof(b));
-  assert(kasld_read_bzimage_hdr("hdr204", &size, &align, &reloc) == 1);
-  assert(size == 0);
-  assert(align == 0);
-  assert(reloc == -1);
+  TH_CHECK(kasld_read_bzimage_hdr("hdr204", &size, &align, &reloc) == 1);
+  TH_CHECK(size == 0);
+  TH_CHECK(align == 0);
+  TH_CHECK(reloc == -1);
 }
 
 /* A bzImage predating protocol 2.10 has no init_size field; reject it. */
@@ -209,7 +209,7 @@ static void test_bzimage_old_protocol(void) {
   put_le(b + 0x206, 0x0209, 2);            /* 2.09 < 2.10 */
   put_le(b + 0x260, 60u * 1024 * 1024, 4); /* present but not valid pre-2.10 */
   wr("vmlinuz-bzold", b, sizeof(b));
-  assert(kasld_image_size_from_bzimage("bzold") == 0);
+  TH_CHECK(kasld_image_size_from_bzimage("bzold") == 0);
 }
 
 /* ELF64 little-endian, one PT_LOAD: span = max(vaddr+memsz) - min(vaddr). */
@@ -228,7 +228,7 @@ static void test_elf64_le(void) {
   put_le(b + 64 + 16, 0xffff800010000000ULL, 8); /* p_vaddr */
   put_le(b + 64 + 40, 32u * 1024 * 1024, 8);     /* p_memsz */
   wr("vmlinuz-e64", b, sizeof(b));
-  assert(kasld_image_size_from_elf("e64") == 32u * 1024 * 1024);
+  TH_CHECK(kasld_image_size_from_elf("e64") == 32u * 1024 * 1024);
 }
 
 /* ELF32 big-endian (the mips/ppc32 shape), one PT_LOAD. */
@@ -247,7 +247,7 @@ static void test_elf32_be(void) {
   put_be(b + 52 + 8, 0x80100000, 4);         /* p_vaddr */
   put_be(b + 52 + 20, 16u * 1024 * 1024, 4); /* p_memsz */
   wr("vmlinuz-e32", b, sizeof(b));
-  assert(kasld_image_size_from_elf("e32") == 16u * 1024 * 1024);
+  TH_CHECK(kasld_image_size_from_elf("e32") == 16u * 1024 * 1024);
 }
 
 /* System.map: _end - _text from the symbol addresses (64-bit addrs exercise
@@ -257,7 +257,7 @@ static void test_sysmap(void) {
                   "ffffffff81000500 t some_fn\n"
                   "ffffffff83000000 B _end\n";
   wr("System.map-sm", m, strlen(m));
-  assert(kasld_image_size_from_sysmap("sm") == 0x02000000UL);
+  TH_CHECK(kasld_image_size_from_sysmap("sm") == 0x02000000UL);
 }
 
 /* _stext is used when _text is absent. */
@@ -265,7 +265,7 @@ static void test_sysmap_stext_fallback(void) {
   const char *m = "ffffffff81000000 T _stext\n"
                   "ffffffff82800000 B _end\n";
   wr("System.map-st", m, strlen(m));
-  assert(kasld_image_size_from_sysmap("st") == 0x01800000UL);
+  TH_CHECK(kasld_image_size_from_sysmap("st") == 0x01800000UL);
 }
 
 /* Whole-file gzip vmlinuz: ISIZE is the last 4 bytes (LE). */
@@ -276,7 +276,7 @@ static void test_gzip_wholefile(void) {
   b[2] = 0x08;
   put_le(b + 60, 24u * 1024 * 1024, 4); /* ISIZE at end of a 64-byte file */
   wr("vmlinuz-gz", b, sizeof(b));
-  assert(kasld_image_size_from_gzip("gz") == 24u * 1024 * 1024);
+  TH_CHECK(kasld_image_size_from_gzip("gz") == 24u * 1024 * 1024);
 }
 
 /* EFI zboot ("MZ"+"zimg", gzip payload): ISIZE at
@@ -298,14 +298,14 @@ static void test_gzip_zboot(void) {
   b[27] = 'p';
   put_le(b + 316, 8u * 1024 * 1024, 4); /* inner gzip ISIZE */
   wr("vmlinuz-zb", b, sizeof(b));
-  assert(kasld_image_size_from_gzip("zb") == 8u * 1024 * 1024);
+  TH_CHECK(kasld_image_size_from_gzip("zb") == 8u * 1024 * 1024);
 }
 
 /* A compressed (non-ELF) vmlinuz's on-disk size is a sound lower bound. */
 static void test_vmlinuz_compressed_lb(void) {
   uint8_t head[4] = {0x42, 0x42, 0x42, 0x42}; /* not ELF/Image/bzImage/gzip */
   wr_sized("vmlinuz-cz", head, 4, 2 * 1024 * 1024);
-  assert(kasld_image_size_from_vmlinuz("cz") == 2u * 1024 * 1024);
+  TH_CHECK(kasld_image_size_from_vmlinuz("cz") == 2u * 1024 * 1024);
 }
 
 /* An ELF vmlinux's on-disk size is NOT a footprint lower bound (it carries
@@ -313,7 +313,7 @@ static void test_vmlinuz_compressed_lb(void) {
 static void test_vmlinuz_elf_rejected_as_lb(void) {
   uint8_t head[4] = {0x7f, 'E', 'L', 'F'};
   wr_sized("vmlinuz-elfblob", head, 4, 2 * 1024 * 1024);
-  assert(kasld_image_size_from_vmlinuz("elfblob") == 0);
+  TH_CHECK(kasld_image_size_from_vmlinuz("elfblob") == 0);
 }
 
 /* The stat reader answers only where the CONTENT cannot be read: a file the
@@ -329,21 +329,21 @@ static void test_stat_denied_content(void) {
 
   wr_sized("vmlinuz-denied", head, 4, 2 * 1024 * 1024);
   th_sysroot_stage_path("/boot/vmlinuz-denied", p, sizeof(p));
-  assert(kasld_image_size_from_stat("denied") == 0);
+  TH_CHECK(kasld_image_size_from_stat("denied") == 0);
 
   if (geteuid() == 0) {
     printf("    (denied half skipped: this uid bypasses the mode bits)\n");
     return;
   }
-  assert(chmod(p, 0) == 0);
+  TH_CHECK(chmod(p, 0) == 0);
 #if BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT
-  assert(kasld_image_size_from_stat("denied") == 2u * 1024 * 1024);
+  TH_CHECK(kasld_image_size_from_stat("denied") == 2u * 1024 * 1024);
 #else
   /* The /boot artefact is an ELF on this architecture, so its size bounds
    * nothing and the reader is compiled out. */
-  assert(kasld_image_size_from_stat("denied") == 0);
+  TH_CHECK(kasld_image_size_from_stat("denied") == 0);
 #endif
-  assert(chmod(p, 0600) == 0);
+  TH_CHECK(chmod(p, 0600) == 0);
 }
 
 /* The .BTF section's length. Unlike every other reader this one takes no
@@ -354,17 +354,17 @@ static void test_btf_section_length(void) {
 
   th_sysroot_stage_path("/sys/kernel/btf/vmlinux", p, sizeof(p));
   f = fopen(p, "wb");
-  assert(f);
-  assert(fseek(f, 3 * 1024 * 1024 - 1, SEEK_SET) == 0);
-  assert(fputc(0, f) != EOF);
+  TH_CHECK(f);
+  TH_CHECK(fseek(f, 3 * 1024 * 1024 - 1, SEEK_SET) == 0);
+  TH_CHECK(fputc(0, f) != EOF);
   fclose(f);
-  assert(kasld_image_size_from_btf() == 3u * 1024 * 1024);
+  TH_CHECK(kasld_image_size_from_btf() == 3u * 1024 * 1024);
 
   /* Below the plausibility floor, and absent: nothing either way. */
   th_sysroot_write_n("/sys/kernel/btf/vmlinux", "x", 1);
-  assert(kasld_image_size_from_btf() == 0);
+  TH_CHECK(kasld_image_size_from_btf() == 0);
   th_sysroot_rm("/sys/kernel/btf/vmlinux");
-  assert(kasld_image_size_from_btf() == 0);
+  TH_CHECK(kasld_image_size_from_btf() == 0);
 }
 
 /* Non-kernel bytes match nothing; a value below KIMG_MIN_BYTES is discarded. */
@@ -372,12 +372,12 @@ static void test_rejections(void) {
   uint8_t junk[128];
   memset(junk, 0xab, sizeof(junk));
   wr("vmlinuz-junk", junk, sizeof(junk));
-  assert(kasld_image_size_from_gzip("junk") == 0);
-  assert(kasld_image_size_from_elf("junk") == 0);
-  assert(kasld_image_size_from_header("junk") == 0);
-  assert(kasld_image_size_from_bzimage("junk") == 0);
+  TH_CHECK(kasld_image_size_from_gzip("junk") == 0);
+  TH_CHECK(kasld_image_size_from_elf("junk") == 0);
+  TH_CHECK(kasld_image_size_from_header("junk") == 0);
+  TH_CHECK(kasld_image_size_from_bzimage("junk") == 0);
   wr("System.map-junk", junk, sizeof(junk));
-  assert(kasld_image_size_from_sysmap("junk") == 0);
+  TH_CHECK(kasld_image_size_from_sysmap("junk") == 0);
 
   uint8_t tiny[64] = {0};
   tiny[0] = 0x1f;
@@ -385,7 +385,7 @@ static void test_rejections(void) {
   tiny[2] = 0x08;
   put_le(tiny + 60, 1024, 4); /* 1 KiB < KIMG_MIN_BYTES */
   wr("vmlinuz-tiny", tiny, sizeof(tiny));
-  assert(kasld_image_size_from_gzip("tiny") == 0);
+  TH_CHECK(kasld_image_size_from_gzip("tiny") == 0);
 }
 
 /* No artefact at all: absent, which is how the host is laid out, not a gate. */
@@ -394,7 +394,7 @@ static void test_component_absent_artefact_is_unavailable(void) {
   rm_boot("vmlinuz-" STAGED_RELEASE);
   rm_boot("Image-" STAGED_RELEASE);
   rm_boot("System.map-" STAGED_RELEASE);
-  assert(kernel_image_facts_main() == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(kernel_image_facts_main() == KASLD_EXIT_UNAVAILABLE);
 }
 
 /* Readable, but too small for any reader to make a size of: neither denied nor
@@ -402,7 +402,7 @@ static void test_component_absent_artefact_is_unavailable(void) {
 static void test_component_readable_but_unparsed_is_neither(void) {
   stage_capture_identity();
   wr("vmlinuz-" STAGED_RELEASE, "not a kernel", 12);
-  assert(kernel_image_facts_main() == 0);
+  TH_CHECK(kernel_image_facts_main() == 0);
   rm_boot("vmlinuz-" STAGED_RELEASE);
 }
 
@@ -414,13 +414,13 @@ static void test_component_denied_artefact_is_noperm(void) {
   stage_capture_identity();
   wr("vmlinuz-" STAGED_RELEASE, "not a kernel", 12);
   th_sysroot_stage_path("/boot/vmlinuz-" STAGED_RELEASE, p, sizeof(p));
-  assert(chmod(p, 0) == 0);
+  TH_CHECK(chmod(p, 0) == 0);
   if (geteuid() == 0) {
     printf("      (skipped: root reads regardless of mode)\n");
   } else {
-    assert(kernel_image_facts_main() == KASLD_EXIT_NOPERM);
+    TH_CHECK(kernel_image_facts_main() == KASLD_EXIT_NOPERM);
   }
-  assert(chmod(p, 0644) == 0);
+  TH_CHECK(chmod(p, 0644) == 0);
   rm_boot("vmlinuz-" STAGED_RELEASE);
 }
 

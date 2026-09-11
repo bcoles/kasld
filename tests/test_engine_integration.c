@@ -345,7 +345,7 @@ static void assert_curation_subset(struct engine *e, const uint32_t *faulty,
             "truth-consistent obs id=%u type=%d region=%d\n",
             arch, ctx, seed, by, e->ev.obs[i].id, (int)e->ev.obs[i].type,
             (int)e->ev.obs[i].region);
-    assert(0 && "curation: a verdict invalidated a truth-consistent obs");
+    TH_CHECK(0 && "curation: a verdict invalidated a truth-consistent obs");
   }
 }
 
@@ -404,7 +404,7 @@ static void prop_check_containment(struct engine *e, const rule_fn *rules,
                   "value=0x%lx value2=0x%lx truth=0x%lx\n",
                   arch, c->origin, seed, (int)c->q, (int)c->op, c->value,
                   c->value2, chk[ti].truth);
-          assert(0 && "constraint: at-floor rule output excludes the truth");
+          TH_CHECK(0 && "constraint: at-floor rule output excludes the truth");
         }
       }
     }
@@ -439,7 +439,7 @@ static void prop_check_containment(struct engine *e, const rule_fn *rules,
                 "window=[0x%lx,0x%lx]\n",
                 arch, wname, seed, (int)chk[k].q, chk[k].truth, est->lo,
                 est->hi);
-        assert(0 && "property: window excluded the truth");
+        TH_CHECK(0 && "property: window excluded the truth");
       }
     }
   }
@@ -495,7 +495,7 @@ prop_check_floor(const rule_fn *rules, int nr, const verdict_fn *vrules, int nv,
   memcpy(g0, e0.est, sizeof(g0));
 
   for (int a = 0; a < naxes; a++) {
-    assert(contains(&g0[axes[a].q], axes[a].truth)); /* faithful baseline */
+    TH_CHECK(contains(&g0[axes[a].q], axes[a].truth)); /* faithful baseline */
     unsigned long lo = g0[axes[a].q].lo, hi = g0[axes[a].q].hi;
     unsigned long align = axes[a].align;
     /* Draw the wrong value from the KASLR window intersected with the
@@ -531,8 +531,8 @@ prop_check_floor(const rule_fn *rules, int nr, const verdict_fn *vrules, int nv,
                 "\nPROPERTY FLOOR %s: parsed pin inert seed=%lu axis=%d "
                 "wrong=0x%lx window=[0x%lx,0x%lx]\n",
                 arch, seed, a, wrong, lo, hi);
-        assert(0 &&
-               "floor: CONF_PARSED pin did not move guaranteed (not live)");
+        TH_CHECK(0 &&
+                 "floor: CONF_PARSED pin did not move guaranteed (not live)");
       }
     }
 
@@ -553,7 +553,8 @@ prop_check_floor(const rule_fn *rules, int nr, const verdict_fn *vrules, int nv,
               "\nPROPERTY FLOOR %s: sub-floor pin MOVED guaranteed seed=%lu "
               "axis=%d conf=%d q=%d wrong=0x%lx\n",
               arch, seed, a, (int)subfloor[c], q, wrong);
-          assert(0 && "floor: below-floor signal moved the guaranteed window");
+          TH_CHECK(0 &&
+                   "floor: below-floor signal moved the guaranteed window");
         }
       }
     }
@@ -596,22 +597,22 @@ static void test_full_engine_x86_64_leaky(void) {
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
   const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
-  assert(!estimate_is_bottom(vt, &qd[Q_VIRT_IMAGE_BASE]));
-  assert(!estimate_is_bottom(pt, &qd[Q_PHYS_IMAGE_BASE]));
-  assert(!estimate_is_bottom(po, &qd[Q_PAGE_OFFSET]));
-  assert(contains(vt, T)); /* must not over-tighten past the true text base */
-  assert(contains(pt, P)); /* ... nor the true phys base */
-  assert(contains(po, PO));
+  TH_CHECK(!estimate_is_bottom(vt, &qd[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(pt, &qd[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(po, &qd[Q_PAGE_OFFSET]));
+  TH_CHECK(contains(vt, T)); /* must not over-tighten past the true text base */
+  TH_CHECK(contains(pt, P)); /* ... nor the true phys base */
+  TH_CHECK(contains(po, PO));
 
   /* Liveness: the rules fired and narrowed each quantity from its honest top.
    */
   struct estimate top;
   qd[Q_VIRT_IMAGE_BASE].init_top(&top);
-  assert(vt->hi < top.hi); /* image_size_text_data_gap ceiling */
+  TH_CHECK(vt->hi < top.hi); /* image_size_text_data_gap ceiling */
   qd[Q_PHYS_IMAGE_BASE].init_top(&top);
-  assert(pt->hi < top.hi); /* kernel_image_phys_bound / mmio / memtotal */
+  TH_CHECK(pt->hi < top.hi); /* kernel_image_phys_bound / mmio / memtotal */
   qd[Q_PAGE_OFFSET].init_top(&top);
-  assert(po_hi(po) < top.hi); /* directmap_page_offset_bounds */
+  TH_CHECK(po_hi(po) < top.hi); /* directmap_page_offset_bounds */
 #endif
 }
 
@@ -643,8 +644,8 @@ static void test_full_engine_faithful_cluster_keeps_directmap(void) {
   add_scalar(&base, SF_PHYS_MAX_PFN, 0x80000ul); /* ~2 GiB / 4 KiB */
   engine_run_full_floored(&base, CONF_INFERRED, rules, nr, vrules, nv);
   const struct estimate *pob = &base.est[Q_PAGE_OFFSET];
-  assert(!estimate_is_bottom(pob, &quantities[Q_PAGE_OFFSET]));
-  assert(contains(pob, PO));
+  TH_CHECK(!estimate_is_bottom(pob, &quantities[Q_PAGE_OFFSET]));
+  TH_CHECK(contains(pob, PO));
   unsigned long base_lo = po_lo(pob), base_hi = po_hi(pob);
 
   /* Rich: the same directmap leak PLUS a faithful kernel-text cluster (>= 5).
@@ -667,10 +668,10 @@ static void test_full_engine_faithful_cluster_keeps_directmap(void) {
   assert_no_curation(&e, "x86_64", "faithful-cluster", 0);
   /* (2) Completeness: page_offset still resolves and admits the truth. */
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
-  assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
-  assert(contains(po, PO));
+  TH_CHECK(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
+  TH_CHECK(contains(po, PO));
   /* (3) Monotonicity: the text cluster did not widen page_offset. */
-  assert(po_lo(po) >= base_lo && po_hi(po) <= base_hi);
+  TH_CHECK(po_lo(po) >= base_lo && po_hi(po) <= base_hi);
 #endif
 }
 
@@ -728,14 +729,14 @@ static void test_full_engine_curation_removes_only_the_fault(void) {
   for (int i = 0; i < e.ev.n_obs; i++)
     if (e.ev.obs[i].id == bad && !e.ev.obs[i].valid)
       caught = 1;
-  assert(caught);
+  TH_CHECK(caught);
 
   /* The sound direct-map leak survived the removal, so page_offset still
    * resolves and admits the truth. */
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
-  assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
-  assert(contains(po, PO));
-  assert(contains(&e.est[Q_VIRT_IMAGE_BASE], T));
+  TH_CHECK(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
+  TH_CHECK(contains(po, PO));
+  TH_CHECK(contains(&e.est[Q_VIRT_IMAGE_BASE], T));
 #endif
 }
 
@@ -768,11 +769,12 @@ static void test_full_engine_two_window(void) {
     engine_run_full(&e, rules, nr, vrules, nv); /* likely = floor CONF_BRUTE */
     const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
     const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
-    assert(contains(G, T));           /* guaranteed holds the truth */
-    assert(G->lo < G->hi);            /* timing leak filtered: unpinned */
-    assert(L->lo == T && L->hi == T); /* likely pins the named slot */
-    assert(contains(L, T));           /* ... which is the truth */
-    assert(G->lo <= L->lo && L->hi <= G->hi); /* likely subset of guaranteed */
+    TH_CHECK(contains(G, T));           /* guaranteed holds the truth */
+    TH_CHECK(G->lo < G->hi);            /* timing leak filtered: unpinned */
+    TH_CHECK(L->lo == T && L->hi == T); /* likely pins the named slot */
+    TH_CHECK(contains(L, T));           /* ... which is the truth */
+    TH_CHECK(G->lo <= L->lo &&
+             L->hi <= G->hi); /* likely subset of guaranteed */
   }
 
   /* (2) WRONG speculative leak (a far slot) -> likely pins the wrong slot W and
@@ -789,9 +791,9 @@ static void test_full_engine_two_window(void) {
     engine_run_full(&e, rules, nr, vrules, nv);
     const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
     const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
-    assert(L->lo == W && L->hi == W); /* likely pins the (wrong) named slot */
-    assert(!contains(L, T));          /* ... excluding the truth */
-    assert(contains(G, T));           /* but guaranteed still holds it */
+    TH_CHECK(L->lo == W && L->hi == W); /* likely pins the (wrong) named slot */
+    TH_CHECK(!contains(L, T));          /* ... excluding the truth */
+    TH_CHECK(contains(G, T));           /* but guaranteed still holds it */
   }
 #endif
 }
@@ -825,10 +827,11 @@ static void test_full_engine_constraint_bracket_and_corroborate(void) {
     engine_run_full(&e, rules, nr, vrules, nv); /* likely = floor CONF_BRUTE */
     const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
     const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
-    assert(contains(G, T));               /* guaranteed holds the truth */
-    assert(L->lo == T - A && L->hi == T); /* likely: the two-slot bracket */
-    assert(contains(L, T));
-    assert(G->lo <= L->lo && L->hi <= G->hi); /* likely subset of guaranteed */
+    TH_CHECK(contains(G, T));               /* guaranteed holds the truth */
+    TH_CHECK(L->lo == T - A && L->hi == T); /* likely: the two-slot bracket */
+    TH_CHECK(contains(L, T));
+    TH_CHECK(G->lo <= L->lo &&
+             L->hi <= G->hi); /* likely subset of guaranteed */
   }
 
   /* (2) Add an independent exact pin at T (prefetch-shaped, CONF_TIMING) inside
@@ -847,8 +850,9 @@ static void test_full_engine_constraint_bracket_and_corroborate(void) {
     engine_run_full(&e, rules, nr, vrules, nv);
     const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
     const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
-    assert(L->lo == T && L->hi == T); /* corroboration collapses to one slot */
-    assert(contains(G, T));           /* guaranteed still sound */
+    TH_CHECK(L->lo == T &&
+             L->hi == T);     /* corroboration collapses to one slot */
+    TH_CHECK(contains(G, T)); /* guaranteed still sound */
   }
 #endif
 }
@@ -927,8 +931,9 @@ static void test_full_engine_floor_invariant(void) {
       engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
       const struct estimate *g = &e.est[injs[i].q];
       const struct estimate *b = &g0[injs[i].q];
-      assert(g->lo != b->lo || g->hi != b->hi); /* live: it moved guaranteed */
-      assert(contains(g, injs[i].value)); /* ... toward the planted value */
+      TH_CHECK(g->lo != b->lo ||
+               g->hi != b->hi);             /* live: it moved guaranteed */
+      TH_CHECK(contains(g, injs[i].value)); /* ... toward the planted value */
     }
     /* Invariance: at every sub-floor level the whole guaranteed window equals
      * g0.
@@ -940,10 +945,10 @@ static void test_full_engine_floor_invariant(void) {
                     subfloor[c], "_stext");
       engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
       for (int q = 0; q < Q__COUNT; q++) {
-        assert(e.est[q].lo == g0[q].lo);
-        assert(e.est[q].hi == g0[q].hi);
-        assert(e.est[q].stride == g0[q].stride);
-        assert(e.est[q].stride_offset == g0[q].stride_offset);
+        TH_CHECK(e.est[q].lo == g0[q].lo);
+        TH_CHECK(e.est[q].hi == g0[q].hi);
+        TH_CHECK(e.est[q].stride == g0[q].stride);
+        TH_CHECK(e.est[q].stride_offset == g0[q].stride_offset);
       }
     }
   }
@@ -988,13 +993,13 @@ static void test_full_engine_ppc64_hardened_shape(void) {
   const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
 
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
-  assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
 
-  assert(vt->lo <= t_virt && t_virt <= vt->hi);
-  assert(pt->lo <= t_phys && t_phys <= pt->hi);
-  assert(po_lo(po) <= t_po && t_po <= po_hi(po));
+  TH_CHECK(vt->lo <= t_virt && t_virt <= vt->hi);
+  TH_CHECK(pt->lo <= t_phys && t_phys <= pt->hi);
+  TH_CHECK(po_lo(po) <= t_po && t_po <= po_hi(po));
 #endif
 }
 
@@ -1040,14 +1045,14 @@ static void test_full_engine_s390_no_prng_shape(void) {
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
   const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
 
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   /* With SF_VIRT_KASLR_DISABLED erroneously emitted, vt would collapse to
    * [KERNEL_VIRT_TEXT_DEFAULT, KERNEL_VIRT_TEXT_DEFAULT] and t_virt would fall
    * outside. The exemption keeps the signal off and the window admits
    * the displaced text base. */
-  assert(vt->lo <= t_virt && t_virt <= vt->hi);
-  assert(pt->lo <= t_phys && t_phys <= pt->hi);
+  TH_CHECK(vt->lo <= t_virt && t_virt <= vt->hi);
+  TH_CHECK(pt->lo <= t_phys && t_phys <= pt->hi);
 #endif
 }
 
@@ -1092,13 +1097,13 @@ static void test_full_engine_arm32_no_kaslr_shape(void) {
   const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
 
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
-  assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
 
-  assert(vt->lo <= t_virt && t_virt <= vt->hi);
-  assert(pt->lo <= t_phys && t_phys <= pt->hi);
-  assert(po_lo(po) <= t_po && t_po <= po_hi(po));
+  TH_CHECK(vt->lo <= t_virt && t_virt <= vt->hi);
+  TH_CHECK(pt->lo <= t_phys && t_phys <= pt->hi);
+  TH_CHECK(po_lo(po) <= t_po && t_po <= po_hi(po));
 #endif
 }
 
@@ -1147,13 +1152,13 @@ static void test_full_engine_i686_kaslr_shape(void) {
   const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
 
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
-  assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
 
-  assert(vt->lo <= t_virt && t_virt <= vt->hi);
-  assert(pt->lo <= t_phys && t_phys <= pt->hi);
-  assert(po_lo(po) <= t_po && t_po <= po_hi(po));
+  TH_CHECK(vt->lo <= t_virt && t_virt <= vt->hi);
+  TH_CHECK(pt->lo <= t_phys && t_phys <= pt->hi);
+  TH_CHECK(po_lo(po) <= t_po && t_po <= po_hi(po));
 #endif
 }
 
@@ -1176,8 +1181,8 @@ static void test_full_engine_robust_to_outlier(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
-  assert(pt->lo <= P && P <= pt->hi); /* truth survives the outlier */
+  TH_CHECK(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(pt->lo <= P && P <= pt->hi); /* truth survives the outlier */
 #endif
 }
 
@@ -1209,12 +1214,12 @@ static void test_full_engine_ppc_kernel_end_tightens(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   /* phys text base sits at or before the kernel image's last-byte witness. */
-  assert(pt->hi <= kend);
+  TH_CHECK(pt->hi <= kend);
   /* And the true placement (phys 0 for the ppc64 default layout) is admitted.
    */
-  assert(pt->lo <= 0ul && 0ul <= pt->hi);
+  TH_CHECK(pt->lo <= 0ul && 0ul <= pt->hi);
 #endif
 }
 
@@ -1249,15 +1254,15 @@ static void test_full_engine_ppc_memory_limit_caps_dram(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
   /* dram_ceiling: phys_ceiling = (limit-1) - ksize; virt_ceiling = that +
    * PAGE_OFFSET + IMAGE_BASE_OFFSET. The resolved hi must be at or below that.
    */
   const unsigned long virt_ceiling = (limit - 1 - ksize) + 0xc000000000000000ul;
-  assert(vt->hi <= virt_ceiling);
+  TH_CHECK(vt->hi <= virt_ceiling);
   /* And the true text base (phys 0 / virt 0xc00...000) is still admitted. */
   const unsigned long t_virt = 0xc000000000000000ul;
-  assert(vt->lo <= t_virt && t_virt <= vt->hi);
+  TH_CHECK(vt->lo <= t_virt && t_virt <= vt->hi);
 #endif
 }
 
@@ -1291,9 +1296,9 @@ static void test_full_engine_initrd_above_kernel_upper_bound(void) {
 
   /* LIKELY (all signals): the convention bound applies. */
   engine_run_full(&e, rules, nr, vrules, nv);
-  assert(!estimate_is_bottom(&e.est[Q_PHYS_IMAGE_BASE],
-                             &quantities[Q_PHYS_IMAGE_BASE]));
-  assert(e.est[Q_PHYS_IMAGE_BASE].hi <= istart - ksize);
+  TH_CHECK(!estimate_is_bottom(&e.est[Q_PHYS_IMAGE_BASE],
+                               &quantities[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi <= istart - ksize);
 
   /* GUARANTEED (sound floor): the convention bound is out of scope, so it does
    * NOT cap the base below initrd_start - image_size — a kernel physical KASLR
@@ -1301,9 +1306,9 @@ static void test_full_engine_initrd_above_kernel_upper_bound(void) {
   e.ev.n_verdicts =
       0; /* clear curation between runs, as the orchestrator does */
   engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
-  assert(!estimate_is_bottom(&e.est[Q_PHYS_IMAGE_BASE],
-                             &quantities[Q_PHYS_IMAGE_BASE]));
-  assert(e.est[Q_PHYS_IMAGE_BASE].hi > istart - ksize);
+  TH_CHECK(!estimate_is_bottom(&e.est[Q_PHYS_IMAGE_BASE],
+                               &quantities[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi > istart - ksize);
 #endif
 }
 
@@ -1354,21 +1359,22 @@ static void test_full_engine_riscv64_legacy_no_kaslr(void) {
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
   unsigned long t_virt = 0xffffffe000229000ul; /* real _stext on the board */
 
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
   /* PAGE_OFFSET resolves to the legacy value (the higher CONFIG landmark beats
    * the modern cpuinfo range). */
-  assert(po_lo(po) == 0xffffffe000000000ul);
+  TH_CHECK(po_lo(po) == 0xffffffe000000000ul);
   /* The window contains the real _stext, is in the legacy linear-map region
    * (NOT the 128 GiB-high modern KERNEL_LINK default), and module_text_bound
    * makes it tight. */
-  assert(vt->lo <= t_virt && t_virt <= vt->hi);
+  TH_CHECK(vt->lo <= t_virt && t_virt <= vt->hi);
   /* rule_riscv64_text_base's legacy branch raises lo to PAGE_OFFSET + the head
    * gap (sound: _text sits above _start = PAGE_OFFSET). */
-  assert(vt->lo == 0xffffffe000000000ul + IMAGE_BASE_OFFSET);
-  assert(vt->hi < 0xffffffe040000000ul); /* tight (< PAGE_OFFSET + 1 GiB) */
-  assert(vt->lo != vt->hi ||             /* not falsely pinned... */
-         vt->lo == t_virt);              /* ...unless exactly at truth */
-  assert(vt->hi < (unsigned long)KERNEL_LINK_ADDR); /* not the modern default */
+  TH_CHECK(vt->lo == 0xffffffe000000000ul + IMAGE_BASE_OFFSET);
+  TH_CHECK(vt->hi < 0xffffffe040000000ul); /* tight (< PAGE_OFFSET + 1 GiB) */
+  TH_CHECK(vt->lo != vt->hi ||             /* not falsely pinned... */
+           vt->lo == t_virt);              /* ...unless exactly at truth */
+  TH_CHECK(vt->hi <
+           (unsigned long)KERNEL_LINK_ADDR); /* not the modern default */
 #endif
 }
 
@@ -1402,12 +1408,12 @@ static void test_full_engine_riscv64_legacy_2gb(void) {
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
   unsigned long t_virt = 0xffffffff80202000ul; /* representative 2 GiB _stext */
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
   /* Floor is the RESOLVED (high) PAGE_OFFSET + head — the `== 0xffffffe0...`
    * match would have left lo at the lowest-legacy WIDE floor (a 2 GiB-too-low,
    * useless window). */
-  assert(vt->lo == 0xffffffff80000000ul + (unsigned long)IMAGE_BASE_OFFSET);
-  assert(vt->lo <= t_virt && t_virt <= vt->hi);
+  TH_CHECK(vt->lo == 0xffffffff80000000ul + (unsigned long)IMAGE_BASE_OFFSET);
+  TH_CHECK(vt->lo <= t_virt && t_virt <= vt->hi);
 #endif
 }
 
@@ -1448,23 +1454,23 @@ static void test_full_engine_arm64_va39_sub48(void) {
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
   /* PAGE_OFFSET resolves to the exact 39-bit value (admitted + classified). */
-  assert(po_lo(po) == po39 && po_hi(po) == po39);
+  TH_CHECK(po_lo(po) == po39 && po_hi(po) == po39);
   /* The image base resolves to the sub-48 _text — which sits ABOVE the old
    * 48-bit honest-top ceiling (KASLR_VIRT_TEXT_MAX), so only the widened
    * KASLR_VIRT_TEXT_MAX_WIDE admits it. */
-  assert(t_text > (unsigned long)KASLR_VIRT_TEXT_MAX);
+  TH_CHECK(t_text > (unsigned long)KASLR_VIRT_TEXT_MAX);
   /* The witness is _stext with no _text alongside it, so the base is pinned
    * only where the arch fixes the head gap. arm64's SEGMENT_ALIGN was SZ_2M
    * under the pre-5.7 CONFIG_DEBUG_ALIGN_RODATA, so it declares a ceiling and
    * the same witness bounds instead -- the upper edge is still exactly _text,
    * which is what this case is about: the sub-48 base sits above the old
    * ceiling and only the widened one admits it. */
-  assert(vt->hi == t_text);
+  TH_CHECK(vt->hi == t_text);
   if (STEXT_GAP_EXACT) {
-    assert(vt->lo == t_text);
+    TH_CHECK(vt->lo == t_text);
   } else {
-    assert(vt->lo <= t_text);
-    assert(vt->lo >= t_stext - (unsigned long)STEXT_OFFSET_MAX);
+    TH_CHECK(vt->lo <= t_text);
+    TH_CHECK(vt->lo >= t_stext - (unsigned long)STEXT_OFFSET_MAX);
   }
 #endif
 }
@@ -1491,10 +1497,10 @@ static void test_full_engine_arm64_va39_no_kaslr(void) {
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
   unsigned long pe39 = arm64_page_end_for(39ul);
-  assert(vt->lo == pe39 + 0x8000000ul);  /* +128M (smallest region) */
-  assert(vt->hi == pe39 + 0x80000000ul); /* +2G   (largest region)  */
+  TH_CHECK(vt->lo == pe39 + 0x8000000ul);  /* +128M (smallest region) */
+  TH_CHECK(vt->hi == pe39 + 0x80000000ul); /* +2G   (largest region)  */
   /* Admits both a 128M-region (5.4..6.1) and a 2G-region no-KASLR text base. */
-  assert(vt->lo <= pe39 + 0x8000000ul && pe39 + 0x80000000ul <= vt->hi);
+  TH_CHECK(vt->lo <= pe39 + 0x8000000ul && pe39 + 0x80000000ul <= vt->hi);
 #endif
 }
 
@@ -1518,12 +1524,12 @@ static void test_full_engine_arm64_va48_no_kaslr(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  assert(vt->lo == 0xffff800008000000ul); /* _PAGE_END(48) + 128M */
-  assert(vt->hi == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT); /* +2G */
+  TH_CHECK(vt->lo == 0xffff800008000000ul); /* _PAGE_END(48) + 128M */
+  TH_CHECK(vt->hi == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT); /* +2G */
   /* Both the 128M-region truth and the 2G default sit inside the window. */
-  assert(vt->lo <= 0xffff800008000000ul && 0xffff800008000000ul <= vt->hi);
-  assert(vt->lo <= (unsigned long)KERNEL_VIRT_TEXT_DEFAULT &&
-         (unsigned long)KERNEL_VIRT_TEXT_DEFAULT <= vt->hi);
+  TH_CHECK(vt->lo <= 0xffff800008000000ul && 0xffff800008000000ul <= vt->hi);
+  TH_CHECK(vt->lo <= (unsigned long)KERNEL_VIRT_TEXT_DEFAULT &&
+           (unsigned long)KERNEL_VIRT_TEXT_DEFAULT <= vt->hi);
 #endif
 }
 
@@ -1546,10 +1552,10 @@ static void test_full_engine_arm64_va48_kaslr_window(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  assert(vt->lo == arm64_page_end_for(48ul) + 0x8000000ul); /* +128M floor */
-  assert(vt->hi == (unsigned long)KASLR_VIRT_TEXT_MAX);
+  TH_CHECK(vt->lo == arm64_page_end_for(48ul) + 0x8000000ul); /* +128M floor */
+  TH_CHECK(vt->hi == (unsigned long)KASLR_VIRT_TEXT_MAX);
   /* Proves the narrowing happened: the union ceiling is strictly higher. */
-  assert(vt->hi < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
+  TH_CHECK(vt->hi < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
 #endif
 }
 
@@ -1575,10 +1581,10 @@ static void test_full_engine_arm64_va39_kaslr_window(void) {
   unsigned long pe39 = arm64_page_end_for(39ul);
   unsigned long ceiling39 = pe39 + 0x80000000ul + (1ul << 36) + (1ul << 37);
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  assert(vt->lo == pe39 + 0x8000000ul); /* +128M floor */
-  assert(vt->hi == ceiling39);          /* +2G base + max offset */
+  TH_CHECK(vt->lo == pe39 + 0x8000000ul); /* +128M floor */
+  TH_CHECK(vt->hi == ceiling39);          /* +2G base + max offset */
   /* Disjoint from the 48-bit window — its own narrower band. */
-  assert(vt->lo > (unsigned long)KASLR_VIRT_TEXT_MAX);
+  TH_CHECK(vt->lo > (unsigned long)KASLR_VIRT_TEXT_MAX);
 #endif
 }
 
@@ -1603,8 +1609,8 @@ static void test_full_engine_arm64_old_layout_sound(void) {
 
   const unsigned long t_text = 0xffff000008080000ul; /* v4.14 _text */
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
-  assert(vt->lo <= t_text && t_text <= vt->hi);
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(vt->lo <= t_text && t_text <= vt->hi);
 #endif
 }
 
@@ -1629,19 +1635,19 @@ static void test_full_engine_s390_old_identity_map_sound(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
   /* _text near 0 (real v4.14 value 0x200) and _stext at IMAGE_BASE_OFFSET. */
-  assert(vt->lo <= 0x200ul && 0x200ul <= vt->hi);
-  assert(vt->lo <= (unsigned long)IMAGE_BASE_OFFSET &&
-         (unsigned long)IMAGE_BASE_OFFSET <= vt->hi);
+  TH_CHECK(vt->lo <= 0x200ul && 0x200ul <= vt->hi);
+  TH_CHECK(vt->lo <= (unsigned long)IMAGE_BASE_OFFSET &&
+           (unsigned long)IMAGE_BASE_OFFSET <= vt->hi);
 
   /* Physical image base (_text = __kaslr_offset_phys) is identity-mapped low
    * too: a real v4.14 boot shows iomem "Kernel code" starting at phys 0x200. */
   const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
-  assert(pt->lo <= 0x200ul && 0x200ul <= pt->hi);
-  assert(pt->lo <= (unsigned long)KERNEL_PHYS_MIN &&
-         (unsigned long)KERNEL_PHYS_MIN <= pt->hi);
+  TH_CHECK(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
+  TH_CHECK(pt->lo <= 0x200ul && 0x200ul <= pt->hi);
+  TH_CHECK(pt->lo <= (unsigned long)KERNEL_PHYS_MIN &&
+           (unsigned long)KERNEL_PHYS_MIN <= pt->hi);
 #endif
 }
 
@@ -3118,7 +3124,7 @@ static void test_full_engine_property_coverage(void) {
   /* Silent: any output here would interleave between the RUN macro's padded
    * test name and its status mark, breaking the aligned column. The assert is
    * the guard; on failure it names this file/line. */
-  assert(prop_seen_n >= 8);
+  TH_CHECK(prop_seen_n >= 8);
 #endif
 }
 
@@ -3229,10 +3235,10 @@ static void check_no_stale_lineage(struct engine *e, int banded) {
    * keeps the invariant below from passing on an evidence set curation never
    * touched. */
   if (banded)
-    assert(invalid >= 6);
+    TH_CHECK(invalid >= 6);
   else
-    assert(invalid == 0);
-  assert(stale_lineage_constraints(e) == 0);
+    TH_CHECK(invalid == 0);
+  TH_CHECK(stale_lineage_constraints(e) == 0);
 }
 
 #endif /* __SIZEOF_LONG__ >= 8 */
@@ -3274,16 +3280,16 @@ static void test_engine_id_spaces_are_disjoint(void) {
   plant_curation_cascade(&e);
   engine_run_full(&e, rules, n_rules, vrules, n_vrules);
 
-  assert(e.ev.n_obs > 0);
-  assert(e.n_constraints > 0);
+  TH_CHECK(e.ev.n_obs > 0);
+  TH_CHECK(e.n_constraints > 0);
   for (int i = 0; i < e.ev.n_obs; i++) {
-    assert(kasld_id_is_evidence(e.ev.obs[i].id));
-    assert(!kasld_id_is_constraint(e.ev.obs[i].id));
+    TH_CHECK(kasld_id_is_evidence(e.ev.obs[i].id));
+    TH_CHECK(!kasld_id_is_constraint(e.ev.obs[i].id));
     for (int c = 0; c < e.n_constraints; c++)
-      assert(e.ev.obs[i].id != e.constraints[c].id);
+      TH_CHECK(e.ev.obs[i].id != e.constraints[c].id);
   }
   for (int c = 0; c < e.n_constraints; c++)
-    assert(kasld_id_is_constraint(e.constraints[c].id));
+    TH_CHECK(kasld_id_is_constraint(e.constraints[c].id));
 #endif
 }
 

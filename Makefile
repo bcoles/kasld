@@ -1072,6 +1072,7 @@ lint :
 	@$(LINT_RUNNER) \
 	    $(TEST_DIR)/check-rule-registry \
 	    $(TEST_DIR)/check-render-registry \
+	    $(TEST_DIR)/check-test-checks \
 	    $(TEST_DIR)/check-self-edges \
 	    $(TEST_DIR)/check-extent-callers \
 	    $(TEST_DIR)/check-covering-consumers \

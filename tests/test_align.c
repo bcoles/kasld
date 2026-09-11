@@ -29,11 +29,11 @@
 static void check(unsigned long addr, unsigned long align,
                   unsigned long default_base, unsigned long expected) {
   unsigned long v = kasld_floor_aligned_suboffset(addr, align, default_base);
-  assert(v == expected); /* exact */
-  assert(v <= addr);     /* (a) sound upper bound */
-  assert((v & (align - 1)) ==
-         (default_base & (align - 1))); /* (b) sub-offset */
-  assert(v + align > addr);             /* (c) tightest */
+  TH_CHECK(v == expected); /* exact */
+  TH_CHECK(v <= addr);     /* (a) sound upper bound */
+  TH_CHECK((v & (align - 1)) ==
+           (default_base & (align - 1))); /* (b) sub-offset */
+  TH_CHECK(v + align > addr);             /* (c) tightest */
 }
 
 /* sub-offset 0 (x86_64/arm64/ppc): identical to a plain `addr & -align`. */
@@ -83,10 +83,10 @@ static void test_public_helper_host_arch(void) {
   unsigned long addr =
       def + 0x123456ul; /* an interior pointer above the base */
   unsigned long v = kasld_floor_text_base(addr);
-  assert(v <= addr);
-  assert((v & (align - 1)) == (def & (align - 1)));
-  assert(v + align > addr);
-  assert(v == kasld_floor_aligned_suboffset(addr, align, def));
+  TH_CHECK(v <= addr);
+  TH_CHECK((v & (align - 1)) == (def & (align - 1)));
+  TH_CHECK(v + align > addr);
+  TH_CHECK(v == kasld_floor_aligned_suboffset(addr, align, def));
 }
 
 int main(void) {

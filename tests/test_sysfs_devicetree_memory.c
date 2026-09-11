@@ -49,8 +49,8 @@ static void mkdirs(const char *path) {
 
 static void write_bytes(const char *path, const unsigned char *b, size_t n) {
   int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  assert(write(fd, b, n) == (ssize_t)n);
+  TH_CHECK(fd >= 0);
+  TH_CHECK(write(fd, b, n) == (ssize_t)n);
   close(fd);
 }
 
@@ -81,7 +81,7 @@ static void write_memory_node(const char *node, int nbanks,
   size_t entry = 16; /* (2+2) cells * 4 */
   size_t n = (size_t)nbanks * entry;
   unsigned char *buf = malloc(n);
-  assert(buf);
+  TH_CHECK(buf);
   for (int i = 0; i < nbanks; i++) {
     wr_be(buf + (size_t)i * entry, start + (unsigned long long)i * stride, 2);
     wr_be(buf + (size_t)i * entry + 8, size, 2);
@@ -103,7 +103,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_dtm_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -139,9 +139,10 @@ static void test_complete_map_emits_hull_and_extents(void) {
   rm_memory_node("memory@1");
 
   /* Both edges known → a single bounded range (pos=base carrying lo and hi). */
-  assert(strstr(cap, "ram pos=base conf=parsed lo=0x40000000 hi=0x9fffffff") !=
-         NULL);
-  assert(strstr(cap, "ram pos=extent") != NULL);
+  TH_CHECK(
+      strstr(cap, "ram pos=base conf=parsed lo=0x40000000 hi=0x9fffffff") !=
+      NULL);
+  TH_CHECK(strstr(cap, "ram pos=extent") != NULL);
 }
 
 /* A reg that fills the read buffer (>= 1024 bytes) may be clipped, so the whole
@@ -151,9 +152,9 @@ static void test_truncated_reg_withholds_map(void) {
   run_capture();
   rm_memory_node("memory@0");
 
-  assert(strstr(cap, "ram pos=base") == NULL);
-  assert(strstr(cap, "ram pos=top") == NULL);
-  assert(strstr(cap, "ram pos=extent") == NULL);
+  TH_CHECK(strstr(cap, "ram pos=base") == NULL);
+  TH_CHECK(strstr(cap, "ram pos=top") == NULL);
+  TH_CHECK(strstr(cap, "ram pos=extent") == NULL);
 }
 
 /* More than 64 banks, each node read in full (no truncation): the extent buffer
@@ -168,8 +169,8 @@ static void test_overflow_emits_hull_only(void) {
   rm_memory_node("memory@1");
 
   /* Hull only, as a bounded range (pos=base with both edges); no covering. */
-  assert(strstr(cap, "ram pos=base conf=parsed lo=0x40000000 hi=") != NULL);
-  assert(strstr(cap, "ram pos=extent") == NULL);
+  TH_CHECK(strstr(cap, "ram pos=base conf=parsed lo=0x40000000 hi=") != NULL);
+  TH_CHECK(strstr(cap, "ram pos=extent") == NULL);
 }
 
 int main(void) {

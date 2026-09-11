@@ -75,15 +75,15 @@ static void make_kcore_pp(const unsigned long *vaddr,
   put_le(eh + 56, (unsigned)n, 2); /* e_phnum */
 
   FILE *f = fopen(path, "wb");
-  assert(f);
-  assert(fwrite(eh, 1, 64, f) == 64);
+  TH_CHECK(f);
+  TH_CHECK(fwrite(eh, 1, 64, f) == 64);
   for (int i = 0; i < n; i++) {
     unsigned char ph[56] = {0};
     put_le(ph + 0, 1, 4);                     /* p_type = PT_LOAD */
     put_le(ph + 16, vaddr[i], 8);             /* p_vaddr */
     put_le(ph + 24, paddr ? paddr[i] : 0, 8); /* p_paddr */
     put_le(ph + 40, 0x1000000, 8);            /* p_memsz */
-    assert(fwrite(ph, 1, 56, f) == 56);
+    TH_CHECK(fwrite(ph, 1, 56, f) == 56);
   }
   fclose(f);
 }
@@ -105,7 +105,7 @@ static void run_capture(int (*fn)(void)) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_kcore_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -139,28 +139,28 @@ static void test_pins_stext_over_decoys(void) {
   unsigned long v[] = {DECOYS[0], DECOYS[1], STEXT};
   make_kcore(v, 3, 1);
   run_capture(kcore_run);
-  assert(strstr(cap, "kernel_text:_stext pos=base conf=parsed "
-                     "lo=0xffffffff81234000") != NULL);
+  TH_CHECK(strstr(cap, "kernel_text:_stext pos=base conf=parsed "
+                       "lo=0xffffffff81234000") != NULL);
 }
 
 static void test_ignores_nontext_segments(void) {
   make_kcore(DECOYS, 2, 1); /* nothing in the text window */
   run_capture(kcore_run);
-  assert(strstr(cap, "kernel_text") == NULL);
+  TH_CHECK(strstr(cap, "kernel_text") == NULL);
 }
 
 static void test_lowest_text_window_vaddr(void) {
   unsigned long v[] = {0xffffffff82000000UL, STEXT}; /* both in window */
   make_kcore(v, 2, 1);
   run_capture(kcore_run);
-  assert(strstr(cap, "lo=0xffffffff81234000") != NULL);
+  TH_CHECK(strstr(cap, "lo=0xffffffff81234000") != NULL);
 }
 
 static void test_malformed_core_emits_nothing(void) {
   unsigned long v[] = {STEXT};
   make_kcore(v, 1, 0); /* bad magic */
   run_capture(kcore_run);
-  assert(strstr(cap, "kernel_text") == NULL);
+  TH_CHECK(strstr(cap, "kernel_text") == NULL);
 }
 
 #if PHYS_OFFSET_EXACT
@@ -174,12 +174,12 @@ static void test_pins_directmap_base(void) {
   unsigned long p[] = {0x1000, 0x100000000UL, 0};
   make_kcore_pp(v, p, 3, 1);
   run_capture(kcore_run);
-  assert(strstr(cap, "kernel_text:_stext pos=base conf=parsed "
-                     "lo=0xffffffff81234000") != NULL);
+  TH_CHECK(strstr(cap, "kernel_text:_stext pos=base conf=parsed "
+                       "lo=0xffffffff81234000") != NULL);
   /* The exact left edge is bridged as the SF_VIRT_PAGE_OFFSET scalar, not a
    * REGION_DIRECTMAP base (which would only upper-bound page_offset_base). */
-  assert(strstr(cap, "S virt_page_offset conf=parsed "
-                     "value=0xffff8b6d00000000") != NULL);
+  TH_CHECK(strstr(cap, "S virt_page_offset conf=parsed "
+                       "value=0xffff8b6d00000000") != NULL);
 }
 
 /* RAM segments whose p_vaddr - p_paddr disagree (an unreliable p_paddr) must
@@ -189,8 +189,8 @@ static void test_directmap_conflict_rejected(void) {
   unsigned long p[] = {0x1000, 0x200000000UL, 0}; /* second disagrees */
   make_kcore_pp(v, p, 3, 1);
   run_capture(kcore_run);
-  assert(strstr(cap, "kernel_text:_stext") != NULL);
-  assert(strstr(cap, "virt_page_offset") == NULL);
+  TH_CHECK(strstr(cap, "kernel_text:_stext") != NULL);
+  TH_CHECK(strstr(cap, "virt_page_offset") == NULL);
 }
 
 /* A direct-map-window header with p_paddr 0 (vmalloc/vmemmap shape) carries no
@@ -200,7 +200,7 @@ static void test_directmap_zero_paddr_ignored(void) {
   unsigned long p[] = {0, 0};
   make_kcore_pp(v, p, 2, 1);
   run_capture(kcore_run);
-  assert(strstr(cap, "virt_page_offset") == NULL);
+  TH_CHECK(strstr(cap, "virt_page_offset") == NULL);
 }
 #endif /* PHYS_OFFSET_EXACT */
 

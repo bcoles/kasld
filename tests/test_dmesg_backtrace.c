@@ -44,7 +44,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_bt_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -78,19 +78,19 @@ static void test_user_cr3_is_ram_plus_directmap(void) {
       "kernel: RAX: ffff8d5ec9169ec0 RBX: ffff8d5ec397b000 RCX: 0\n"
       "kernel: CR2: 000079fac44400d0 CR3: 0000000253e3c000 CR4: 0\n");
   run_capture();
-  assert(strstr(cap, "P ram:cr3") != NULL);
-  assert(strstr(cap, "sample=0x253e3c000") != NULL);
-  assert(strstr(cap, "kernel_bss") == NULL);
+  TH_CHECK(strstr(cap, "P ram:cr3") != NULL);
+  TH_CHECK(strstr(cap, "sample=0x253e3c000") != NULL);
+  TH_CHECK(strstr(cap, "kernel_bss") == NULL);
   /* The direct-map classification depends on the host's PAGE_OFFSET window
    * (the test binary is host-built); assert it only where the chosen value is
    * in range, so the test is not x86_64-host-specific. */
   if (in_directmap_range(0xffff8d5ec397b000UL)) {
-    assert(strstr(cap, "V directmap") != NULL);
-    assert(strstr(cap, "sample=0xffff8d5ec397b000") != NULL);
+    TH_CHECK(strstr(cap, "V directmap") != NULL);
+    TH_CHECK(strstr(cap, "sample=0xffff8d5ec397b000") != NULL);
     /* A register value is only a heuristic direct-map witness (it may be a
      * non-pointer below the randomized page_offset_base); it must stay
      * sub-floor so it cannot forge a guaranteed page_offset ceiling. */
-    assert(strstr(cap, "directmap pos=interior conf=heuristic") != NULL);
+    TH_CHECK(strstr(cap, "directmap pos=interior conf=heuristic") != NULL);
   }
 }
 
@@ -99,8 +99,8 @@ static void test_swapper_cr3_is_bss(void) {
   stage_dmesg("kernel: CPU: 0 PID: 0 Comm: swapper/0 Not tainted 6.8.0\n"
               "kernel: CR2: 0 CR3: 0000000041e0a000 CR4: 0\n");
   run_capture();
-  assert(strstr(cap, "P kernel_bss:cr3") != NULL);
-  assert(strstr(cap, "sample=0x41e0a000") != NULL);
+  TH_CHECK(strstr(cap, "P kernel_bss:cr3") != NULL);
+  TH_CHECK(strstr(cap, "sample=0x41e0a000") != NULL);
 }
 
 /* v6.11+ header inserts a UID field before PID; token match must still work. */
@@ -108,8 +108,8 @@ static void test_uid_field_format_user(void) {
   stage_dmesg("kernel: CPU: 1 UID: 1000 PID: 990 Comm: firefox Tainted: G\n"
               "kernel: CR2: 0 CR3: 0000000288a14000 CR4: 0\n");
   run_capture();
-  assert(strstr(cap, "P ram:cr3") != NULL);
-  assert(strstr(cap, "sample=0x288a14000") != NULL);
+  TH_CHECK(strstr(cap, "P ram:cr3") != NULL);
+  TH_CHECK(strstr(cap, "sample=0x288a14000") != NULL);
 }
 
 /* Pre-~v3.9 lowercase "Pid: N, comm: name" header; idle task. */
@@ -117,8 +117,8 @@ static void test_ancient_lowercase_header_swapper(void) {
   stage_dmesg("kernel: Pid: 0, comm: swapper Not tainted 3.2.0\n"
               "kernel: CR2: 0 CR3: 0000000001c0b000 CR4: 0\n");
   run_capture();
-  assert(strstr(cap, "P kernel_bss:cr3") != NULL);
-  assert(strstr(cap, "sample=0x1c0b000") != NULL);
+  TH_CHECK(strstr(cap, "P kernel_bss:cr3") != NULL);
+  TH_CHECK(strstr(cap, "sample=0x1c0b000") != NULL);
 }
 
 /* Two dumps in one log: the lower CR3 belongs to the user dump and must be
@@ -130,9 +130,9 @@ static void test_multi_dump_association(void) {
               "kernel: CR3: 0000000011111000 CR4: 0\n");
   run_capture();
   /* lowest CR3 (0x11111000) is the bash dump -> RAM */
-  assert(strstr(cap, "P ram:cr3") != NULL);
-  assert(strstr(cap, "sample=0x11111000") != NULL);
-  assert(strstr(cap, "kernel_bss") == NULL);
+  TH_CHECK(strstr(cap, "P ram:cr3") != NULL);
+  TH_CHECK(strstr(cap, "sample=0x11111000") != NULL);
+  TH_CHECK(strstr(cap, "kernel_bss") == NULL);
 }
 
 /* A CR3 whose dump header was evicted from the ring buffer must not inherit a
@@ -141,9 +141,9 @@ static void test_evicted_header_is_conservative(void) {
   stage_dmesg("kernel: RAX: ffff8d00 RBX: ffff8d01\n"
               "kernel: CR2: 0 CR3: 0000000042042000 CR4: 0\n");
   run_capture();
-  assert(strstr(cap, "P ram:cr3") != NULL);
-  assert(strstr(cap, "sample=0x42042000") != NULL);
-  assert(strstr(cap, "kernel_bss") == NULL);
+  TH_CHECK(strstr(cap, "P ram:cr3") != NULL);
+  TH_CHECK(strstr(cap, "sample=0x42042000") != NULL);
+  TH_CHECK(strstr(cap, "kernel_bss") == NULL);
 }
 
 /* LoongArch prints raw pc/ra kernel-text registers; parse_loongarch_pc_ra reads
@@ -155,13 +155,13 @@ static void test_loongarch_pc_ra_parse(void) {
                         "ra 9000000087654321 tp 9000000000abcdef "
                         "sp 9000000000fedcba",
                         &pc, &ra);
-  assert(pc == 0x9000000012345678UL);
-  assert(ra == 0x9000000087654321UL);
+  TH_CHECK(pc == 0x9000000012345678UL);
+  TH_CHECK(ra == 0x9000000087654321UL);
 
   /* No register line → both cleared. */
   pc = ra = 7;
   parse_loongarch_pc_ra("not a register dump line", &pc, &ra);
-  assert(pc == 0 && ra == 0);
+  TH_CHECK(pc == 0 && ra == 0);
 }
 
 int main(void) {

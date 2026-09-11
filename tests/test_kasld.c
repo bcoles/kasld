@@ -107,14 +107,15 @@ static void test_result_init_zeroes_everything(void) {
   struct result r;
   memset(&r, 0xAA, sizeof(r));
   result_init(&r);
-  assert(r.type == KASLD_TYPE_UNKNOWN);
-  assert(r.region == REGION_UNKNOWN);
-  assert(r.set_mask == 0);
-  assert(r.pos == POS_UNKNOWN);
-  assert(r.conf == CONF_UNKNOWN);
-  assert(origin_set_count(&r.origins) == 0);
-  assert(r.name[0] == '\0');
-  assert(!HAS_LO(&r) && !HAS_HI(&r) && !HAS_SAMPLE(&r) && !HAS_BASE_ALIGN(&r));
+  TH_CHECK(r.type == KASLD_TYPE_UNKNOWN);
+  TH_CHECK(r.region == REGION_UNKNOWN);
+  TH_CHECK(r.set_mask == 0);
+  TH_CHECK(r.pos == POS_UNKNOWN);
+  TH_CHECK(r.conf == CONF_UNKNOWN);
+  TH_CHECK(origin_set_count(&r.origins) == 0);
+  TH_CHECK(r.name[0] == '\0');
+  TH_CHECK(!HAS_LO(&r) && !HAS_HI(&r) && !HAS_SAMPLE(&r) &&
+           !HAS_BASE_ALIGN(&r));
 }
 
 /* =========================================================================
@@ -128,12 +129,12 @@ static void test_result_init_zeroes_everything(void) {
  * every word in the vocabulary maps to its own value, and a word outside it
  * maps to the sentinel rather than to whichever rung the last strcmp tested. */
 static void test_conf_from_wire_maps_every_rung(void) {
-  assert(conf_from_wire("parsed") == CONF_PARSED);
-  assert(conf_from_wire("derived") == CONF_DERIVED);
-  assert(conf_from_wire("inferred") == CONF_INFERRED);
-  assert(conf_from_wire("heuristic") == CONF_HEURISTIC);
-  assert(conf_from_wire("timing") == CONF_TIMING);
-  assert(conf_from_wire("brute") == CONF_BRUTE);
+  TH_CHECK(conf_from_wire("parsed") == CONF_PARSED);
+  TH_CHECK(conf_from_wire("derived") == CONF_DERIVED);
+  TH_CHECK(conf_from_wire("inferred") == CONF_INFERRED);
+  TH_CHECK(conf_from_wire("heuristic") == CONF_HEURISTIC);
+  TH_CHECK(conf_from_wire("timing") == CONF_TIMING);
+  TH_CHECK(conf_from_wire("brute") == CONF_BRUTE);
 }
 
 static void test_conf_from_wire_rejects_off_vocabulary(void) {
@@ -143,39 +144,39 @@ static void test_conf_from_wire_rejects_off_vocabulary(void) {
                                     "parse", "parsedx", "brut",   "bruteforce",
                                     "conf",  " parsed", "parsed "};
   for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
-    assert(conf_from_wire(bad[i]) == CONF_UNKNOWN);
+    TH_CHECK(conf_from_wire(bad[i]) == CONF_UNKNOWN);
 }
 
 static void test_conf_from_wire_is_ordered_by_trust(void) {
   /* The ladder is ordered, and the sound floor is expressed as a comparison
    * against it, so the mapping must preserve the documented ranking rather
    * than merely being injective. */
-  assert(conf_from_wire("parsed") > conf_from_wire("derived"));
-  assert(conf_from_wire("derived") > conf_from_wire("inferred"));
-  assert(conf_from_wire("inferred") > conf_from_wire("heuristic"));
-  assert(conf_from_wire("heuristic") > conf_from_wire("timing"));
-  assert(conf_from_wire("timing") > conf_from_wire("brute"));
-  assert(conf_from_wire("brute") > CONF_UNKNOWN);
+  TH_CHECK(conf_from_wire("parsed") > conf_from_wire("derived"));
+  TH_CHECK(conf_from_wire("derived") > conf_from_wire("inferred"));
+  TH_CHECK(conf_from_wire("inferred") > conf_from_wire("heuristic"));
+  TH_CHECK(conf_from_wire("heuristic") > conf_from_wire("timing"));
+  TH_CHECK(conf_from_wire("timing") > conf_from_wire("brute"));
+  TH_CHECK(conf_from_wire("brute") > CONF_UNKNOWN);
 }
 
 static void test_method_bit_maps_every_value(void) {
-  assert(method_bit("parsed") == (uint16_t)(1u << KM_PARSED));
-  assert(method_bit("derived") == (uint16_t)(1u << KM_DERIVED));
-  assert(method_bit("inferred") == (uint16_t)(1u << KM_INFERRED));
-  assert(method_bit("heuristic") == (uint16_t)(1u << KM_HEURISTIC));
-  assert(method_bit("timing") == (uint16_t)(1u << KM_TIMING));
-  assert(method_bit("brute") == (uint16_t)(1u << KM_BRUTE));
-  assert(method_bit("detection") == (uint16_t)(1u << KM_DETECTION));
+  TH_CHECK(method_bit("parsed") == (uint16_t)(1u << KM_PARSED));
+  TH_CHECK(method_bit("derived") == (uint16_t)(1u << KM_DERIVED));
+  TH_CHECK(method_bit("inferred") == (uint16_t)(1u << KM_INFERRED));
+  TH_CHECK(method_bit("heuristic") == (uint16_t)(1u << KM_HEURISTIC));
+  TH_CHECK(method_bit("timing") == (uint16_t)(1u << KM_TIMING));
+  TH_CHECK(method_bit("brute") == (uint16_t)(1u << KM_BRUTE));
+  TH_CHECK(method_bit("detection") == (uint16_t)(1u << KM_DETECTION));
 }
 
 static void test_method_bit_rejects_off_vocabulary(void) {
   /* NULL is a caller-reachable input: a component carrying no method: key
    * reaches here with the value unset. */
-  assert(method_bit(NULL) == 0);
+  TH_CHECK(method_bit(NULL) == 0);
   static const char *const bad[] = {"",       "Parsed",  "parse",  "parsedx",
                                     "detect", "unknown", " parsed"};
   for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
-    assert(method_bit(bad[i]) == 0);
+    TH_CHECK(method_bit(bad[i]) == 0);
 }
 
 static void test_method_bits_are_distinct(void) {
@@ -187,27 +188,27 @@ static void test_method_bits_are_distinct(void) {
   uint16_t seen = 0;
   for (unsigned i = 0; i < sizeof(all) / sizeof(all[0]); i++) {
     uint16_t b = method_bit(all[i]);
-    assert(b != 0);
-    assert((seen & b) == 0);
+    TH_CHECK(b != 0);
+    TH_CHECK((seen & b) == 0);
     seen |= b;
   }
   /* KM_COUNT distinct values, each one bit. */
-  assert(seen == (uint16_t)((1u << KM_COUNT) - 1u));
+  TH_CHECK(seen == (uint16_t)((1u << KM_COUNT) - 1u));
 }
 
 static void test_is_pow2_classifies_alignments(void) {
   /* Gates the base-align field on the wire. 0 is not an alignment, and the
    * classic failure is accepting a value with more than one bit set. */
-  assert(!is_pow2(0));
-  assert(is_pow2(1));
-  assert(is_pow2(2));
-  assert(is_pow2(0x200000UL)); /* 2 MiB, the x86_64 KASLR grain */
-  assert(is_pow2(0x10000UL));  /* 64 KiB, the arm64 grain */
-  assert(!is_pow2(3));
-  assert(!is_pow2(6));
-  assert(!is_pow2(0x300000UL));
-  assert(is_pow2(1UL << (sizeof(unsigned long) * 8 - 1)));
-  assert(!is_pow2(~0UL));
+  TH_CHECK(!is_pow2(0));
+  TH_CHECK(is_pow2(1));
+  TH_CHECK(is_pow2(2));
+  TH_CHECK(is_pow2(0x200000UL)); /* 2 MiB, the x86_64 KASLR grain */
+  TH_CHECK(is_pow2(0x10000UL));  /* 64 KiB, the arm64 grain */
+  TH_CHECK(!is_pow2(3));
+  TH_CHECK(!is_pow2(6));
+  TH_CHECK(!is_pow2(0x300000UL));
+  TH_CHECK(is_pow2(1UL << (sizeof(unsigned long) * 8 - 1)));
+  TH_CHECK(!is_pow2(~0UL));
 }
 
 static void test_parse_base_record(void) {
@@ -215,18 +216,18 @@ static void test_parse_base_record(void) {
   int ok =
       parse_line("P initrd pos=base conf=parsed lo=0x33000000 hi=0x333fffff",
                  "parsed", "proc-iomem");
-  assert(ok == 1);
-  assert(num_results == 1);
+  TH_CHECK(ok == 1);
+  TH_CHECK(num_results == 1);
   struct result *r = &results[0];
-  assert(r->type == KASLD_TYPE_PHYS);
-  assert(r->region == REGION_INITRD);
-  assert(r->pos == POS_BASE);
-  assert(r->conf == CONF_PARSED);
-  assert(HAS_LO(r) && HAS_HI(r));
-  assert(r->lo == 0x33000000ul);
-  assert(r->hi == 0x333ffffful);
-  assert(origin_set_count(&r->origins) == 1);
-  assert(strcmp(first_origin(r), "proc-iomem") == 0);
+  TH_CHECK(r->type == KASLD_TYPE_PHYS);
+  TH_CHECK(r->region == REGION_INITRD);
+  TH_CHECK(r->pos == POS_BASE);
+  TH_CHECK(r->conf == CONF_PARSED);
+  TH_CHECK(HAS_LO(r) && HAS_HI(r));
+  TH_CHECK(r->lo == 0x33000000ul);
+  TH_CHECK(r->hi == 0x333ffffful);
+  TH_CHECK(origin_set_count(&r->origins) == 1);
+  TH_CHECK(strcmp(first_origin(r), "proc-iomem") == 0);
 }
 
 static void test_parse_interior_sample(void) {
@@ -235,13 +236,13 @@ static void test_parse_interior_sample(void) {
   char line[160];
   snprintf(line, sizeof(line),
            "V vmalloc pos=interior conf=heuristic sample=0x%lx", vaddr);
-  assert(parse_line(line, "heuristic", "comp") == 1);
+  TH_CHECK(parse_line(line, "heuristic", "comp") == 1);
   struct result *r = &results[0];
-  assert(r->type == KASLD_TYPE_VIRT);
-  assert(r->region == REGION_VMALLOC);
-  assert(r->pos == POS_INTERIOR);
-  assert(HAS_SAMPLE(r) && !HAS_LO(r) && !HAS_HI(r));
-  assert(r->sample == vaddr);
+  TH_CHECK(r->type == KASLD_TYPE_VIRT);
+  TH_CHECK(r->region == REGION_VMALLOC);
+  TH_CHECK(r->pos == POS_INTERIOR);
+  TH_CHECK(HAS_SAMPLE(r) && !HAS_LO(r) && !HAS_HI(r));
+  TH_CHECK(r->sample == vaddr);
 }
 
 static void test_parse_pos_extent(void) {
@@ -254,96 +255,97 @@ static void test_parse_pos_extent(void) {
   int ok =
       parse_line("P ram pos=extent conf=parsed lo=0x10000000 hi=0x1fffffff",
                  "parsed", "sysfs_memory_blocks");
-  assert(ok == 1);
+  TH_CHECK(ok == 1);
   struct result *r = &results[0];
-  assert(r->type == KASLD_TYPE_PHYS);
-  assert(r->region == REGION_RAM);
-  assert(r->pos == POS_EXTENT);
-  assert(HAS_LO(r) && HAS_HI(r));
-  assert(r->lo == 0x10000000ul);
-  assert(r->hi == 0x1ffffffful);
+  TH_CHECK(r->type == KASLD_TYPE_PHYS);
+  TH_CHECK(r->region == REGION_RAM);
+  TH_CHECK(r->pos == POS_EXTENT);
+  TH_CHECK(HAS_LO(r) && HAS_HI(r));
+  TH_CHECK(r->lo == 0x10000000ul);
+  TH_CHECK(r->hi == 0x1ffffffful);
 }
 
 static void test_parse_extent_requires_both_edges(void) {
   reset_results();
   /* A covering member is a closed extent; a half-open pos=extent is rejected.
    */
-  assert(parse_line("P ram pos=extent conf=parsed lo=0x10000000", NULL, NULL) ==
-         0);
-  assert(parse_line("P ram pos=extent conf=parsed hi=0x1fffffff", NULL, NULL) ==
-         0);
+  TH_CHECK(parse_line("P ram pos=extent conf=parsed lo=0x10000000", NULL,
+                      NULL) == 0);
+  TH_CHECK(parse_line("P ram pos=extent conf=parsed hi=0x1fffffff", NULL,
+                      NULL) == 0);
 }
 
 static void test_parse_named_record(void) {
   reset_results();
-  assert(parse_line("V kernel_image:commit_creds pos=interior conf=parsed "
-                    "sample=0x1000",
-                    "parsed", "kallsyms") == 1);
+  TH_CHECK(parse_line("V kernel_image:commit_creds pos=interior conf=parsed "
+                      "sample=0x1000",
+                      "parsed", "kallsyms") == 1);
   struct result *r = &results[0];
-  assert(strcmp(r->name, "commit_creds") == 0);
-  assert(r->region == REGION_KERNEL_IMAGE);
+  TH_CHECK(strcmp(r->name, "commit_creds") == 0);
+  TH_CHECK(r->region == REGION_KERNEL_IMAGE);
 }
 
 static void test_parse_name_with_colons(void) {
   reset_results();
-  assert(parse_line("P pci_mmio:0000:00:14.0 pos=base conf=parsed "
-                    "lo=0xfe000000 hi=0xfeffffff",
-                    "parsed", "sysfs") == 1);
+  TH_CHECK(parse_line("P pci_mmio:0000:00:14.0 pos=base conf=parsed "
+                      "lo=0xfe000000 hi=0xfeffffff",
+                      "parsed", "sysfs") == 1);
   struct result *r = &results[0];
-  assert(r->region == REGION_PCI_MMIO);
-  assert(strcmp(r->name, "0000:00:14.0") == 0);
+  TH_CHECK(r->region == REGION_PCI_MMIO);
+  TH_CHECK(strcmp(r->name, "0000:00:14.0") == 0);
 }
 
 static void test_parse_sz_normalizes_to_hi(void) {
   reset_results();
-  assert(parse_line("P initrd pos=base conf=parsed lo=0x100000 sz=0x10000",
-                    "parsed", "x") == 1);
+  TH_CHECK(parse_line("P initrd pos=base conf=parsed lo=0x100000 sz=0x10000",
+                      "parsed", "x") == 1);
   struct result *r = &results[0];
-  assert(HAS_LO(r) && HAS_HI(r));
-  assert(r->lo == 0x100000ul);
-  assert(r->hi == 0x10ffffu);
+  TH_CHECK(HAS_LO(r) && HAS_HI(r));
+  TH_CHECK(r->lo == 0x100000ul);
+  TH_CHECK(r->hi == 0x10ffffu);
 }
 
 static void test_parse_rejects_unknown_key(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base conf=parsed lo=0x1000 "
-                    "bogus=0x1",
-                    NULL, NULL) == 0);
-  assert(num_results == 0);
+  TH_CHECK(parse_line("V kernel_text pos=base conf=parsed lo=0x1000 "
+                      "bogus=0x1",
+                      NULL, NULL) == 0);
+  TH_CHECK(num_results == 0);
 }
 
 static void test_parse_rejects_missing_pos(void) {
   reset_results();
-  assert(parse_line("V kernel_text conf=parsed lo=0x1000", NULL, NULL) == 0);
+  TH_CHECK(parse_line("V kernel_text conf=parsed lo=0x1000", NULL, NULL) == 0);
 }
 
 static void test_parse_rejects_missing_conf(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base lo=0x1000", NULL, NULL) == 0);
+  TH_CHECK(parse_line("V kernel_text pos=base lo=0x1000", NULL, NULL) == 0);
 }
 
 static void test_parse_rejects_pos_base_without_lo(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base conf=parsed sample=0x1000", NULL,
-                    NULL) == 0);
+  TH_CHECK(parse_line("V kernel_text pos=base conf=parsed sample=0x1000", NULL,
+                      NULL) == 0);
 }
 
 static void test_parse_rejects_pos_top_without_hi(void) {
   reset_results();
-  assert(parse_line("P ram pos=top conf=parsed lo=0x1000", NULL, NULL) == 0);
+  TH_CHECK(parse_line("P ram pos=top conf=parsed lo=0x1000", NULL, NULL) == 0);
 }
 
 static void test_parse_rejects_lo_above_hi(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base conf=parsed lo=0x2000 hi=0x1000",
-                    NULL, NULL) == 0);
+  TH_CHECK(parse_line("V kernel_text pos=base conf=parsed lo=0x2000 hi=0x1000",
+                      NULL, NULL) == 0);
 }
 
 static void test_parse_rejects_sample_outside_extent(void) {
   reset_results();
-  assert(parse_line(
-             "P initrd pos=base conf=parsed lo=0x1000 hi=0x2000 sample=0x3000",
-             NULL, NULL) == 0);
+  TH_CHECK(
+      parse_line(
+          "P initrd pos=base conf=parsed lo=0x1000 hi=0x2000 sample=0x3000",
+          NULL, NULL) == 0);
 }
 
 static void test_parse_rejects_sz_overflow(void) {
@@ -352,31 +354,31 @@ static void test_parse_rejects_sz_overflow(void) {
   char line[96];
   snprintf(line, sizeof(line), "P ram pos=base conf=parsed lo=0x%lx sz=0x2",
            ULONG_MAX);
-  assert(parse_line(line, NULL, NULL) == 0);
+  TH_CHECK(parse_line(line, NULL, NULL) == 0);
 }
 
 static void test_parse_rejects_non_power_of_two_base_align(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base conf=parsed lo=0x1000 "
-                    "base_align=0x3",
-                    NULL, NULL) == 0);
+  TH_CHECK(parse_line("V kernel_text pos=base conf=parsed lo=0x1000 "
+                      "base_align=0x3",
+                      NULL, NULL) == 0);
 }
 
 static void test_parse_accepts_power_of_two_base_align(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base conf=parsed lo=0x1000 "
-                    "base_align=0x200000",
-                    NULL, NULL) == 1);
-  assert(HAS_BASE_ALIGN(&results[0]));
-  assert(results[0].base_align == 0x200000ul);
+  TH_CHECK(parse_line("V kernel_text pos=base conf=parsed lo=0x1000 "
+                      "base_align=0x200000",
+                      NULL, NULL) == 1);
+  TH_CHECK(HAS_BASE_ALIGN(&results[0]));
+  TH_CHECK(results[0].base_align == 0x200000ul);
 }
 
 static void test_parse_genuine_zero_lo(void) {
   reset_results();
-  assert(parse_line("P ram pos=base conf=parsed lo=0x0", NULL, NULL) == 1);
+  TH_CHECK(parse_line("P ram pos=base conf=parsed lo=0x0", NULL, NULL) == 1);
   struct result *r = &results[0];
-  assert(HAS_LO(r));
-  assert(r->lo == 0);
+  TH_CHECK(HAS_LO(r));
+  TH_CHECK(r->lo == 0);
 }
 
 /* =========================================================================
@@ -386,7 +388,7 @@ static void test_result_in_bounds_rejects_region_unknown(void) {
   struct result r;
   result_init(&r);
   r.region = REGION_UNKNOWN;
-  assert(result_in_bounds(&r, &layout) == 0);
+  TH_CHECK(result_in_bounds(&r, &layout) == 0);
 }
 
 static void test_result_in_bounds_open_vas_accepts_anything(void) {
@@ -395,14 +397,14 @@ static void test_result_in_bounds_open_vas_accepts_anything(void) {
   r.region = REGION_RAM;
   r.lo = 0x12345678;
   r.set_mask = LO_SET;
-  assert(result_in_bounds(&r, &layout) == 1);
+  TH_CHECK(result_in_bounds(&r, &layout) == 1);
 }
 
 static void test_result_in_bounds_no_set_bits_passes(void) {
   struct result r;
   result_init(&r);
   r.region = REGION_RAM;
-  assert(result_in_bounds(&r, &layout) == 1);
+  TH_CHECK(result_in_bounds(&r, &layout) == 1);
 }
 
 /* =========================================================================
@@ -429,7 +431,7 @@ static void test_select_anchor_prefers_no_name(void) {
 
   const struct result *picked =
       select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE);
-  assert(picked == anchor);
+  TH_CHECK(picked == anchor);
 }
 
 static void test_select_anchor_falls_back_to_named(void) {
@@ -445,14 +447,14 @@ static void test_select_anchor_falls_back_to_named(void) {
 
   const struct result *picked =
       select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE);
-  assert(picked == named);
+  TH_CHECK(picked == named);
 }
 
 static void test_select_anchor_returns_null_on_miss(void) {
   reset_results();
   const struct result *picked =
       select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE);
-  assert(picked == NULL);
+  TH_CHECK(picked == NULL);
 }
 
 /* =========================================================================
@@ -479,11 +481,11 @@ static void test_merge_collapses_same_key(void) {
   add_origin(top, "dmesg");
 
   merge_results();
-  assert(num_results == 1);
+  TH_CHECK(num_results == 1);
   struct result *r = &results[0];
-  assert(HAS_LO(r) && HAS_HI(r));
-  assert(r->lo == 0x33000000ul && r->hi == 0x333ffffful);
-  assert(origin_set_count(&r->origins) == 2);
+  TH_CHECK(HAS_LO(r) && HAS_HI(r));
+  TH_CHECK(r->lo == 0x33000000ul && r->hi == 0x333ffffful);
+  TH_CHECK(origin_set_count(&r->origins) == 2);
 }
 
 static void test_merge_keeps_conflicting_records(void) {
@@ -510,7 +512,7 @@ static void test_merge_keeps_conflicting_records(void) {
 
   int before = num_results;
   merge_results();
-  assert(num_results == before);
+  TH_CHECK(num_results == before);
 }
 
 static void test_merge_does_not_cross_types(void) {
@@ -532,7 +534,7 @@ static void test_merge_does_not_cross_types(void) {
   v->set_mask = LO_SET;
 
   merge_results();
-  assert(num_results == 2);
+  TH_CHECK(num_results == 2);
 }
 
 /* A sample OUTSIDE an extent is a distinct witness (different instance of
@@ -561,7 +563,7 @@ static void test_merge_keeps_sample_outside_extent_separate(void) {
   b->set_mask = SAMPLE_SET;
 
   merge_results();
-  assert(num_results == 2);
+  TH_CHECK(num_results == 2);
 }
 
 /* A sample INSIDE an extent legitimately refines it — that merge should
@@ -586,10 +588,10 @@ static void test_merge_sample_inside_extent_collapses(void) {
   b->set_mask = SAMPLE_SET;
 
   merge_results();
-  assert(num_results == 1);
+  TH_CHECK(num_results == 1);
   struct result *r = &results[0];
-  assert(HAS_SAMPLE(r));
-  assert(r->sample == 0x1500);
+  TH_CHECK(HAS_SAMPLE(r));
+  TH_CHECK(r->sample == 0x1500);
 }
 
 /* Two LO-only POS_BASE records at different addresses are independent
@@ -619,10 +621,10 @@ static void test_merge_keeps_lo_only_witnesses_separate(void) {
   add_origin(b, "source-b");
 
   merge_results();
-  assert(num_results == 2);
+  TH_CHECK(num_results == 2);
   /* Origin attribution is preserved (no cross-witness merging). */
-  assert(strcmp(first_origin(&results[0]), "source-a") == 0);
-  assert(strcmp(first_origin(&results[1]), "source-b") == 0);
+  TH_CHECK(strcmp(first_origin(&results[0]), "source-a") == 0);
+  TH_CHECK(strcmp(first_origin(&results[1]), "source-b") == 0);
 }
 
 static void test_merge_picks_highest_conf_sample(void) {
@@ -652,16 +654,16 @@ static void test_merge_picks_highest_conf_sample(void) {
   sample->set_mask = SAMPLE_SET;
 
   merge_results();
-  assert(num_results == 1);
+  TH_CHECK(num_results == 1);
   struct result *r = &results[0];
-  assert(HAS_LO(r) && r->lo == FX_TEXT);
-  assert(HAS_SAMPLE(r) && r->sample == (FX_TEXT + 0x222222ul));
+  TH_CHECK(HAS_LO(r) && r->lo == FX_TEXT);
+  TH_CHECK(HAS_SAMPLE(r) && r->sample == (FX_TEXT + 0x222222ul));
   /* pos must NOT downgrade to POS_INTERIOR when the surviving sample's
    * contributor was POS_INTERIOR but the merged record retains a POS_BASE
    * claim from another contributor. Skipping this assertion let a real
    * regression land: text_pin_from_observation gates on POS_BASE and silently
    * skipped merged records whose pos had been overwritten. */
-  assert(r->pos == POS_BASE);
+  TH_CHECK(r->pos == POS_BASE);
 }
 
 /* Inverse seed order of the above: POS_INTERIOR record is the merge seed,
@@ -690,11 +692,11 @@ static void test_merge_promotes_pos_to_base_from_later_contributor(void) {
   base->set_mask = LO_SET;
 
   merge_results();
-  assert(num_results == 1);
+  TH_CHECK(num_results == 1);
   struct result *r = &results[0];
-  assert(r->pos == POS_BASE);
-  assert(HAS_LO(r) && r->lo == FX_TEXT);
-  assert(HAS_SAMPLE(r) && r->sample == (FX_TEXT + 0x333333ul));
+  TH_CHECK(r->pos == POS_BASE);
+  TH_CHECK(HAS_LO(r) && r->lo == FX_TEXT);
+  TH_CHECK(HAS_SAMPLE(r) && r->sample == (FX_TEXT + 0x333333ul));
 }
 
 static void test_merge_samples_conflict_kept_separate(void) {
@@ -720,7 +722,7 @@ static void test_merge_samples_conflict_kept_separate(void) {
   b->set_mask = SAMPLE_SET;
 
   merge_results();
-  assert(num_results == 2);
+  TH_CHECK(num_results == 2);
 }
 
 /* A weaker record must not tighten a stronger one. merge_into takes the
@@ -750,7 +752,7 @@ static void test_merge_weaker_tightening_edge_kept_separate(void) {
   b->set_mask = LO_SET;
 
   merge_results();
-  assert(num_results == 2);
+  TH_CHECK(num_results == 2);
   /* The measured edge survives intact on its own record, still inferred. */
   int seen_measured = 0, seen_guess = 0;
   for (int i = 0; i < num_results; i++) {
@@ -759,7 +761,7 @@ static void test_merge_weaker_tightening_edge_kept_separate(void) {
     if (results[i].conf == CONF_HEURISTIC && results[i].lo == 0x80000000ul)
       seen_guess = 1;
   }
-  assert(seen_measured && seen_guess);
+  TH_CHECK(seen_measured && seen_guess);
 }
 
 /* ...but a weaker record that merely AGREES still merges. That is the
@@ -785,21 +787,21 @@ static void test_merge_weaker_agreeing_still_merges(void) {
   b->set_mask = LO_SET;
 
   merge_results();
-  assert(num_results == 1);
-  assert(results[0].conf == CONF_PARSED);
-  assert(results[0].lo == 0xc0300000ul);
+  TH_CHECK(num_results == 1);
+  TH_CHECK(results[0].conf == CONF_PARSED);
+  TH_CHECK(results[0].lo == 0xc0300000ul);
 }
 
 /* =========================================================================
  * conf_weight
  * ========================================================================= */
 static void test_conf_weight_ordering(void) {
-  assert(conf_weight(CONF_PARSED) > conf_weight(CONF_DERIVED));
-  assert(conf_weight(CONF_DERIVED) > conf_weight(CONF_INFERRED));
-  assert(conf_weight(CONF_INFERRED) > conf_weight(CONF_HEURISTIC));
-  assert(conf_weight(CONF_HEURISTIC) > conf_weight(CONF_TIMING));
-  assert(conf_weight(CONF_TIMING) > conf_weight(CONF_BRUTE));
-  assert(conf_weight(CONF_BRUTE) > conf_weight(CONF_UNKNOWN));
+  TH_CHECK(conf_weight(CONF_PARSED) > conf_weight(CONF_DERIVED));
+  TH_CHECK(conf_weight(CONF_DERIVED) > conf_weight(CONF_INFERRED));
+  TH_CHECK(conf_weight(CONF_INFERRED) > conf_weight(CONF_HEURISTIC));
+  TH_CHECK(conf_weight(CONF_HEURISTIC) > conf_weight(CONF_TIMING));
+  TH_CHECK(conf_weight(CONF_TIMING) > conf_weight(CONF_BRUTE));
+  TH_CHECK(conf_weight(CONF_BRUTE) > conf_weight(CONF_UNKNOWN));
 }
 
 /* =========================================================================
@@ -811,7 +813,7 @@ static void test_anchor_addr_base(void) {
   r.pos = POS_BASE;
   r.lo = 0x1000;
   r.set_mask = LO_SET;
-  assert(anchor_addr(&r) == 0x1000);
+  TH_CHECK(anchor_addr(&r) == 0x1000);
 }
 
 static void test_anchor_addr_interior_sample(void) {
@@ -820,33 +822,33 @@ static void test_anchor_addr_interior_sample(void) {
   r.pos = POS_INTERIOR;
   r.sample = 0x2000;
   r.set_mask = SAMPLE_SET;
-  assert(anchor_addr(&r) == 0x2000);
+  TH_CHECK(anchor_addr(&r) == 0x2000);
 }
 
-static void test_anchor_addr_null(void) { assert(anchor_addr(NULL) == 0); }
+static void test_anchor_addr_null(void) { TH_CHECK(anchor_addr(NULL) == 0); }
 
 /* =========================================================================
  * ilog2
  * ========================================================================= */
 static void test_ilog2_power_of_two(void) {
-  assert(ilog2(1) == 0);
-  assert(ilog2(2) == 1);
-  assert(ilog2(4) == 2);
-  assert(ilog2(1024) == 10);
+  TH_CHECK(ilog2(1) == 0);
+  TH_CHECK(ilog2(2) == 1);
+  TH_CHECK(ilog2(4) == 2);
+  TH_CHECK(ilog2(1024) == 10);
 }
 
-static void test_ilog2_zero(void) { assert(ilog2(0) == 0); }
+static void test_ilog2_zero(void) { TH_CHECK(ilog2(0) == 0); }
 
 /* ilog2 returns CEIL(log2(N)) for non-power-of-2 inputs so the displayed
  * "residual entropy" reflects the attacker's worst-case brute-force work
  * (13 candidates = 4 bits of attempts, not 3). */
 static void test_ilog2_non_power_of_two_rounds_up(void) {
-  assert(ilog2(3) == 2);   /* log2(3) ~ 1.58  -> ceil 2 */
-  assert(ilog2(5) == 3);   /* log2(5) ~ 2.32  -> ceil 3 */
-  assert(ilog2(13) == 4);  /* log2(13) ~ 3.7  -> ceil 4 (the directmap case) */
-  assert(ilog2(127) == 7); /* log2(127) ~ 6.99 -> ceil 7 (phys-slots case) */
-  assert(ilog2(471) == 9); /* log2(471) ~ 8.88 -> ceil 9 (vtext-slots case) */
-  assert(ilog2(1023) == 10); /* one below 1024 -> ceil 10 */
+  TH_CHECK(ilog2(3) == 2);  /* log2(3) ~ 1.58  -> ceil 2 */
+  TH_CHECK(ilog2(5) == 3);  /* log2(5) ~ 2.32  -> ceil 3 */
+  TH_CHECK(ilog2(13) == 4); /* log2(13) ~ 3.7  -> ceil 4 (the directmap case) */
+  TH_CHECK(ilog2(127) == 7); /* log2(127) ~ 6.99 -> ceil 7 (phys-slots case) */
+  TH_CHECK(ilog2(471) == 9); /* log2(471) ~ 8.88 -> ceil 9 (vtext-slots case) */
+  TH_CHECK(ilog2(1023) == 10); /* one below 1024 -> ceil 10 */
 }
 
 /* =========================================================================
@@ -864,7 +866,8 @@ static void test_compute_kaslr_info_uses_kernel_image_anchor(void) {
 
   struct summary s = {0};
   compute_kaslr_info(&s, NULL, NULL, NULL);
-  assert(s.kaslr.vtext == layout.virt_kaslr_text_min + layout.virt_kaslr_align);
+  TH_CHECK(s.kaslr.vtext ==
+           layout.virt_kaslr_text_min + layout.virt_kaslr_align);
 }
 
 /* The engine's resolutions reach the summary as PARAMETERS, so a build that
@@ -893,14 +896,14 @@ static void test_compute_kaslr_info_engine_pin_overrides_raw_anchor(void) {
   /* No snapshot: the raw pick stands, as the tests above already pin. */
   struct summary s = {0};
   compute_kaslr_info(&s, NULL, NULL, NULL);
-  assert(s.kaslr.vtext == raw);
+  TH_CHECK(s.kaslr.vtext == raw);
 
   /* With a snapshot holding a sound pin, that pin is authoritative. */
   auth.est[Q_VIRT_IMAGE_BASE].lo = pinned;
   auth.est[Q_VIRT_IMAGE_BASE].hi = pinned;
   memset(&s, 0, sizeof(s));
   compute_kaslr_info(&s, &auth, NULL, NULL);
-  assert(s.kaslr.vtext == pinned);
+  TH_CHECK(s.kaslr.vtext == pinned);
 }
 
 /* The LIKELY snapshot's own consumers: the speculative window is clamped into
@@ -957,15 +960,15 @@ static void test_compute_kaslr_info_directmap_base_follows_likely(void) {
    * s390's direct map starts at 0, so the window FLOOR is not a usable pin
    * there. The ceiling is admissible on every arch and never zero. */
   unsigned long pin_want = g_lo ? g_lo : g_hi;
-  assert(pin_want != 0);
+  TH_CHECK(pin_want != 0);
   c.value = pin_want;
   c.conf = CONF_PARSED;
   c.id = 1;
   estimate_meet(&likely.est[Q_PAGE_OFFSET], qd, &c);
   /* The fixture is asserted, not assumed: a meet that failed to pin would make
    * every assertion below vacuous. */
-  assert(quantity_pinned(Q_PAGE_OFFSET, &likely.est[Q_PAGE_OFFSET], &pinned));
-  assert(pinned == pin_want);
+  TH_CHECK(quantity_pinned(Q_PAGE_OFFSET, &likely.est[Q_PAGE_OFFSET], &pinned));
+  TH_CHECK(pinned == pin_want);
 
   /* Seeded to a value no branch here produces, so an assertion can only hold
    * because the code did what it was meant to. Without it the field already
@@ -981,9 +984,9 @@ static void test_compute_kaslr_info_directmap_base_follows_likely(void) {
     /* The sound resolution already answered, so the speculative one must not
      * overwrite it -- the whole fallback is gated on the guaranteed side NOT
      * having a value. */
-    assert(layout.virt_page_offset == pin_want + 1);
+    TH_CHECK(layout.virt_page_offset == pin_want + 1);
   } else {
-    assert(layout.virt_page_offset == pin_want);
+    TH_CHECK(layout.virt_page_offset == pin_want);
   }
 
   /* A likely WINDOW is not a single answer, so nothing is taken from it. This
@@ -999,7 +1002,7 @@ static void test_compute_kaslr_info_directmap_base_follows_likely(void) {
 #if !TEXT_TRACKS_DIRECTMAP
     /* Coupled arches have a second fallback (the proven floor) that
      * legitimately moves the field here; decoupled ones do not. */
-    assert(layout.virt_page_offset == pin_want + 1);
+    TH_CHECK(layout.virt_page_offset == pin_want + 1);
 #endif
   }
 
@@ -1033,8 +1036,8 @@ static void test_compute_kaslr_info_likely_window_reaches_the_model(void) {
     /* No likely snapshot: nothing speculative is reported. */
     compute_kaslr_info(&s, &auth, NULL, &rep);
     it = kasld_report_find(&rep, Q_VIRT_IMAGE_BASE);
-    assert(it != NULL);
-    assert(!kasld_report_likely_is_tighter(it));
+    TH_CHECK(it != NULL);
+    TH_CHECK(!kasld_report_likely_is_tighter(it));
 
     /* A strictly tighter likely window surfaces, clamped into the guaranteed
      * one. */
@@ -1043,10 +1046,10 @@ static void test_compute_kaslr_info_likely_window_reaches_the_model(void) {
     memset(&s, 0, sizeof(s));
     compute_kaslr_info(&s, &auth, &likely, &rep);
     it = kasld_report_find(&rep, Q_VIRT_IMAGE_BASE);
-    assert(it != NULL);
-    assert(kasld_report_likely_is_tighter(it));
-    assert(it->likely.has_lo && it->likely.lo >= it->guaranteed.lo);
-    assert(it->likely.has_hi && it->likely.hi <= it->guaranteed.hi);
+    TH_CHECK(it != NULL);
+    TH_CHECK(kasld_report_likely_is_tighter(it));
+    TH_CHECK(it->likely.has_lo && it->likely.lo >= it->guaranteed.lo);
+    TH_CHECK(it->likely.has_hi && it->likely.hi <= it->guaranteed.hi);
   }
 }
 
@@ -1067,7 +1070,7 @@ static void test_compute_kaslr_info_falls_back_to_kernel_text(void) {
    * (0x10000) and loongarch64 (0x20000). */
   unsigned long stext =
       layout.virt_kaslr_text_min + 2 * layout.virt_kaslr_align;
-  assert(s.kaslr.vtext == kasld_image_base_from(stext, 1));
+  TH_CHECK(s.kaslr.vtext == kasld_image_base_from(stext, 1));
 }
 
 /* =========================================================================
@@ -1124,65 +1127,65 @@ static int emit_sized_helper(void) {
 static void test_roundtrip_base(void) {
   char buf[512];
   reset_results();
-  assert(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "parsed", test_origin("test")) == 1);
+  TH_CHECK(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
+  TH_CHECK(capture_result(buf, "parsed", test_origin("test")) == 1);
   struct result *r = &results[0];
-  assert(r->type == KASLD_TYPE_VIRT);
-  assert(r->region == REGION_KERNEL_TEXT);
-  assert(strcmp(r->name, "test_sym") == 0);
-  assert(r->pos == POS_BASE);
-  assert(r->conf == CONF_PARSED);
-  assert(HAS_LO(r) && r->lo == FX_TEXT);
+  TH_CHECK(r->type == KASLD_TYPE_VIRT);
+  TH_CHECK(r->region == REGION_KERNEL_TEXT);
+  TH_CHECK(strcmp(r->name, "test_sym") == 0);
+  TH_CHECK(r->pos == POS_BASE);
+  TH_CHECK(r->conf == CONF_PARSED);
+  TH_CHECK(HAS_LO(r) && r->lo == FX_TEXT);
 }
 
 static void test_roundtrip_range(void) {
   char buf[512];
   reset_results();
-  assert(capture_helper(emit_range_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "parsed", test_origin("test")) == 1);
+  TH_CHECK(capture_helper(emit_range_helper, buf, sizeof(buf)) == 1);
+  TH_CHECK(capture_result(buf, "parsed", test_origin("test")) == 1);
   struct result *r = &results[0];
-  assert(r->type == KASLD_TYPE_PHYS);
-  assert(r->region == REGION_INITRD);
-  assert(r->name[0] == '\0');
-  assert(HAS_LO(r) && r->lo == 0x33000000ul);
-  assert(HAS_HI(r) && r->hi == 0x333ffffful);
+  TH_CHECK(r->type == KASLD_TYPE_PHYS);
+  TH_CHECK(r->region == REGION_INITRD);
+  TH_CHECK(r->name[0] == '\0');
+  TH_CHECK(HAS_LO(r) && r->lo == 0x33000000ul);
+  TH_CHECK(HAS_HI(r) && r->hi == 0x333ffffful);
 }
 
 static void test_roundtrip_top(void) {
   char buf[512];
   reset_results();
-  assert(capture_helper(emit_top_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "parsed", test_origin("test")) == 1);
+  TH_CHECK(capture_helper(emit_top_helper, buf, sizeof(buf)) == 1);
+  TH_CHECK(capture_result(buf, "parsed", test_origin("test")) == 1);
   struct result *r = &results[0];
-  assert(r->type == KASLD_TYPE_PHYS);
-  assert(r->region == REGION_RAM);
-  assert(r->pos == POS_TOP);
-  assert(!HAS_LO(r) && HAS_HI(r));
-  assert(r->hi == 0xf0000000ul);
+  TH_CHECK(r->type == KASLD_TYPE_PHYS);
+  TH_CHECK(r->region == REGION_RAM);
+  TH_CHECK(r->pos == POS_TOP);
+  TH_CHECK(!HAS_LO(r) && HAS_HI(r));
+  TH_CHECK(r->hi == 0xf0000000ul);
 }
 
 static void test_roundtrip_sample(void) {
   char buf[512];
   reset_results();
-  assert(capture_helper(emit_sample_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "heuristic", test_origin("test")) == 1);
+  TH_CHECK(capture_helper(emit_sample_helper, buf, sizeof(buf)) == 1);
+  TH_CHECK(capture_result(buf, "heuristic", test_origin("test")) == 1);
   struct result *r = &results[0];
-  assert(r->type == KASLD_TYPE_VIRT);
-  assert(r->region == REGION_VMALLOC);
-  assert(r->pos == POS_INTERIOR);
-  assert(r->conf == CONF_HEURISTIC);
-  assert(HAS_SAMPLE(r) && r->sample == fx_region_addr(REGION_VMALLOC));
+  TH_CHECK(r->type == KASLD_TYPE_VIRT);
+  TH_CHECK(r->region == REGION_VMALLOC);
+  TH_CHECK(r->pos == POS_INTERIOR);
+  TH_CHECK(r->conf == CONF_HEURISTIC);
+  TH_CHECK(HAS_SAMPLE(r) && r->sample == fx_region_addr(REGION_VMALLOC));
 }
 
 static void test_roundtrip_sized(void) {
   char buf[512];
   reset_results();
-  assert(capture_helper(emit_sized_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "parsed", test_origin("test")) == 1);
+  TH_CHECK(capture_helper(emit_sized_helper, buf, sizeof(buf)) == 1);
+  TH_CHECK(capture_result(buf, "parsed", test_origin("test")) == 1);
   struct result *r = &results[0];
-  assert(HAS_LO(r) && HAS_HI(r));
-  assert(r->lo == 0x100000ul);
-  assert(r->hi == 0x10ffffu); /* lo + sz - 1 */
+  TH_CHECK(HAS_LO(r) && HAS_HI(r));
+  TH_CHECK(r->lo == 0x100000ul);
+  TH_CHECK(r->hi == 0x10ffffu); /* lo + sz - 1 */
 }
 
 static int emit_mitigation_helper(void) {
@@ -1217,60 +1220,61 @@ static void test_disposition_capture(void) {
   const int slot = 0;
 
   /* mitigation: emitter returns UNAVAILABLE and the gate round-trips. */
-  assert(capture_helper(emit_mitigation_helper, buf, sizeof(buf)) ==
-         KASLD_EXIT_UNAVAILABLE);
-  assert(strcmp(buf, "R cat=mitigation gate=kpti msg=\"KPTI enabled\"") == 0);
+  TH_CHECK(capture_helper(emit_mitigation_helper, buf, sizeof(buf)) ==
+           KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(strcmp(buf, "R cat=mitigation gate=kpti msg=\"KPTI enabled\"") == 0);
   memset(&cl, 0, sizeof(cl));
-  assert(handle_component_line(&cl, "timing", slot, buf, strlen(buf)) == 0);
-  assert(cl.disposition.category == DISP_MITIGATION);
-  assert(strcmp(cl.disposition.gate, "kpti") == 0);
-  assert(strcmp(cl.disposition.message, "KPTI enabled") == 0);
+  TH_CHECK(handle_component_line(&cl, "timing", slot, buf, strlen(buf)) == 0);
+  TH_CHECK(cl.disposition.category == DISP_MITIGATION);
+  TH_CHECK(strcmp(cl.disposition.gate, "kpti") == 0);
+  TH_CHECK(strcmp(cl.disposition.message, "KPTI enabled") == 0);
 
   /* absent: UNAVAILABLE, no gate. */
-  assert(capture_helper(emit_absent_helper, buf, sizeof(buf)) ==
-         KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(capture_helper(emit_absent_helper, buf, sizeof(buf)) ==
+           KASLD_EXIT_UNAVAILABLE);
   memset(&cl, 0, sizeof(cl));
   handle_component_line(&cl, "timing", slot, buf, strlen(buf));
-  assert(cl.disposition.category == DISP_ABSENT);
-  assert(cl.disposition.gate[0] == '\0');
-  assert(strcmp(cl.disposition.message, "not an Intel CPU") == 0);
+  TH_CHECK(cl.disposition.category == DISP_ABSENT);
+  TH_CHECK(cl.disposition.gate[0] == '\0');
+  TH_CHECK(strcmp(cl.disposition.message, "not an Intel CPU") == 0);
 
   /* inconclusive: exit 0. */
-  assert(capture_helper(emit_inconclusive_helper, buf, sizeof(buf)) == 0);
+  TH_CHECK(capture_helper(emit_inconclusive_helper, buf, sizeof(buf)) == 0);
   memset(&cl, 0, sizeof(cl));
   handle_component_line(&cl, "timing", slot, buf, strlen(buf));
-  assert(cl.disposition.category == DISP_INCONCLUSIVE);
+  TH_CHECK(cl.disposition.category == DISP_INCONCLUSIVE);
 
   /* mitigation with no gate: emitter prints nothing (bug), and a hand-built
    * gate-less mitigation line parses to DISP_NONE rather than a bogus claim. */
-  assert(capture_helper(emit_mitigation_nogate_helper, buf, sizeof(buf)) == 0);
-  assert(buf[0] == '\0');
+  TH_CHECK(capture_helper(emit_mitigation_nogate_helper, buf, sizeof(buf)) ==
+           0);
+  TH_CHECK(buf[0] == '\0');
   memset(&cl, 0, sizeof(cl));
   const char *nogate = "R cat=mitigation msg=\"x\"";
   handle_component_line(&cl, "timing", slot, nogate, strlen(nogate));
-  assert(cl.disposition.category == DISP_NONE);
+  TH_CHECK(cl.disposition.category == DISP_NONE);
 
   /* Unknown category is dropped. */
   memset(&cl, 0, sizeof(cl));
   const char *bogus = "R cat=bogus msg=\"x\"";
   handle_component_line(&cl, "timing", slot, bogus, strlen(bogus));
-  assert(cl.disposition.category == DISP_NONE);
+  TH_CHECK(cl.disposition.category == DISP_NONE);
 
   /* A `gate=`/`cat=` substring inside the quoted message is not mistaken for a
    * field: fields come from parsed keys, so message text supplies none. */
   memset(&cl, 0, sizeof(cl));
   const char *tricky = "R cat=absent msg=\"weird cat=x gate=y text\"";
   handle_component_line(&cl, "timing", slot, tricky, strlen(tricky));
-  assert(cl.disposition.category == DISP_ABSENT);
-  assert(cl.disposition.gate[0] == '\0');
-  assert(strcmp(cl.disposition.message, "weird cat=x gate=y text") == 0);
+  TH_CHECK(cl.disposition.category == DISP_ABSENT);
+  TH_CHECK(cl.disposition.gate[0] == '\0');
+  TH_CHECK(strcmp(cl.disposition.message, "weird cat=x gate=y text") == 0);
 
   /* A wire result line tags a record and leaves the disposition empty. */
   reset_results();
   memset(&cl, 0, sizeof(cl));
-  assert(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
-  assert(handle_component_line(&cl, "parsed", slot, buf, strlen(buf)) == 1);
-  assert(cl.disposition.category == DISP_NONE);
+  TH_CHECK(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
+  TH_CHECK(handle_component_line(&cl, "parsed", slot, buf, strlen(buf)) == 1);
+  TH_CHECK(cl.disposition.category == DISP_NONE);
 
   verbose = saved_v;
 }
@@ -1292,11 +1296,11 @@ static void test_disposition_rejects_malformed(void) {
   memset(&cl, 0, sizeof(cl));
   const char *good = "R cat=mitigation gate=kpti msg=\"KPTI active\"";
   handle_component_line(&cl, "timing", slot, good, strlen(good));
-  assert(cl.disposition.category == DISP_MITIGATION);
+  TH_CHECK(cl.disposition.category == DISP_MITIGATION);
   const char *junk = "R garbage with no category at all";
   handle_component_line(&cl, "timing", slot, junk, strlen(junk));
-  assert(cl.disposition.category == DISP_MITIGATION); /* survived */
-  assert(strcmp(cl.disposition.gate, "kpti") == 0);
+  TH_CHECK(cl.disposition.category == DISP_MITIGATION); /* survived */
+  TH_CHECK(strcmp(cl.disposition.gate, "kpti") == 0);
 
   /* Each of these rejects the whole line. `cat` is read from a parsed key, so
    * neither a message body nor a key merely ending in "cat" can supply one. */
@@ -1313,7 +1317,7 @@ static void test_disposition_rejects_malformed(void) {
   for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
     memset(&cl, 0, sizeof(cl));
     handle_component_line(&cl, "timing", slot, bad[i], strlen(bad[i]));
-    assert(cl.disposition.category == DISP_NONE);
+    TH_CHECK(cl.disposition.category == DISP_NONE);
   }
 
   /* Over-length gate and message reject rather than truncate — the same
@@ -1324,7 +1328,7 @@ static void test_disposition_rejects_malformed(void) {
   memset(big + n, 'G', DISP_GATE_LEN);
   big[n + DISP_GATE_LEN] = '\0';
   handle_component_line(&cl, "timing", slot, big, strlen(big));
-  assert(cl.disposition.category == DISP_NONE);
+  TH_CHECK(cl.disposition.category == DISP_NONE);
 
   memset(&cl, 0, sizeof(cl));
   n = snprintf(big, sizeof(big), "R cat=absent msg=\"");
@@ -1332,23 +1336,23 @@ static void test_disposition_rejects_malformed(void) {
   big[n + DISP_MSG_LEN] = '"';
   big[n + DISP_MSG_LEN + 1] = '\0';
   handle_component_line(&cl, "timing", slot, big, strlen(big));
-  assert(cl.disposition.category == DISP_NONE);
+  TH_CHECK(cl.disposition.category == DISP_NONE);
 
   /* Well-formed records still parse, including a message carrying text that
    * looks like other fields, and fields given in either order. */
   memset(&cl, 0, sizeof(cl));
   const char *tricky = "R cat=absent msg=\"weird cat=x gate=y text\"";
   handle_component_line(&cl, "timing", slot, tricky, strlen(tricky));
-  assert(cl.disposition.category == DISP_ABSENT);
-  assert(cl.disposition.gate[0] == '\0');
-  assert(strcmp(cl.disposition.message, "weird cat=x gate=y text") == 0);
+  TH_CHECK(cl.disposition.category == DISP_ABSENT);
+  TH_CHECK(cl.disposition.gate[0] == '\0');
+  TH_CHECK(strcmp(cl.disposition.message, "weird cat=x gate=y text") == 0);
 
   memset(&cl, 0, sizeof(cl));
   const char *reordered = "R msg=\"m\" gate=kpti cat=mitigation";
   handle_component_line(&cl, "timing", slot, reordered, strlen(reordered));
-  assert(cl.disposition.category == DISP_MITIGATION);
-  assert(strcmp(cl.disposition.gate, "kpti") == 0);
-  assert(strcmp(cl.disposition.message, "m") == 0);
+  TH_CHECK(cl.disposition.category == DISP_MITIGATION);
+  TH_CHECK(strcmp(cl.disposition.gate, "kpti") == 0);
+  TH_CHECK(strcmp(cl.disposition.message, "m") == 0);
 
   verbose = saved_v;
 }
@@ -1383,16 +1387,17 @@ static void test_helpers_reject_conf_unknown(void) {
   dup2(fileno(devnull), fileno(stderr));
 
   /* All five helpers must reject CONF_UNKNOWN. */
-  assert(capture_helper(emit_with_conf_unknown_base, buf, sizeof(buf)) == 0);
-  assert(buf[0] == '\0'); /* no wire output */
-  assert(capture_helper(emit_with_conf_unknown_sample, buf, sizeof(buf)) == 0);
-  assert(buf[0] == '\0');
+  TH_CHECK(capture_helper(emit_with_conf_unknown_base, buf, sizeof(buf)) == 0);
+  TH_CHECK(buf[0] == '\0'); /* no wire output */
+  TH_CHECK(capture_helper(emit_with_conf_unknown_sample, buf, sizeof(buf)) ==
+           0);
+  TH_CHECK(buf[0] == '\0');
 
   /* Same for invalid type and REGION_UNKNOWN. */
-  assert(capture_helper(emit_with_invalid_type, buf, sizeof(buf)) == 0);
-  assert(buf[0] == '\0');
-  assert(capture_helper(emit_with_region_unknown, buf, sizeof(buf)) == 0);
-  assert(buf[0] == '\0');
+  TH_CHECK(capture_helper(emit_with_invalid_type, buf, sizeof(buf)) == 0);
+  TH_CHECK(buf[0] == '\0');
+  TH_CHECK(capture_helper(emit_with_region_unknown, buf, sizeof(buf)) == 0);
+  TH_CHECK(buf[0] == '\0');
 
   dup2(saved, fileno(stderr));
   close(saved);
@@ -1420,13 +1425,13 @@ static void test_merge_dedups_provenance(void) {
     r->method_set = 1u << KM_HEURISTIC;
   }
   merge_results();
-  assert(num_results == 1);
+  TH_CHECK(num_results == 1);
   struct result *r = &results[0];
   /* "src-a" appears twice in the contributors but only once in the merged
    * origin list. */
-  assert(origin_set_count(&r->origins) == 2);
-  assert(origin_set_has(&r->origins, test_origin("src-a")));
-  assert(origin_set_has(&r->origins, test_origin("src-b")));
+  TH_CHECK(origin_set_count(&r->origins) == 2);
+  TH_CHECK(origin_set_has(&r->origins, test_origin("src-a")));
+  TH_CHECK(origin_set_has(&r->origins, test_origin("src-b")));
 }
 
 static void test_merge_keeps_all_contributors(void) {
@@ -1449,9 +1454,9 @@ static void test_merge_keeps_all_contributors(void) {
   }
   merge_results();
 
-  assert(num_results == 1);
-  assert(origin_set_count(&results[0].origins) ==
-         n); /* all kept, none truncated */
+  TH_CHECK(num_results == 1);
+  TH_CHECK(origin_set_count(&results[0].origins) ==
+           n); /* all kept, none truncated */
 }
 
 /* =========================================================================
@@ -1486,12 +1491,12 @@ static void test_phys_virt_linkage_stays_two_records(void) {
 
   merge_results();
   /* Must stay two records — type discriminates. */
-  assert(num_results == 2);
+  TH_CHECK(num_results == 2);
   /* select_anchor returns the right one per type. */
   const struct result *picked_p = select_anchor(KASLD_TYPE_PHYS, REGION_INITRD);
   const struct result *picked_v = select_anchor(KASLD_TYPE_VIRT, REGION_INITRD);
-  assert(picked_p && picked_p->type == KASLD_TYPE_PHYS);
-  assert(picked_v && picked_v->type == KASLD_TYPE_VIRT);
+  TH_CHECK(picked_p && picked_p->type == KASLD_TYPE_PHYS);
+  TH_CHECK(picked_v && picked_v->type == KASLD_TYPE_VIRT);
 }
 
 /* =========================================================================
@@ -1519,7 +1524,7 @@ static void test_result_in_bounds_layout_sensitive(void) {
   r.lo = (unsigned long)
       PAGE_OFFSET; /* arch-default virt_page_offset is always valid */
   r.set_mask = LO_SET;
-  assert(result_in_bounds(&r, &layout) == 1);
+  TH_CHECK(result_in_bounds(&r, &layout) == 1);
 }
 
 /* =========================================================================
@@ -1542,12 +1547,12 @@ static void test_synthesized_result_sets_fields_correctly(void) {
   r->method_set = 1u << KM_DERIVED;
 
   /* Round-trip through result_in_bounds and select_anchor. */
-  assert(result_in_bounds(r, &layout) == 1);
+  TH_CHECK(result_in_bounds(r, &layout) == 1);
   const struct result *picked = select_anchor(KASLD_TYPE_VIRT, REGION_INITRD);
-  assert(picked == r);
+  TH_CHECK(picked == r);
   /* set_mask correctly reflects what was set. */
-  assert(HAS_LO(picked) && HAS_HI(picked));
-  assert(!HAS_SAMPLE(picked) && !HAS_BASE_ALIGN(picked));
+  TH_CHECK(HAS_LO(picked) && HAS_HI(picked));
+  TH_CHECK(!HAS_SAMPLE(picked) && !HAS_BASE_ALIGN(picked));
 }
 
 /* =========================================================================
@@ -1560,7 +1565,7 @@ static void test_compute_kaslr_info_no_anchors_yields_zero_vtext(void) {
   compute_kaslr_info(&s, NULL, NULL, NULL);
   /* No anchors → vtext=0; the slot/entropy fields are still populated from
    * the layout, but vtext itself is the "no information" sentinel. */
-  assert(s.kaslr.vtext == 0);
+  TH_CHECK(s.kaslr.vtext == 0);
 }
 
 /* =========================================================================
@@ -1572,48 +1577,48 @@ static void test_compute_kaslr_info_no_anchors_yields_zero_vtext(void) {
  * excludes critical leaks from the inference chain.
  * ========================================================================= */
 static void test_is_phys_dram_region_includes_ram_landmarks(void) {
-  assert(is_phys_dram_region(REGION_RAM));
-  assert(is_phys_dram_region(REGION_DMA));
-  assert(is_phys_dram_region(REGION_DMA32));
-  assert(is_phys_dram_region(REGION_INITRD));
-  assert(is_phys_dram_region(REGION_RESERVED_MEM));
-  assert(is_phys_dram_region(REGION_SWIOTLB));
-  assert(is_phys_dram_region(REGION_VMCOREINFO));
-  assert(is_phys_dram_region(REGION_CRASHKERNEL));
-  assert(is_phys_dram_region(REGION_PMEM));
-  assert(is_phys_dram_region(REGION_ACPI_TABLE));
-  assert(is_phys_dram_region(REGION_ACPI_NVS));
-  assert(is_phys_dram_region(REGION_NUMA_NODE));
+  TH_CHECK(is_phys_dram_region(REGION_RAM));
+  TH_CHECK(is_phys_dram_region(REGION_DMA));
+  TH_CHECK(is_phys_dram_region(REGION_DMA32));
+  TH_CHECK(is_phys_dram_region(REGION_INITRD));
+  TH_CHECK(is_phys_dram_region(REGION_RESERVED_MEM));
+  TH_CHECK(is_phys_dram_region(REGION_SWIOTLB));
+  TH_CHECK(is_phys_dram_region(REGION_VMCOREINFO));
+  TH_CHECK(is_phys_dram_region(REGION_CRASHKERNEL));
+  TH_CHECK(is_phys_dram_region(REGION_PMEM));
+  TH_CHECK(is_phys_dram_region(REGION_ACPI_TABLE));
+  TH_CHECK(is_phys_dram_region(REGION_ACPI_NVS));
+  TH_CHECK(is_phys_dram_region(REGION_NUMA_NODE));
 }
 
 static void test_is_phys_dram_region_includes_kernel_image(void) {
   /* The kernel is loaded into physical RAM, so its phys leaks live in
    * DRAM. The regression that triggered the virt_page_offset-derivation hunt
    * was caused by this predicate excluding kernel_image regions. */
-  assert(is_phys_dram_region(REGION_KERNEL_TEXT));
-  assert(is_phys_dram_region(REGION_KERNEL_DATA));
-  assert(is_phys_dram_region(REGION_KERNEL_BSS));
-  assert(is_phys_dram_region(REGION_KERNEL_IMAGE));
+  TH_CHECK(is_phys_dram_region(REGION_KERNEL_TEXT));
+  TH_CHECK(is_phys_dram_region(REGION_KERNEL_DATA));
+  TH_CHECK(is_phys_dram_region(REGION_KERNEL_BSS));
+  TH_CHECK(is_phys_dram_region(REGION_KERNEL_IMAGE));
   /* The EFI loader's resident kernel image is DRAM-resident — distinct from
    * EFI_MEMMAP (a descriptor) which is excluded below. */
-  assert(is_phys_dram_region(REGION_EFI_LOADER_IMAGE));
+  TH_CHECK(is_phys_dram_region(REGION_EFI_LOADER_IMAGE));
 }
 
 static void test_is_phys_dram_region_excludes_non_dram(void) {
   /* MMIO is physical but not DRAM. */
-  assert(!is_phys_dram_region(REGION_MMIO));
-  assert(!is_phys_dram_region(REGION_PCI_MMIO));
+  TH_CHECK(!is_phys_dram_region(REGION_MMIO));
+  TH_CHECK(!is_phys_dram_region(REGION_PCI_MMIO));
   /* EFI_MEMMAP is structurally a descriptor, not necessarily DRAM-resident. */
-  assert(!is_phys_dram_region(REGION_EFI_MEMMAP));
+  TH_CHECK(!is_phys_dram_region(REGION_EFI_MEMMAP));
   /* Virtual-only abstract regions. */
-  assert(!is_phys_dram_region(REGION_DIRECTMAP));
-  assert(!is_phys_dram_region(REGION_PAGE_OFFSET));
-  assert(!is_phys_dram_region(REGION_VMALLOC));
-  assert(!is_phys_dram_region(REGION_VMEMMAP));
-  assert(!is_phys_dram_region(REGION_MODULE));
-  assert(!is_phys_dram_region(REGION_MODULE_BAND));
+  TH_CHECK(!is_phys_dram_region(REGION_DIRECTMAP));
+  TH_CHECK(!is_phys_dram_region(REGION_PAGE_OFFSET));
+  TH_CHECK(!is_phys_dram_region(REGION_VMALLOC));
+  TH_CHECK(!is_phys_dram_region(REGION_VMEMMAP));
+  TH_CHECK(!is_phys_dram_region(REGION_MODULE));
+  TH_CHECK(!is_phys_dram_region(REGION_MODULE_BAND));
   /* Sentinel. */
-  assert(!is_phys_dram_region(REGION_UNKNOWN));
+  TH_CHECK(!is_phys_dram_region(REGION_UNKNOWN));
 }
 
 /* =========================================================================
@@ -1636,13 +1641,13 @@ static void test_result_in_bounds_accepts_phys_kernel_image(void) {
 
   /* All four kernel-image regions must accept a phys sample. */
   r.region = REGION_KERNEL_TEXT;
-  assert(result_in_bounds(&r, &layout) == 1);
+  TH_CHECK(result_in_bounds(&r, &layout) == 1);
   r.region = REGION_KERNEL_DATA;
-  assert(result_in_bounds(&r, &layout) == 1);
+  TH_CHECK(result_in_bounds(&r, &layout) == 1);
   r.region = REGION_KERNEL_BSS;
-  assert(result_in_bounds(&r, &layout) == 1);
+  TH_CHECK(result_in_bounds(&r, &layout) == 1);
   r.region = REGION_KERNEL_IMAGE;
-  assert(result_in_bounds(&r, &layout) == 1);
+  TH_CHECK(result_in_bounds(&r, &layout) == 1);
 }
 
 /* =========================================================================
@@ -1664,7 +1669,7 @@ static void test_page_offset_in_bounds_independent_of_runtime_layout(void) {
   r.set_mask = LO_SET;
 
   /* Default layout: accepts. */
-  assert(result_in_bounds(&r, &layout) == 1);
+  TH_CHECK(result_in_bounds(&r, &layout) == 1);
 
   /* Construct a synthetic layout with virt_kernel_vas_start TIGHTENED far
    * above the record. If derive_vas_page_offset read
@@ -1676,7 +1681,7 @@ static void test_page_offset_in_bounds_independent_of_runtime_layout(void) {
    * 32-bit unsigned long). */
   tight.virt_kernel_vas_start =
       (unsigned long)PAGE_OFFSET + (ULONG_MAX - (unsigned long)PAGE_OFFSET) / 2;
-  assert(result_in_bounds(&r, &tight) == 1);
+  TH_CHECK(result_in_bounds(&r, &tight) == 1);
 }
 
 /* =========================================================================
@@ -1706,9 +1711,9 @@ static void test_select_anchor_skips_out_of_bounds(void) {
   }
   r->set_mask = LO_SET;
 
-  assert(result_in_bounds(r, &layout) == 0);
+  TH_CHECK(result_in_bounds(r, &layout) == 0);
   /* select_anchor must skip it. */
-  assert(select_anchor(KASLD_TYPE_VIRT, REGION_VMALLOC) == NULL);
+  TH_CHECK(select_anchor(KASLD_TYPE_VIRT, REGION_VMALLOC) == NULL);
 }
 
 /* =========================================================================
@@ -1739,7 +1744,7 @@ static void test_merge_keeps_sample_above_hi_separate(void) {
   sample->set_mask = SAMPLE_SET;
 
   merge_results();
-  assert(num_results == 2);
+  TH_CHECK(num_results == 2);
 }
 
 /* =========================================================================
@@ -1767,17 +1772,17 @@ static void test_merge_is_idempotent(void) {
     add_origin(r, nm);
   }
   merge_results();
-  assert(num_results == 1);
+  TH_CHECK(num_results == 1);
   unsigned long lo_after_first = results[0].lo;
   uint32_t mask_after_first = results[0].set_mask;
   int prov_after_first = origin_set_count(&results[0].origins);
 
   /* Run again — must be a no-op. */
   merge_results();
-  assert(num_results == 1);
-  assert(results[0].lo == lo_after_first);
-  assert(results[0].set_mask == mask_after_first);
-  assert(origin_set_count(&results[0].origins) == prov_after_first);
+  TH_CHECK(num_results == 1);
+  TH_CHECK(results[0].lo == lo_after_first);
+  TH_CHECK(results[0].set_mask == mask_after_first);
+  TH_CHECK(origin_set_count(&results[0].origins) == prov_after_first);
 }
 
 /* =========================================================================
@@ -1832,26 +1837,26 @@ static void test_merge_is_capture_order_independent(void) {
   seed_merge_permutation(forward, 3);
   int n_ref = num_results;
   struct result ref[3];
-  assert(n_ref <= (int)(sizeof(ref) / sizeof(ref[0])));
+  TH_CHECK(n_ref <= (int)(sizeof(ref) / sizeof(ref[0])));
   for (int i = 0; i < n_ref; i++)
     ref[i] = results[i];
 
   const int *perms[2] = {reverse, middle};
   for (int p = 0; p < 2; p++) {
     seed_merge_permutation(perms[p], 3);
-    assert(num_results == n_ref);
+    TH_CHECK(num_results == n_ref);
     for (int i = 0; i < n_ref; i++) {
       /* Same records, in the same slots — not merely the same set. */
-      assert(results[i].type == ref[i].type);
-      assert(results[i].region == ref[i].region);
-      assert(results[i].pos == ref[i].pos);
-      assert(results[i].conf == ref[i].conf);
-      assert(results[i].set_mask == ref[i].set_mask);
-      assert(results[i].lo == ref[i].lo);
-      assert(results[i].hi == ref[i].hi);
-      assert(results[i].sample == ref[i].sample);
-      assert(memcmp(&results[i].origins, &ref[i].origins,
-                    sizeof(ref[i].origins)) == 0);
+      TH_CHECK(results[i].type == ref[i].type);
+      TH_CHECK(results[i].region == ref[i].region);
+      TH_CHECK(results[i].pos == ref[i].pos);
+      TH_CHECK(results[i].conf == ref[i].conf);
+      TH_CHECK(results[i].set_mask == ref[i].set_mask);
+      TH_CHECK(results[i].lo == ref[i].lo);
+      TH_CHECK(results[i].hi == ref[i].hi);
+      TH_CHECK(results[i].sample == ref[i].sample);
+      TH_CHECK(memcmp(&results[i].origins, &ref[i].origins,
+                      sizeof(ref[i].origins)) == 0);
     }
   }
 }
@@ -1866,21 +1871,21 @@ static void test_merge_is_capture_order_independent(void) {
 static void test_parse_key_order_independent(void) {
   reset_results();
   /* Canonical order. */
-  assert(parse_line("P initrd pos=base conf=parsed lo=0x100000 hi=0x1fffff",
-                    NULL, NULL) == 1);
+  TH_CHECK(parse_line("P initrd pos=base conf=parsed lo=0x100000 hi=0x1fffff",
+                      NULL, NULL) == 1);
   struct result a = results[0];
 
   reset_results();
   /* Permuted order. */
-  assert(parse_line("P initrd hi=0x1fffff lo=0x100000 conf=parsed pos=base",
-                    NULL, NULL) == 1);
+  TH_CHECK(parse_line("P initrd hi=0x1fffff lo=0x100000 conf=parsed pos=base",
+                      NULL, NULL) == 1);
   struct result b = results[0];
 
-  assert(a.lo == b.lo);
-  assert(a.hi == b.hi);
-  assert(a.pos == b.pos);
-  assert(a.conf == b.conf);
-  assert(a.set_mask == b.set_mask);
+  TH_CHECK(a.lo == b.lo);
+  TH_CHECK(a.hi == b.hi);
+  TH_CHECK(a.pos == b.pos);
+  TH_CHECK(a.conf == b.conf);
+  TH_CHECK(a.set_mask == b.set_mask);
 }
 
 static void test_parse_sz_before_lo_normalizes(void) {
@@ -1888,12 +1893,12 @@ static void test_parse_sz_before_lo_normalizes(void) {
    * before lo would fail (lo unknown yet). The two-stage design must
    * collect both keys before normalizing. */
   reset_results();
-  assert(parse_line("P initrd pos=base conf=parsed sz=0x10000 lo=0x100000",
-                    NULL, NULL) == 1);
-  assert(num_results == 1);
-  assert(HAS_LO(&results[0]) && HAS_HI(&results[0]));
-  assert(results[0].lo == 0x100000ul);
-  assert(results[0].hi == 0x10ffffu); /* lo + sz - 1 */
+  TH_CHECK(parse_line("P initrd pos=base conf=parsed sz=0x10000 lo=0x100000",
+                      NULL, NULL) == 1);
+  TH_CHECK(num_results == 1);
+  TH_CHECK(HAS_LO(&results[0]) && HAS_HI(&results[0]));
+  TH_CHECK(results[0].lo == 0x100000ul);
+  TH_CHECK(results[0].hi == 0x10ffffu); /* lo + sz - 1 */
 }
 
 /* =========================================================================
@@ -1923,11 +1928,11 @@ static void test_merge_base_align_takes_max(void) {
   b->set_mask = LO_SET | BASE_ALIGN_SET;
 
   merge_results();
-  assert(num_results == 1);
-  assert(HAS_BASE_ALIGN(&results[0]));
+  TH_CHECK(num_results == 1);
+  TH_CHECK(HAS_BASE_ALIGN(&results[0]));
   /* LCM of powers of two = max. Merged record carries the stricter
    * (larger) alignment claim. */
-  assert(results[0].base_align == 0x200000);
+  TH_CHECK(results[0].base_align == 0x200000);
 }
 
 static void test_merge_base_align_propagates_from_either_contributor(void) {
@@ -1952,9 +1957,9 @@ static void test_merge_base_align_propagates_from_either_contributor(void) {
   b->set_mask = LO_SET | BASE_ALIGN_SET;
 
   merge_results();
-  assert(num_results == 1);
-  assert(HAS_BASE_ALIGN(&results[0]));
-  assert(results[0].base_align == 0x200000);
+  TH_CHECK(num_results == 1);
+  TH_CHECK(HAS_BASE_ALIGN(&results[0]));
+  TH_CHECK(results[0].base_align == 0x200000);
 }
 
 /* =========================================================================
@@ -1967,11 +1972,11 @@ static void test_merge_base_align_propagates_from_either_contributor(void) {
  * ========================================================================= */
 static void test_region_info_table_completeness(void) {
   for (int i = 1; i < REGION__COUNT; i++) {
-    assert(region_info[i].wire_name != NULL);
-    assert(region_info[i].wire_name[0] != '\0');
-    assert(region_info[i].section_name != NULL);
+    TH_CHECK(region_info[i].wire_name != NULL);
+    TH_CHECK(region_info[i].wire_name[0] != '\0');
+    TH_CHECK(region_info[i].section_name != NULL);
     /* wire_name in region_info must match the wire-token table in api.h. */
-    assert(strcmp(region_info[i].wire_name, kasld_region_wire_table[i]) == 0);
+    TH_CHECK(strcmp(region_info[i].wire_name, kasld_region_wire_table[i]) == 0);
   }
 }
 
@@ -1991,7 +1996,7 @@ static void test_region_info_static_vas_or_derive_vas_set(void) {
      * assertion just guards against accidental all-zero entries
      * paired with a NULL derive_vas, which would silently accept
      * any address with no recorded intent). */
-    assert(has_derive || has_static);
+    TH_CHECK(has_derive || has_static);
   }
 }
 
@@ -2016,8 +2021,8 @@ static void test_compute_kaslr_info_sets_decoupled_note(void) {
 
   struct summary s = {0};
   compute_kaslr_info(&s, NULL, NULL, NULL);
-  assert(s.kaslr.vtext == 0);    /* no virt anchor */
-  assert(s.decoupled_note == 1); /* note must be set */
+  TH_CHECK(s.kaslr.vtext == 0);    /* no virt anchor */
+  TH_CHECK(s.decoupled_note == 1); /* note must be set */
 }
 
 static void test_compute_kaslr_info_no_note_when_vtext_present(void) {
@@ -2041,8 +2046,8 @@ static void test_compute_kaslr_info_no_note_when_vtext_present(void) {
 
   struct summary s = {0};
   compute_kaslr_info(&s, NULL, NULL, NULL);
-  assert(s.kaslr.vtext != 0);
-  assert(s.decoupled_note == 0);
+  TH_CHECK(s.kaslr.vtext != 0);
+  TH_CHECK(s.decoupled_note == 0);
 }
 
 static void test_compute_kaslr_info_no_note_without_phys_landmark(void) {
@@ -2051,7 +2056,7 @@ static void test_compute_kaslr_info_no_note_without_phys_landmark(void) {
    * explain). */
   struct summary s = {0};
   compute_kaslr_info(&s, NULL, NULL, NULL);
-  assert(s.decoupled_note == 0);
+  TH_CHECK(s.decoupled_note == 0);
 }
 #endif /* !TEXT_TRACKS_DIRECTMAP */
 
@@ -2136,36 +2141,36 @@ static void test_engine_sync_projects_all_fields(void) {
 
   /* Virtual text window projects onto BOTH the KASLR window and the kernel
    * image-placement range, and they must be identical (the renderer bug). */
-  assert(layout.virt_kaslr_text_min == FX_TEXT);
-  assert(layout.virt_kaslr_text_max == (FX_TEXT + 0x0e000000ul));
-  assert(layout.virt_image_base_min == layout.virt_kaslr_text_min);
-  assert(layout.virt_image_base_max == layout.virt_kaslr_text_max);
-  assert(layout.virt_kaslr_align == 0x200000ul);
+  TH_CHECK(layout.virt_kaslr_text_min == FX_TEXT);
+  TH_CHECK(layout.virt_kaslr_text_max == (FX_TEXT + 0x0e000000ul));
+  TH_CHECK(layout.virt_image_base_min == layout.virt_kaslr_text_min);
+  TH_CHECK(layout.virt_image_base_max == layout.virt_kaslr_text_max);
+  TH_CHECK(layout.virt_kaslr_align == 0x200000ul);
 
-  assert(layout.virt_page_offset_min == fx_po_lo);
-  assert(layout.virt_page_offset_max == fx_po_hi);
+  TH_CHECK(layout.virt_page_offset_min == fx_po_lo);
+  TH_CHECK(layout.virt_page_offset_max == fx_po_hi);
 
-  assert(layout.virt_vmalloc_base_min ==
-         (unsigned long)PAGE_OFFSET + 0x11000000ul);
-  assert(layout.virt_vmalloc_base_max ==
-         (unsigned long)PAGE_OFFSET + 0x12000000ul);
-  assert(layout.virt_vmemmap_base_min ==
-         (unsigned long)PAGE_OFFSET + 0x13000000ul);
-  assert(layout.virt_vmemmap_base_max ==
-         (unsigned long)PAGE_OFFSET + 0x14000000ul);
+  TH_CHECK(layout.virt_vmalloc_base_min ==
+           (unsigned long)PAGE_OFFSET + 0x11000000ul);
+  TH_CHECK(layout.virt_vmalloc_base_max ==
+           (unsigned long)PAGE_OFFSET + 0x12000000ul);
+  TH_CHECK(layout.virt_vmemmap_base_min ==
+           (unsigned long)PAGE_OFFSET + 0x13000000ul);
+  TH_CHECK(layout.virt_vmemmap_base_max ==
+           (unsigned long)PAGE_OFFSET + 0x14000000ul);
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* Direct-map base moves to the proven lower bound (the fixture lifts the
    * floor above the lowest admissible base), but the VAS floor must NOT — only
    * layout.virt_page_offset, never virt_kernel_vas_start, which was the second
    * renderer bug. */
-  assert(fx_po_lo > (unsigned long)PAGE_OFFSET);
-  assert(layout.virt_page_offset == fx_po_lo);
-  assert(layout.phys_kaslr_text_min == 0x4000000ul);
-  assert(layout.phys_kaslr_text_max == 0x3c000000ul);
-  assert(layout.phys_kaslr_align == 0x200000ul);
+  TH_CHECK(fx_po_lo > (unsigned long)PAGE_OFFSET);
+  TH_CHECK(layout.virt_page_offset == fx_po_lo);
+  TH_CHECK(layout.phys_kaslr_text_min == 0x4000000ul);
+  TH_CHECK(layout.phys_kaslr_text_max == 0x3c000000ul);
+  TH_CHECK(layout.phys_kaslr_align == 0x200000ul);
 #endif
-  assert(layout.virt_kernel_vas_start == vas_floor_before);
+  TH_CHECK(layout.virt_kernel_vas_start == vas_floor_before);
 }
 
 /* Contract test for the candidate COUNTS engine_sync_authoritative() projects.
@@ -2227,22 +2232,23 @@ static void test_engine_sync_projects_slot_counts(void) {
   /* 0x0e000000 of window at 2 MiB granularity is 112 whole strides plus the
    * floor itself, less the one proven hole. Counting at PAGE_SIZE, dropping
    * the constraint set, or carving at CONF_BRUTE each lands elsewhere. */
-  assert(layout.virt_kaslr_align == 0x200000ul);
-  assert(layout.virt_kaslr_slots == 112);
+  TH_CHECK(layout.virt_kaslr_align == 0x200000ul);
+  TH_CHECK(layout.virt_kaslr_slots == 112);
 
   /* Taken on every arch, not only the decoupled ones that resolve a separate
    * phys window: 0x38000000 at the same granularity, no holes. The align a
    * coupled arch mirrors from the virt side is the same 2 MiB. */
-  assert(layout.phys_kaslr_slots == 449);
+  TH_CHECK(layout.phys_kaslr_slots == 449);
 
 #if RANDOMIZE_MEMORY_ALIGN
   /* Memory KASLR moves the direct map, vmalloc and vmemmap bases on a coarser
    * pitch than the image base: 16 MiB of window at that pitch is the floor and
    * nothing above it. */
-  assert(layout.virt_vmalloc_slots == 0x1000000ul / RANDOMIZE_MEMORY_ALIGN + 1);
+  TH_CHECK(layout.virt_vmalloc_slots ==
+           0x1000000ul / RANDOMIZE_MEMORY_ALIGN + 1);
 #else
   /* No memory KASLR here, so no pitch to count on. */
-  assert(layout.virt_vmalloc_slots == 0);
+  TH_CHECK(layout.virt_vmalloc_slots == 0);
 #endif
 }
 
@@ -2284,7 +2290,7 @@ static void test_engine_sync_selects_directmap_base_by_level(void) {
 
     layout.virt_page_offset_unrandomized = 0;
     engine_sync_authoritative(&e);
-    assert(layout.virt_page_offset_unrandomized == want[i].base);
+    TH_CHECK(layout.virt_page_offset_unrandomized == want[i].base);
   }
 
   /* Every candidate still live: the level is not resolved, so no base. */
@@ -2295,7 +2301,7 @@ static void test_engine_sync_selects_directmap_base_by_level(void) {
 
     layout.virt_page_offset_unrandomized = 0;
     engine_sync_authoritative(&e);
-    assert(layout.virt_page_offset_unrandomized == 0);
+    TH_CHECK(layout.virt_page_offset_unrandomized == 0);
   }
 #endif
 }
@@ -2365,34 +2371,34 @@ static void test_discard_project_engine_classifies_correctly(void) {
 
   /* Exactly three: the curated observation, the cap, the conflict. The
    * floor-gated observation is NOT among them, and neither is the survivor. */
-  assert(kasld_discard_total() == 3);
-  assert(kasld_discard_count() == 3);
+  TH_CHECK(kasld_discard_total() == 3);
+  TH_CHECK(kasld_discard_count() == 3);
 
   int saw_curated = 0, saw_capacity = 0, saw_conflict = 0;
   for (int i = 0; i < kasld_discard_count(); i++) {
     const struct kasld_discard *d = kasld_discard_at(i);
-    assert(d);
+    TH_CHECK(d);
     switch (d->reason) {
     case DISCARD_CURATED:
       /* Attributed to the rule that ruled, not to the observation. */
-      assert(strcmp(d->source, "text_cluster_filter") == 0);
-      assert(d->count == 1);
+      TH_CHECK(strcmp(d->source, "text_cluster_filter") == 0);
+      TH_CHECK(d->count == 1);
       saw_curated++;
       break;
     case DISCARD_CAPACITY:
-      assert(strcmp(d->source, DSRC_VERDICTS) == 0);
+      TH_CHECK(strcmp(d->source, DSRC_VERDICTS) == 0);
       saw_capacity++;
       break;
     case DISCARD_CONFLICT:
       /* Resolved through the store: the id 4242 names some_bound_rule. */
-      assert(strcmp(d->source, "some_bound_rule") == 0);
+      TH_CHECK(strcmp(d->source, "some_bound_rule") == 0);
       saw_conflict++;
       break;
     default:
-      assert(0 && "projection produced a reason it cannot source");
+      TH_CHECK(0 && "projection produced a reason it cannot source");
     }
   }
-  assert(saw_curated == 1 && saw_capacity == 1 && saw_conflict == 1);
+  TH_CHECK(saw_curated == 1 && saw_capacity == 1 && saw_conflict == 1);
 
   kasld_discard_reset();
 }
@@ -2412,10 +2418,10 @@ static void test_discard_project_engine_conflict_without_constraint(void) {
 
   discard_project_engine(&e);
 
-  assert(kasld_discard_total() == 1);
-  assert(kasld_discard_count() == 1);
-  assert(kasld_discard_at(0)->reason == DISCARD_CONFLICT);
-  assert(kasld_discard_at(0)->source[0] == '\0');
+  TH_CHECK(kasld_discard_total() == 1);
+  TH_CHECK(kasld_discard_count() == 1);
+  TH_CHECK(kasld_discard_at(0)->reason == DISCARD_CONFLICT);
+  TH_CHECK(kasld_discard_at(0)->source[0] == '\0');
 
   kasld_discard_reset();
 }
@@ -2464,8 +2470,8 @@ static void test_engine_sync_anchors_module_band_to_observations(void) {
   engine_sync_authoritative(&e);
 
   /* Tightened to observed range — diagram reflects real runtime band. */
-  assert(layout.modules_start == obs_lo);
-  assert(layout.modules_end == obs_hi);
+  TH_CHECK(layout.modules_start == obs_lo);
+  TH_CHECK(layout.modules_end == obs_hi);
 }
 
 /* An out-of-union module observation must never be adopted as the rendered
@@ -2503,9 +2509,9 @@ static void test_engine_sync_module_band_rejects_out_of_union(void) {
   engine_sync_authoritative(&e);
 
   /* The bogus sample is not adopted, and the band stays well-ordered. */
-  assert(layout.modules_start != oob);
-  assert(layout.modules_end != oob);
-  assert(layout.modules_start <= layout.modules_end);
+  TH_CHECK(layout.modules_start != oob);
+  TH_CHECK(layout.modules_end != oob);
+  TH_CHECK(layout.modules_start <= layout.modules_end);
 }
 
 /* A projected module band must never collapse. On MODULES_RELATIVE_TO_TEXT
@@ -2536,7 +2542,7 @@ static void test_engine_sync_module_band_never_degenerate(void) {
 
   /* Non-empty and well-ordered: a band that starts where it ends is a pin
    * claim, and 0/0 is a pin claim about nothing. */
-  assert(layout.modules_end > layout.modules_start);
+  TH_CHECK(layout.modules_end > layout.modules_start);
 }
 
 /* Where the arch defines its module band as a delta from PAGE_OFFSET, the band
@@ -2580,19 +2586,19 @@ static void test_engine_sync_module_band_follows_page_offset(void) {
    * adds to PAGE_OFFSET or subtracts from it. */
   unsigned long want_lo = MODULES_START_FOR(moved);
   unsigned long want_hi = MODULES_END_FOR(moved);
-  assert(kasld_module_band_floor_sane(moved, want_lo)); /* no wrap here */
-  assert(want_hi > want_lo);
-  assert(layout.modules_start == want_lo);
-  assert(layout.modules_end == want_hi);
+  TH_CHECK(kasld_module_band_floor_sane(moved, want_lo)); /* no wrap here */
+  TH_CHECK(want_hi > want_lo);
+  TH_CHECK(layout.modules_start == want_lo);
+  TH_CHECK(layout.modules_end == want_hi);
   /* It really moved off the compile-time placement — only askable of an arch
    * whose split can move. Where exactly one value is admissible the band IS
    * the compile-time one, and reproducing it faithfully is the property. */
   if (po_is_fixed()) {
-    assert(layout.modules_start == (unsigned long)MODULES_START);
-    assert(layout.modules_end == (unsigned long)MODULES_END);
+    TH_CHECK(layout.modules_start == (unsigned long)MODULES_START);
+    TH_CHECK(layout.modules_end == (unsigned long)MODULES_END);
   } else {
-    assert(layout.modules_start != (unsigned long)MODULES_START ||
-           layout.modules_end != (unsigned long)MODULES_END);
+    TH_CHECK(layout.modules_start != (unsigned long)MODULES_START ||
+             layout.modules_end != (unsigned long)MODULES_END);
   }
 
   if (!po_is_fixed()) {
@@ -2609,14 +2615,14 @@ static void test_engine_sync_module_band_follows_page_offset(void) {
     layout.modules_end = MODULES_END;
     engine_sync_authoritative(&e);
     /* Contains the band for every PAGE_OFFSET the window still admits. */
-    assert(layout.modules_start <= want_lo);
-    assert(layout.modules_end >= MODULES_END_FOR(win_hi));
-    assert(layout.modules_end > layout.modules_start);
+    TH_CHECK(layout.modules_start <= want_lo);
+    TH_CHECK(layout.modules_end >= MODULES_END_FOR(win_hi));
+    TH_CHECK(layout.modules_end > layout.modules_start);
   }
 #elif !MODULES_RELATIVE_TO_TEXT
   /* A fixed band does not move with the linear map, and must not be touched. */
-  assert(layout.modules_start == (unsigned long)MODULES_START);
-  assert(layout.modules_end == (unsigned long)MODULES_END);
+  TH_CHECK(layout.modules_start == (unsigned long)MODULES_START);
+  TH_CHECK(layout.modules_end == (unsigned long)MODULES_END);
 #endif
 
   layout.virt_page_offset = sv_po;
@@ -2642,7 +2648,7 @@ static void capture_stderr(void (*fn)(void), char *buf, size_t buflen) {
   fflush(stderr);
   int saved = dup(fileno(stderr));
   FILE *tmp = tmpfile();
-  assert(saved >= 0 && tmp != NULL);
+  TH_CHECK(saved >= 0 && tmp != NULL);
   fflush(stderr);
   dup2(fileno(tmp), fileno(stderr));
   fn();
@@ -2715,14 +2721,14 @@ static void test_progress_paint_no_stale_tail(void) {
   capture_stderr(pb_paint_wide_then_narrow, raw, sizeof(raw));
 
   /* The premise: the second frame really is the narrower one. */
-  assert(pb_wide_width > pb_narrow_width);
+  TH_CHECK(pb_wide_width > pb_narrow_width);
   size_t visible = replay_tty_line(raw, line, sizeof(line));
   /* What is on screen is what the bar thinks it drew — no stale tail beyond
    * the width progress_erase() will blank. */
-  assert(visible == (size_t)pb_narrow_width);
+  TH_CHECK(visible == (size_t)pb_narrow_width);
   /* And the surviving text is the new frame, not a splice of both. */
-  assert(strstr(line, "running") == NULL);
-  assert(line[0] == '[');
+  TH_CHECK(strstr(line, "running") == NULL);
+  TH_CHECK(line[0] == '[');
 }
 
 /* The in-flight count is claimed by progress_enter_component() and released by
@@ -2747,25 +2753,25 @@ static void test_progress_inflight_balances(void) {
   /* Parallel phase: two components claimed at once, both reaped. */
   progress_enter_component();
   progress_enter_component();
-  assert(progress_inflight == 2);
+  TH_CHECK(progress_inflight == 2);
   progress_update();
-  assert(progress_inflight == 1);
+  TH_CHECK(progress_inflight == 1);
   progress_update();
-  assert(progress_inflight == 0);
+  TH_CHECK(progress_inflight == 0);
 
   /* Sequential phase: claim and release strictly alternating. The claim must
    * register here too, and the pair must return to zero. */
   for (int i = 0; i < 3; i++) {
     progress_enter_component();
-    assert(progress_inflight == 1);
+    TH_CHECK(progress_inflight == 1);
     progress_update();
-    assert(progress_inflight == 0);
+    TH_CHECK(progress_inflight == 0);
   }
 
   /* An unmatched release never drives the count negative. */
   progress_update();
-  assert(progress_inflight == 0);
-  assert(progress_done == 6);
+  TH_CHECK(progress_inflight == 0);
+  TH_CHECK(progress_done == 6);
 
   quiet = sv_quiet;
   progress_done = sv_done;
@@ -2783,32 +2789,32 @@ static void test_progress_inflight_balances(void) {
  * suspiciously round number of kinds. */
 static void test_discard_ledger_aggregates_and_reports_truncation(void) {
   kasld_discard_reset();
-  assert(kasld_discard_count() == 0);
-  assert(kasld_discard_total() == 0);
-  assert(!kasld_discard_truncated());
+  TH_CHECK(kasld_discard_count() == 0);
+  TH_CHECK(kasld_discard_total() == 0);
+  TH_CHECK(!kasld_discard_truncated());
 
   /* Same (reason, source) folds into one entry with a count. */
   kasld_discard_record(DISCARD_PARSE, "alpha");
   kasld_discard_record(DISCARD_PARSE, "alpha");
   kasld_discard_record(DISCARD_PARSE, "alpha");
-  assert(kasld_discard_count() == 1);
-  assert(kasld_discard_total() == 3);
-  assert(kasld_discard_at(0)->count == 3);
-  assert(kasld_discard_at(0)->reason == DISCARD_PARSE);
+  TH_CHECK(kasld_discard_count() == 1);
+  TH_CHECK(kasld_discard_total() == 3);
+  TH_CHECK(kasld_discard_at(0)->count == 3);
+  TH_CHECK(kasld_discard_at(0)->reason == DISCARD_PARSE);
 
   /* Same source, different reason is a different entry -- the pair is the key,
    * not either half. */
   kasld_discard_record(DISCARD_BOUNDS, "alpha");
-  assert(kasld_discard_count() == 2);
+  TH_CHECK(kasld_discard_count() == 2);
 
   /* A NULL source is legal and distinct from a named one. */
   kasld_discard_record(DISCARD_CURATED, NULL);
-  assert(kasld_discard_count() == 3);
-  assert(kasld_discard_at(2)->source[0] == '\0');
+  TH_CHECK(kasld_discard_count() == 3);
+  TH_CHECK(kasld_discard_at(2)->source[0] == '\0');
 
   /* Out-of-range indices report absence rather than reading past the array. */
-  assert(kasld_discard_at(-1) == NULL);
-  assert(kasld_discard_at(kasld_discard_count()) == NULL);
+  TH_CHECK(kasld_discard_at(-1) == NULL);
+  TH_CHECK(kasld_discard_at(kasld_discard_count()) == NULL);
 
   /* Fill past the cap with distinct pairs. */
   for (int i = 0; i < MAX_DISCARDS + 8; i++) {
@@ -2816,28 +2822,28 @@ static void test_discard_ledger_aggregates_and_reports_truncation(void) {
     snprintf(src, sizeof(src), "src%d", i);
     kasld_discard_record(DISCARD_CAPACITY, src);
   }
-  assert(kasld_discard_count() == MAX_DISCARDS);
-  assert(kasld_discard_truncated());
+  TH_CHECK(kasld_discard_count() == MAX_DISCARDS);
+  TH_CHECK(kasld_discard_truncated());
   /* The breakdown stopped growing; the total did not. */
-  assert(kasld_discard_total() == 3 + 1 + 1 + (unsigned)(MAX_DISCARDS + 8));
+  TH_CHECK(kasld_discard_total() == 3 + 1 + 1 + (unsigned)(MAX_DISCARDS + 8));
 
   /* An out-of-range reason is refused rather than indexed with. */
   unsigned int before = kasld_discard_total();
   kasld_discard_record(DISCARD__COUNT, "bogus");
-  assert(kasld_discard_total() == before);
+  TH_CHECK(kasld_discard_total() == before);
 
   /* Every reason has a wire name, and they are distinct. */
   for (int a = 0; a < DISCARD__COUNT; a++) {
     const char *na = kasld_discard_reason_name((enum kasld_discard_reason)a);
-    assert(na && *na && strcmp(na, "unknown") != 0);
+    TH_CHECK(na && *na && strcmp(na, "unknown") != 0);
     for (int b = a + 1; b < DISCARD__COUNT; b++)
-      assert(strcmp(na, kasld_discard_reason_name(
-                            (enum kasld_discard_reason)b)) != 0);
+      TH_CHECK(strcmp(na, kasld_discard_reason_name(
+                              (enum kasld_discard_reason)b)) != 0);
   }
 
   kasld_discard_reset();
-  assert(kasld_discard_count() == 0 && kasld_discard_total() == 0 &&
-         !kasld_discard_truncated());
+  TH_CHECK(kasld_discard_count() == 0 && kasld_discard_total() == 0 &&
+           !kasld_discard_truncated());
 }
 
 /* =========================================================================
@@ -2881,36 +2887,36 @@ static void test_vantage_container_absent_then_present(void) {
   /* Nothing staged: not a container, and every oracle unreadable. */
   th_sysroot_clear();
   kasld_gather_vantage(&v);
-  assert(v.container == NULL);
+  TH_CHECK(v.container == NULL);
   /* A staged tree answers UNKNOWN rather than ABSENT for what it does not
    * hold: the tree is a capture, and a capture cannot tell an absent source
    * from one it could not read. */
   for (int i = 0; i < KASLD_N_ORACLES; i++)
-    assert(v.oracle_access[i] == ORACLE_UNKNOWN);
+    TH_CHECK(v.oracle_access[i] == ORACLE_UNKNOWN);
 
   /* The docker marker is an empty file -- its existence is the signal. */
   th_sysroot_clear();
   th_sysroot_write("/.dockerenv", NULL);
   kasld_gather_vantage(&v);
-  assert(v.container != NULL && strcmp(v.container, "docker") == 0);
+  TH_CHECK(v.container != NULL && strcmp(v.container, "docker") == 0);
 
   th_sysroot_clear();
   th_sysroot_write("/run/.containerenv", NULL);
   kasld_gather_vantage(&v);
-  assert(v.container != NULL && strcmp(v.container, "podman") == 0);
+  TH_CHECK(v.container != NULL && strcmp(v.container, "podman") == 0);
 
   /* No marker file, but a cgroup naming the runtime. */
   th_sysroot_clear();
   th_sysroot_write("/proc/self/cgroup", "0::/kubepods/besteffort/podabc\n");
   kasld_gather_vantage(&v);
-  assert(v.container != NULL && strcmp(v.container, "kubernetes") == 0);
+  TH_CHECK(v.container != NULL && strcmp(v.container, "kubernetes") == 0);
 
   /* /proc/1/cgroup is consulted when /proc/self/cgroup says nothing. */
   th_sysroot_clear();
   th_sysroot_write("/proc/self/cgroup", "0::/\n");
   th_sysroot_write("/proc/1/cgroup", "0::/lxc/ct1\n");
   kasld_gather_vantage(&v);
-  assert(v.container != NULL && strcmp(v.container, "lxc") == 0);
+  TH_CHECK(v.container != NULL && strcmp(v.container, "lxc") == 0);
 
   th_sysroot_clear();
 }
@@ -2927,14 +2933,14 @@ static void test_vantage_container_precedence(void) {
   th_sysroot_write("/.dockerenv", NULL);
   th_sysroot_write("/proc/self/cgroup", "0::/kubepods/besteffort/podabc\n");
   kasld_gather_vantage(&v);
-  assert(v.container != NULL && strcmp(v.container, "docker") == 0);
+  TH_CHECK(v.container != NULL && strcmp(v.container, "docker") == 0);
 
   /* Within the cgroup scan, kubepods outranks a docker substring -- a
    * kubernetes pod's cgroup path routinely contains both. */
   th_sysroot_clear();
   th_sysroot_write("/proc/self/cgroup", "0::/kubepods/docker-abc.scope\n");
   kasld_gather_vantage(&v);
-  assert(v.container != NULL && strcmp(v.container, "kubernetes") == 0);
+  TH_CHECK(v.container != NULL && strcmp(v.container, "kubernetes") == 0);
 
   th_sysroot_clear();
 }
@@ -2947,31 +2953,31 @@ static void test_vantage_status_fields_absent_then_present(void) {
    * source from a permissive one. */
   th_sysroot_clear();
   kasld_gather_vantage(&v);
-  assert(v.seccomp == -1);
-  assert(v.no_new_privs == -1);
-  assert(v.have_caps == 0);
+  TH_CHECK(v.seccomp == -1);
+  TH_CHECK(v.no_new_privs == -1);
+  TH_CHECK(v.have_caps == 0);
 
   th_sysroot_clear();
   th_sysroot_write("/proc/self/status", TH_STATUS_BODY);
   kasld_gather_vantage(&v);
-  assert(v.seccomp == 2); /* filter mode */
-  assert(v.no_new_privs == 1);
-  assert(v.have_caps == 1);
-  assert(v.cap_eff == 0x000001ffffffffffULL); /* hex, not decimal */
-  assert(v.cap_bnd == 0x0000003fffffffffULL);
-  assert(v.have_ids == 1);
-  assert(v.uid == 2000 && v.euid == 2000);
-  assert(v.gid == 2000 && v.egid == 2000);
-  assert(v.ngroups == 3 && v.groups[0] == 1007 && v.groups[2] == 3012);
+  TH_CHECK(v.seccomp == 2); /* filter mode */
+  TH_CHECK(v.no_new_privs == 1);
+  TH_CHECK(v.have_caps == 1);
+  TH_CHECK(v.cap_eff == 0x000001ffffffffffULL); /* hex, not decimal */
+  TH_CHECK(v.cap_bnd == 0x0000003fffffffffULL);
+  TH_CHECK(v.have_ids == 1);
+  TH_CHECK(v.uid == 2000 && v.euid == 2000);
+  TH_CHECK(v.gid == 2000 && v.egid == 2000);
+  TH_CHECK(v.ngroups == 3 && v.groups[0] == 1007 && v.groups[2] == 3012);
 
   /* CapEff present, CapBnd missing: caps are still valid, the bounding set
    * reads 0 rather than the file being discarded whole. */
   th_sysroot_clear();
   th_sysroot_write("/proc/self/status", "CapEff:\t00000000000000ff\n");
   kasld_gather_vantage(&v);
-  assert(v.have_caps == 1);
-  assert(v.cap_eff == 0xffULL);
-  assert(v.cap_bnd == 0);
+  TH_CHECK(v.have_caps == 1);
+  TH_CHECK(v.cap_eff == 0xffULL);
+  TH_CHECK(v.cap_bnd == 0);
 
   th_sysroot_clear();
 }
@@ -2998,20 +3004,20 @@ static void test_vantage_identity_is_staged_not_live(void) {
   th_sysroot_clear();
   th_sysroot_write("/proc/self/status", body);
   kasld_gather_vantage(&v);
-  assert(v.have_ids == 1);
-  assert(v.uid == live_uid + 1 && v.euid == live_uid + 2);
-  assert(v.gid == live_gid + 3 && v.egid == live_gid + 4);
-  assert(v.ngroups == 2 && v.groups[0] == 3009 && v.groups[1] == 3012);
-  assert(!v.groups_truncated);
+  TH_CHECK(v.have_ids == 1);
+  TH_CHECK(v.uid == live_uid + 1 && v.euid == live_uid + 2);
+  TH_CHECK(v.gid == live_gid + 3 && v.egid == live_gid + 4);
+  TH_CHECK(v.ngroups == 2 && v.groups[0] == 3009 && v.groups[1] == 3012);
+  TH_CHECK(!v.groups_truncated);
 
   /* A status file with no identity in it: unknown, and still not the live ids.
    * The other fields it does carry are unaffected. */
   th_sysroot_clear();
   th_sysroot_write("/proc/self/status", "Seccomp:\t2\n");
   kasld_gather_vantage(&v);
-  assert(v.have_ids == 0);
-  assert(v.ngroups == -1);
-  assert(v.seccomp == 2);
+  TH_CHECK(v.have_ids == 0);
+  TH_CHECK(v.ngroups == -1);
+  TH_CHECK(v.seccomp == 2);
 
   /* A malformed id line yields no identity rather than half of one: the
    * effective id is what several gates are actually checked against, so a
@@ -3019,14 +3025,14 @@ static void test_vantage_identity_is_staged_not_live(void) {
   th_sysroot_clear();
   th_sysroot_write("/proc/self/status", "Uid:\t7\nGid:\tnotanumber\n");
   kasld_gather_vantage(&v);
-  assert(v.have_ids == 0);
+  TH_CHECK(v.have_ids == 0);
 
   /* No status file at all under a sysroot: unknown. 0 is a real uid, so the
    * absence has to be carried by have_ids and not by a value in the field. */
   th_sysroot_clear();
   kasld_gather_vantage(&v);
-  assert(v.have_ids == 0);
-  assert(v.ngroups == -1);
+  TH_CHECK(v.have_ids == 0);
+  TH_CHECK(v.ngroups == -1);
 
   th_sysroot_clear();
 }
@@ -3055,16 +3061,16 @@ static void test_vantage_group_names(void) {
                                  "staff:x:1001:\n"
                                  "operators:x:1500:alice,bob\n");
   kasld_gather_vantage(&v);
-  assert(v.ngroups == 3);
+  TH_CHECK(v.ngroups == 3);
   /* Both sources name 1001. The analysed tree is the authority, so its name
    * must be the answer and the table's must not surface. */
-  assert(strcmp(kasld_group_name(&v, 0), "staff") == 0);
+  TH_CHECK(strcmp(kasld_group_name(&v, 0), "staff") == 0);
   /* An id the tree does not name falls back to the gate table. */
-  assert(strcmp(kasld_group_name(&v, 1), "readproc") == 0);
+  TH_CHECK(strcmp(kasld_group_name(&v, 1), "readproc") == 0);
   /* An id neither source knows resolves to nothing rather than to a guess. */
-  assert(kasld_group_name(&v, 2) == NULL);
+  TH_CHECK(kasld_group_name(&v, 2) == NULL);
   /* Nothing is named beyond the membership. */
-  assert(kasld_group_name(&v, 3) == NULL);
+  TH_CHECK(kasld_group_name(&v, 3) == NULL);
 
   /* No group database at all: the gate table still names what it knows, and
    * the rest report by number. This is the Android shape, where /etc/group
@@ -3074,8 +3080,8 @@ static void test_vantage_group_names(void) {
                                         "Gid:\t0\t0\t0\t0\n"
                                         "Groups:\t1001 3012 \n");
   kasld_gather_vantage(&v);
-  assert(strcmp(kasld_group_name(&v, 0), "radio") == 0);
-  assert(strcmp(kasld_group_name(&v, 1), "readtracefs") == 0);
+  TH_CHECK(strcmp(kasld_group_name(&v, 0), "radio") == 0);
+  TH_CHECK(strcmp(kasld_group_name(&v, 1), "readtracefs") == 0);
 
   th_sysroot_clear();
 }
@@ -3091,18 +3097,18 @@ static void test_vantage_group_names(void) {
  * would answer differently for a root test runner and prove nothing there. */
 static void test_unread_marker_separates_denial_from_absence(void) {
   errno = EACCES;
-  assert(unread_marker() == KASLD_SYSCTL_DENIED);
+  TH_CHECK(unread_marker() == KASLD_SYSCTL_DENIED);
   errno = EPERM;
-  assert(unread_marker() == KASLD_SYSCTL_DENIED);
+  TH_CHECK(unread_marker() == KASLD_SYSCTL_DENIED);
 
   errno = ENOENT;
-  assert(unread_marker() == KASLD_SYSCTL_UNREAD);
+  TH_CHECK(unread_marker() == KASLD_SYSCTL_UNREAD);
   errno = 0;
-  assert(unread_marker() == KASLD_SYSCTL_UNREAD);
+  TH_CHECK(unread_marker() == KASLD_SYSCTL_UNREAD);
 
   /* Both are unknown to a reader asking only whether a value was observed. */
-  assert(!kasld_hardening_known(KASLD_SYSCTL_DENIED));
-  assert(!kasld_hardening_known(KASLD_SYSCTL_UNREAD));
+  TH_CHECK(!kasld_hardening_known(KASLD_SYSCTL_DENIED));
+  TH_CHECK(!kasld_hardening_known(KASLD_SYSCTL_UNREAD));
 }
 
 /* An environment nobody took reads as unobserved, never as unhardened. Zeroed
@@ -3112,29 +3118,29 @@ static void test_unread_marker_separates_denial_from_absence(void) {
 static void test_environment_defaults_to_unknown(void) {
   const struct kasld_environment fresh = KASLD_ENV_UNKNOWN;
 
-  assert(!kasld_hardening_known(fresh.hardening.kptr_restrict));
-  assert(!kasld_hardening_known(fresh.hardening.dmesg_restrict));
-  assert(!kasld_hardening_known(fresh.hardening.perf_event_paranoid));
-  assert(!kasld_hardening_known(fresh.hardening.unprivileged_bpf_disabled));
-  assert(!kasld_hardening_known(fresh.hardening.panic_on_oops));
-  assert(!kasld_hardening_known(fresh.hardening.hashed_pointers));
-  assert(fresh.hardening.lockdown == LOCKDOWN_UNAVAILABLE);
+  TH_CHECK(!kasld_hardening_known(fresh.hardening.kptr_restrict));
+  TH_CHECK(!kasld_hardening_known(fresh.hardening.dmesg_restrict));
+  TH_CHECK(!kasld_hardening_known(fresh.hardening.perf_event_paranoid));
+  TH_CHECK(!kasld_hardening_known(fresh.hardening.unprivileged_bpf_disabled));
+  TH_CHECK(!kasld_hardening_known(fresh.hardening.panic_on_oops));
+  TH_CHECK(!kasld_hardening_known(fresh.hardening.hashed_pointers));
+  TH_CHECK(fresh.hardening.lockdown == LOCKDOWN_UNAVAILABLE);
   /* -1 is a real setting for perf_event_paranoid ("unrestricted"), so the
    * unread marker must not be it -- otherwise the most permissive value the
    * kernel reports would be indistinguishable from never having looked. */
-  assert(kasld_hardening_known(-1));
+  TH_CHECK(kasld_hardening_known(-1));
 
-  assert(fresh.vantage.seccomp == -1);
-  assert(fresh.vantage.no_new_privs == -1);
-  assert(fresh.vantage.selinux == SELINUX_UNAVAILABLE);
-  assert(fresh.vantage.ngroups == -1);
-  assert(fresh.vantage.have_ids == 0);
-  assert(fresh.vantage.have_caps == 0);
-  assert(fresh.vantage.container == NULL);
+  TH_CHECK(fresh.vantage.seccomp == -1);
+  TH_CHECK(fresh.vantage.no_new_privs == -1);
+  TH_CHECK(fresh.vantage.selinux == SELINUX_UNAVAILABLE);
+  TH_CHECK(fresh.vantage.ngroups == -1);
+  TH_CHECK(fresh.vantage.have_ids == 0);
+  TH_CHECK(fresh.vantage.have_caps == 0);
+  TH_CHECK(fresh.vantage.container == NULL);
   /* The two that would invert: an unobserved environment must not read as
    * MAC-free or as confined. */
-  assert(!kasld_vantage_mac_enforcing(&fresh.vantage));
-  assert(!kasld_vantage_confined(&fresh.vantage));
+  TH_CHECK(!kasld_vantage_mac_enforcing(&fresh.vantage));
+  TH_CHECK(!kasld_vantage_confined(&fresh.vantage));
 }
 
 /* A membership longer than the report keeps is reported as truncated, not as a
@@ -3154,11 +3160,11 @@ static void test_vantage_groups_over_cap(void) {
   th_sysroot_clear();
   th_sysroot_write("/proc/self/status", body);
   kasld_gather_vantage(&v);
-  assert(v.ngroups == KASLD_N_GROUPS);
-  assert(v.groups_truncated == 1);
-  assert(v.groups[0] == 100);
-  assert(v.groups[KASLD_N_GROUPS - 1] ==
-         (unsigned long)(100 + KASLD_N_GROUPS - 1));
+  TH_CHECK(v.ngroups == KASLD_N_GROUPS);
+  TH_CHECK(v.groups_truncated == 1);
+  TH_CHECK(v.groups[0] == 100);
+  TH_CHECK(v.groups[KASLD_N_GROUPS - 1] ==
+           (unsigned long)(100 + KASLD_N_GROUPS - 1));
 
   /* Exactly the cap is not truncation. */
   n = snprintf(body, sizeof(body),
@@ -3172,8 +3178,8 @@ static void test_vantage_groups_over_cap(void) {
   th_sysroot_clear();
   th_sysroot_write("/proc/self/status", body);
   kasld_gather_vantage(&v);
-  assert(v.ngroups == KASLD_N_GROUPS);
-  assert(v.groups_truncated == 0);
+  TH_CHECK(v.ngroups == KASLD_N_GROUPS);
+  TH_CHECK(v.groups_truncated == 0);
 
   th_sysroot_clear();
 }
@@ -3186,9 +3192,9 @@ static void test_vantage_mac_absent_then_present(void) {
    * finding. */
   th_sysroot_clear();
   kasld_gather_vantage(&v);
-  assert(v.lsm_list[0] == '\0');
-  assert(v.sec_context[0] == '\0');
-  assert(v.selinux == SELINUX_UNAVAILABLE);
+  TH_CHECK(v.lsm_list[0] == '\0');
+  TH_CHECK(v.sec_context[0] == '\0');
+  TH_CHECK(v.selinux == SELINUX_UNAVAILABLE);
 
   th_sysroot_clear();
   th_sysroot_write("/sys/kernel/security/lsm",
@@ -3196,18 +3202,18 @@ static void test_vantage_mac_absent_then_present(void) {
   th_sysroot_write("/proc/self/attr/current", "u:r:shell:s0\n");
   th_sysroot_write("/sys/fs/selinux/enforce", "1\n");
   kasld_gather_vantage(&v);
-  assert(strcmp(v.lsm_list, "lockdown,capability,yama,apparmor") == 0);
-  assert(strcmp(v.sec_context, "u:r:shell:s0") == 0);
-  assert(v.selinux == SELINUX_ENFORCING);
-  assert(kasld_vantage_mac_enforcing(&v));
+  TH_CHECK(strcmp(v.lsm_list, "lockdown,capability,yama,apparmor") == 0);
+  TH_CHECK(strcmp(v.sec_context, "u:r:shell:s0") == 0);
+  TH_CHECK(v.selinux == SELINUX_ENFORCING);
+  TH_CHECK(kasld_vantage_mac_enforcing(&v));
 
   /* Present but permissive: readable, and not enforcing. A source that exists
    * and says "off" is a different answer from one that is missing. */
   th_sysroot_clear();
   th_sysroot_write("/sys/fs/selinux/enforce", "0\n");
   kasld_gather_vantage(&v);
-  assert(v.selinux == SELINUX_PERMISSIVE);
-  assert(!kasld_vantage_mac_enforcing(&v));
+  TH_CHECK(v.selinux == SELINUX_PERMISSIVE);
+  TH_CHECK(!kasld_vantage_mac_enforcing(&v));
 
   th_sysroot_clear();
 }
@@ -3233,7 +3239,7 @@ static void test_vantage_oracle_readable_each_path(void) {
     th_sysroot_write(probed[i], "x\n");
     kasld_gather_vantage(&v);
     for (int j = 0; j < KASLD_N_ORACLES; j++)
-      assert((v.oracle_access[j] == ORACLE_READABLE) == (i == j));
+      TH_CHECK((v.oracle_access[j] == ORACLE_READABLE) == (i == j));
   }
 
   /* All of them at once, so "exactly one readable" cannot be what passes. */
@@ -3242,7 +3248,7 @@ static void test_vantage_oracle_readable_each_path(void) {
     th_sysroot_write(probed[i], "x\n");
   kasld_gather_vantage(&v);
   for (int i = 0; i < KASLD_N_ORACLES; i++)
-    assert(v.oracle_access[i] == ORACLE_READABLE);
+    TH_CHECK(v.oracle_access[i] == ORACLE_READABLE);
 
   th_sysroot_clear();
 }
@@ -3282,18 +3288,18 @@ static void test_vantage_oracle_capture_notes(void) {
   kasld_gather_vantage(&v);
 
   /* "absent" cannot separate a missing path from a policy-hidden one. */
-  assert(v.oracle_access[0] == ORACLE_UNKNOWN);
-  assert(v.oracle_access[1] == ORACLE_DENIED);
+  TH_CHECK(v.oracle_access[0] == ORACLE_UNKNOWN);
+  TH_CHECK(v.oracle_access[1] == ORACLE_DENIED);
   /* Present in the tree, so it is readable whatever the notes claim. */
-  assert(v.oracle_access[2] == ORACLE_READABLE);
+  TH_CHECK(v.oracle_access[2] == ORACLE_READABLE);
   for (int i = 3; i < KASLD_N_ORACLES; i++)
-    assert(v.oracle_access[i] == ORACLE_UNKNOWN);
+    TH_CHECK(v.oracle_access[i] == ORACLE_UNKNOWN);
 
   /* No notes at all: nothing is claimed about any of them. */
   th_sysroot_clear();
   kasld_gather_vantage(&v);
   for (int i = 0; i < KASLD_N_ORACLES; i++)
-    assert(v.oracle_access[i] == ORACLE_UNKNOWN);
+    TH_CHECK(v.oracle_access[i] == ORACLE_UNKNOWN);
 
   th_sysroot_clear();
 }
@@ -3319,12 +3325,12 @@ static void test_vantage_oracle_release_suffixed_paths(void) {
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
     if (!kasld_oracles[i].release_suffixed) {
       /* An unsuffixed entry must not acquire the release. */
-      assert(strstr(v.oracle_path[i], release) == NULL);
-      assert(strcmp(v.oracle_path[i], kasld_oracles[i].path) == 0);
+      TH_CHECK(strstr(v.oracle_path[i], release) == NULL);
+      TH_CHECK(strcmp(v.oracle_path[i], kasld_oracles[i].path) == 0);
       continue;
     }
     snprintf(staged, sizeof staged, "%s%s", kasld_oracles[i].path, release);
-    assert(strcmp(v.oracle_path[i], staged) == 0);
+    TH_CHECK(strcmp(v.oracle_path[i], staged) == 0);
     checked++;
 
     /* Readable only when the suffixed file is the one staged: a gatherer
@@ -3332,14 +3338,14 @@ static void test_vantage_oracle_release_suffixed_paths(void) {
     th_sysroot_clear();
     th_sysroot_write(kasld_oracles[i].path, "x\n");
     kasld_gather_vantage(&v);
-    assert(v.oracle_access[i] != ORACLE_READABLE);
+    TH_CHECK(v.oracle_access[i] != ORACLE_READABLE);
 
     th_sysroot_clear();
     th_sysroot_write(staged, "x\n");
     kasld_gather_vantage(&v);
-    assert(v.oracle_access[i] == ORACLE_READABLE);
+    TH_CHECK(v.oracle_access[i] == ORACLE_READABLE);
   }
-  assert(checked == 2);
+  TH_CHECK(checked == 2);
 
   th_sysroot_clear();
   kasld_env = saved;
@@ -3358,33 +3364,33 @@ static void test_env_drop_prefix_removes_only_the_prefix(void) {
   setenv("KASLDTESTNOUNDERSCORE", "keep", 1);
   setenv("PATH_KASLDTEST_MIDDLE", "keep", 1);
 
-  assert(getenv("KASLDTEST_ALPHA") != NULL);
-  assert(getenv("PATH") != NULL);
+  TH_CHECK(getenv("KASLDTEST_ALPHA") != NULL);
+  TH_CHECK(getenv("PATH") != NULL);
 
   kasld_env_drop_prefix("KASLDTEST_");
 
   /* Every name carrying the prefix goes, including one no read site knows
    * about — the property that keeps a variable added later covered. */
-  assert(getenv("KASLDTEST_ALPHA") == NULL);
-  assert(getenv("KASLDTEST_BETA") == NULL);
+  TH_CHECK(getenv("KASLDTEST_ALPHA") == NULL);
+  TH_CHECK(getenv("KASLDTEST_BETA") == NULL);
 
   /* A name merely beginning with the same letters, or carrying them in the
    * middle, is not the prefix and stays. */
-  assert(getenv("KASLDTESTNOUNDERSCORE") != NULL);
-  assert(getenv("PATH_KASLDTEST_MIDDLE") != NULL);
+  TH_CHECK(getenv("KASLDTESTNOUNDERSCORE") != NULL);
+  TH_CHECK(getenv("PATH_KASLDTEST_MIDDLE") != NULL);
 
   /* Unrelated entries survive, the staged sysroot among them, and the block is
    * still a well-formed environment that setenv and getenv work over.
    * The sysroot is read from the array because the claim is about the array;
    * the cached accessor would answer either way. */
-  assert(getenv("PATH") != NULL);
-  assert(getenv("KASLD_SYSROOT") != NULL); /* KASLD_ENV_BLOCK */
+  TH_CHECK(getenv("PATH") != NULL);
+  TH_CHECK(getenv("KASLD_SYSROOT") != NULL); /* KASLD_ENV_BLOCK */
   setenv("KASLDTEST_GAMMA", "3", 1);
-  assert(getenv("KASLDTEST_GAMMA") != NULL);
+  TH_CHECK(getenv("KASLDTEST_GAMMA") != NULL);
 
   kasld_env_drop_prefix("KASLDTEST_");
-  assert(getenv("KASLDTEST_GAMMA") == NULL);
-  assert(getenv("KASLDTESTNOUNDERSCORE") != NULL);
+  TH_CHECK(getenv("KASLDTEST_GAMMA") == NULL);
+  TH_CHECK(getenv("KASLDTESTNOUNDERSCORE") != NULL);
 }
 
 /* An ordinary run must not lose its environment: the constructor has already
@@ -3392,9 +3398,9 @@ static void test_env_drop_prefix_removes_only_the_prefix(void) {
 static void test_unprivileged_exec_keeps_its_environment(void) {
   /* What survived the constructor is the environment array itself, which is
    * what these read. */
-  assert(kasld_exec_gained_privilege() == 0);
-  assert(getenv("PATH") != NULL);
-  assert(getenv("KASLD_SYSROOT") != NULL); /* KASLD_ENV_BLOCK */
+  TH_CHECK(kasld_exec_gained_privilege() == 0);
+  TH_CHECK(getenv("PATH") != NULL);
+  TH_CHECK(getenv("KASLD_SYSROOT") != NULL); /* KASLD_ENV_BLOCK */
 }
 
 int main(void) {

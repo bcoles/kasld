@@ -42,7 +42,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_aff_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -82,11 +82,11 @@ static void test_text_bounds_emitted(void) {
   run_capture();
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", lo);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
   snprintf(want, sizeof(want), "sample=0x%lx", hi);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
   snprintf(want, sizeof(want), "sample=0x%lx", mid);
-  assert(strstr(cap, want) == NULL);
+  TH_CHECK(strstr(cap, want) == NULL);
 }
 
 /* A "__ftrace_invalid_address___<n>" record is skipped even when it is the
@@ -102,9 +102,9 @@ static void test_invalid_address_skipped(void) {
   run_capture();
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", hi);
-  assert(strstr(cap, want) != NULL); /* hi is the emitted high witness */
+  TH_CHECK(strstr(cap, want) != NULL); /* hi is the emitted high witness */
   snprintf(want, sizeof(want), "sample=0x%lx", inv);
-  assert(strstr(cap, want) == NULL); /* invalid record skipped, not the max */
+  TH_CHECK(strstr(cap, want) == NULL); /* invalid record skipped, not the max */
 }
 
 /* A bare hex with no name, a non-hex line, and a user-space address are all
@@ -114,7 +114,7 @@ static void test_non_text_and_malformed_ignored(void) {
         "garbage line here\n"
         "0000000000400000 user_func\n");
   run_capture();
-  assert(strstr(cap, "sample=") == NULL);
+  TH_CHECK(strstr(cap, "sample=") == NULL);
 }
 
 /* A 64-bit-wide address read by a narrower build must be refused, not truncated
@@ -123,7 +123,7 @@ static void test_addr_width_refusal(void) {
   stage("ffffffff81a00000 some_func\n");
   run_capture();
   if (sizeof(kasld_addr_t) < 8)
-    assert(strstr(cap, "81a00000") == NULL);
+    TH_CHECK(strstr(cap, "81a00000") == NULL);
 }
 
 /* The distance between the lowest and highest kernel row bounds the image size
@@ -135,7 +135,7 @@ static void test_text_span_bounds_image_size(void) {
   snprintf(fx, sizeof(fx), "%lx func_lo\n%lx func_hi\n", lo, hi);
   stage(fx);
   run_capture();
-  assert(strstr(cap, "image_size_min conf=parsed value=0x800000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x800000") != NULL);
 }
 
 /* A module row above the highest kernel row must not stretch the span: a module
@@ -149,7 +149,7 @@ static void test_module_row_does_not_inflate_span(void) {
            lo, hi, m);
   stage(fx);
   run_capture();
-  assert(strstr(cap, "image_size_min conf=parsed value=0x800000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x800000") != NULL);
 }
 
 /* Two adjacent call sites bound nothing: a span under the plausibility floor is
@@ -160,7 +160,7 @@ static void test_span_below_floor_not_emitted(void) {
   snprintf(fx, sizeof(fx), "%lx func_lo\n%lx func_hi\n", T, T + 0x1000);
   stage(fx);
   run_capture();
-  assert(strstr(cap, "image_size_min") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
 }
 
 /* One row is a single point, not an extent. */
@@ -170,7 +170,7 @@ static void test_single_row_emits_no_span(void) {
   snprintf(fx, sizeof(fx), "%lx only_func\n", T);
   stage(fx);
   run_capture();
-  assert(strstr(cap, "image_size_min") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
 }
 
 int main(void) {

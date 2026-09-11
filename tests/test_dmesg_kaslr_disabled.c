@@ -38,7 +38,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_kd_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -68,16 +68,16 @@ static void run_capture(void) {
 static void test_nokaslr_is_opt_out(void) {
   stage_dmesg("kernel: KASLR disabled: 'nokaslr' on cmdline.\n");
   run_capture();
-  assert(strstr(cap, "virt_kaslr_disabled conf=") != NULL);
-  assert(strstr(cap, "phys_kaslr_disabled conf=") != NULL);
-  assert(strstr(cap, "randomization_failed") == NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled conf=") != NULL);
+  TH_CHECK(strstr(cap, "phys_kaslr_disabled conf=") != NULL);
+  TH_CHECK(strstr(cap, "randomization_failed") == NULL);
 }
 
 /* loongarch "KASLR is disabled." opt-out. */
 static void test_loongarch_is_disabled_is_opt_out(void) {
   stage_dmesg("kernel: KASLR is disabled.\n");
   run_capture();
-  assert(strstr(cap, "virt_kaslr_disabled conf=") != NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled conf=") != NULL);
 }
 
 /* A known randomization-failure reason is NOT a pin-to-default: it emits the
@@ -85,10 +85,10 @@ static void test_loongarch_is_disabled_is_opt_out(void) {
 static void test_known_rand_failure_is_not_opt_out(void) {
   stage_dmesg("kernel: KASLR disabled: CPU has no PRNG\n");
   run_capture();
-  assert(strstr(cap, "virt_kaslr_randomization_failed conf=") != NULL);
-  assert(strstr(cap, "phys_kaslr_randomization_failed conf=") != NULL);
-  assert(strstr(cap, "virt_kaslr_disabled conf=") == NULL);
-  assert(strstr(cap, "phys_kaslr_disabled conf=") == NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_randomization_failed conf=") != NULL);
+  TH_CHECK(strstr(cap, "phys_kaslr_randomization_failed conf=") != NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled conf=") == NULL);
+  TH_CHECK(strstr(cap, "phys_kaslr_disabled conf=") == NULL);
 }
 
 /* The fix: an unrecognized "KASLR disabled" line (e.g. a future reason not yet
@@ -97,8 +97,8 @@ static void test_known_rand_failure_is_not_opt_out(void) {
 static void test_unknown_disabled_line_emits_nothing(void) {
   stage_dmesg("kernel: KASLR disabled due to some brand-new future reason\n");
   run_capture();
-  assert(strstr(cap, "kaslr_disabled conf=") == NULL);
-  assert(strstr(cap, "randomization_failed conf=") == NULL);
+  TH_CHECK(strstr(cap, "kaslr_disabled conf=") == NULL);
+  TH_CHECK(strstr(cap, "randomization_failed conf=") == NULL);
 }
 
 int main(void) {

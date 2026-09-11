@@ -50,14 +50,14 @@ static void test_emits_a_directmap_pointer(void) {
     char *av[] = {a0, NULL};
     TH_RUN_COMPONENT(rc, zfs_dbgmsg_main(1, av));
   }
-  assert(rc == 0);
+  TH_CHECK(rc == 0);
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", dm);
-  assert(strstr(th_cap, want) != NULL);
-  assert(strstr(th_cap, "directmap_band") != NULL);
+  TH_CHECK(strstr(th_cap, want) != NULL);
+  TH_CHECK(strstr(th_cap, "directmap_band") != NULL);
   /* Virtual, at parsed confidence: the log prints %px, so the value is raw. */
-  assert(strstr(th_cap, "V ") != NULL);
-  assert(strstr(th_cap, "conf=parsed") != NULL);
+  TH_CHECK(strstr(th_cap, "V ") != NULL);
+  TH_CHECK(strstr(th_cap, "conf=parsed") != NULL);
 }
 
 /* A value outside every kernel window is not an address the component may
@@ -73,8 +73,8 @@ static void test_drops_a_non_kernel_value(void) {
     char *av[] = {a0, NULL};
     TH_RUN_COMPONENT(rc, zfs_dbgmsg_main(1, av));
   }
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* The upper width bound, isolated. A run longer than 16 digits is not a
@@ -101,8 +101,8 @@ static void test_over_width_run_is_not_a_pointer(void) {
     char *av[] = {a0, NULL};
     TH_RUN_COMPONENT(rc, zfs_dbgmsg_main(1, av));
   }
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* Hex that is not pointer-width is not a pointer: the leading timestamp and a
@@ -127,12 +127,12 @@ static void test_ignores_hex_that_is_not_pointer_width(void) {
     char *av[] = {a0, NULL};
     TH_RUN_COMPONENT(rc, zfs_dbgmsg_main(1, av));
   }
-  assert(rc == 0);
+  TH_CHECK(rc == 0);
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", dm);
-  assert(strstr(th_cap, want) != NULL);
-  assert(strstr(th_cap, "sample=0xabcdef1") == NULL);
-  assert(strstr(th_cap, "123456789abcdef01") == NULL);
+  TH_CHECK(strstr(th_cap, want) != NULL);
+  TH_CHECK(strstr(th_cap, "sample=0xabcdef1") == NULL);
+  TH_CHECK(strstr(th_cap, "123456789abcdef01") == NULL);
 }
 
 /* Every hex run on a line is scanned, not just the first: message bodies carry
@@ -153,12 +153,12 @@ static void test_scans_every_pointer_on_a_line(void) {
     char *av[] = {a0, NULL};
     TH_RUN_COMPONENT(rc, zfs_dbgmsg_main(1, av));
   }
-  assert(rc == 0);
+  TH_CHECK(rc == 0);
   char wa[64], wb[64];
   snprintf(wa, sizeof(wa), "sample=0x%lx", a);
   snprintf(wb, sizeof(wb), "sample=0x%lx", b);
-  assert(strstr(th_cap, wa) != NULL);
-  assert(strstr(th_cap, wb) != NULL);
+  TH_CHECK(strstr(th_cap, wa) != NULL);
+  TH_CHECK(strstr(th_cap, wb) != NULL);
 }
 
 /* The same pointer repeats on nearly every line — it is the current task. One
@@ -181,12 +181,12 @@ static void test_repeated_pointer_is_emitted_once(void) {
     char *av[] = {a0, NULL};
     TH_RUN_COMPONENT(rc, zfs_dbgmsg_main(1, av));
   }
-  assert(rc == 0);
+  TH_CHECK(rc == 0);
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", dm);
   const char *first = strstr(th_cap, want);
-  assert(first != NULL);
-  assert(strstr(first + 1, want) == NULL);
+  TH_CHECK(first != NULL);
+  TH_CHECK(strstr(first + 1, want) == NULL);
 }
 
 /* An empty log is a live ZFS with nothing recorded: the source is present and
@@ -200,8 +200,8 @@ static void test_empty_log_emits_nothing(void) {
     char *av[] = {a0, NULL};
     TH_RUN_COMPONENT(rc, zfs_dbgmsg_main(1, av));
   }
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* No file at all is ZFS not loaded — provably inapplicable, not a miss. */
@@ -215,8 +215,8 @@ static void test_absent_log_is_unavailable(void) {
     char *av[] = {a0, NULL};
     TH_RUN_COMPONENT(rc, zfs_dbgmsg_main(1, av));
   }
-  assert(rc == KASLD_EXIT_UNAVAILABLE);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 int main(void) {

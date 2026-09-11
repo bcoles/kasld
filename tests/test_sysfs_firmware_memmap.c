@@ -52,7 +52,7 @@ static void clear_entries(void) {
   th_sysroot_path("/sys/firmware/memmap", full, sizeof(full));
   char cmd[TH_SYSROOT_MAX + 16];
   snprintf(cmd, sizeof(cmd), "rm -rf '%s'", full);
-  assert(system(cmd) == 0);
+  TH_CHECK(system(cmd) == 0);
 }
 
 /* Both edges known across several entries: the lowest start and the highest
@@ -64,11 +64,11 @@ static void test_spans_lowest_start_to_highest_end(void) {
   stage_entry("2", "0x2000000", "0x2ffffff", "System RAM");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_firmware_memmap_main());
-  assert(rc == 0);
-  assert(strstr(th_cap, "lo=0x100000") != NULL);
-  assert(strstr(th_cap, "hi=0xbfffffff") != NULL);
-  assert(strstr(th_cap, "P ") != NULL);
-  assert(strstr(th_cap, "conf=parsed") != NULL);
+  TH_CHECK(rc == 0);
+  TH_CHECK(strstr(th_cap, "lo=0x100000") != NULL);
+  TH_CHECK(strstr(th_cap, "hi=0xbfffffff") != NULL);
+  TH_CHECK(strstr(th_cap, "P ") != NULL);
+  TH_CHECK(strstr(th_cap, "conf=parsed") != NULL);
 }
 
 /* Only System RAM describes DRAM. A reserved or ACPI range sits inside the
@@ -81,10 +81,10 @@ static void test_ignores_non_system_ram_types(void) {
   stage_entry("2", "0xe0000000", "0xefffffff", "ACPI Non-volatile Storage");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_firmware_memmap_main());
-  assert(rc == 0);
-  assert(strstr(th_cap, "lo=0x100000") != NULL);
-  assert(strstr(th_cap, "0xffffffff") == NULL);
-  assert(strstr(th_cap, "0xefffffff") == NULL);
+  TH_CHECK(rc == 0);
+  TH_CHECK(strstr(th_cap, "lo=0x100000") != NULL);
+  TH_CHECK(strstr(th_cap, "0xffffffff") == NULL);
+  TH_CHECK(strstr(th_cap, "0xefffffff") == NULL);
 }
 
 /* Physical zero is trivially known and carries no KASLR information, so the
@@ -95,9 +95,9 @@ static void test_skips_the_zero_start_entry(void) {
   stage_entry("1", "0x100000", "0x7fffffff", "System RAM");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_firmware_memmap_main());
-  assert(rc == 0);
-  assert(strstr(th_cap, "lo=0x100000") != NULL);
-  assert(strstr(th_cap, "lo=0x0 ") == NULL);
+  TH_CHECK(rc == 0);
+  TH_CHECK(strstr(th_cap, "lo=0x100000") != NULL);
+  TH_CHECK(strstr(th_cap, "lo=0x0 ") == NULL);
 }
 
 /* An entry wider than this build's word: the top of RAM is above anything the
@@ -113,10 +113,10 @@ static void test_unrepresentable_entry_publishes_base_only(void) {
   stage_entry("1", "0x10000000000000000", "0x1ffffffffffffffff", "System RAM");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_firmware_memmap_main());
-  assert(rc == 0);
+  TH_CHECK(rc == 0);
   /* The base, and no range: no hi= on the wire. */
-  assert(strstr(th_cap, "lo=0x100000") != NULL);
-  assert(strstr(th_cap, "hi=") == NULL);
+  TH_CHECK(strstr(th_cap, "lo=0x100000") != NULL);
+  TH_CHECK(strstr(th_cap, "hi=") == NULL);
 }
 
 /* A single entry gives one address, not a degenerate range whose two edges are
@@ -126,9 +126,9 @@ static void test_single_entry_publishes_base_only(void) {
   stage_entry("0", "0x100000", "0x100000", "System RAM");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_firmware_memmap_main());
-  assert(rc == 0);
-  assert(strstr(th_cap, "lo=0x100000") != NULL);
-  assert(strstr(th_cap, "hi=") == NULL);
+  TH_CHECK(rc == 0);
+  TH_CHECK(strstr(th_cap, "lo=0x100000") != NULL);
+  TH_CHECK(strstr(th_cap, "hi=") == NULL);
 }
 
 /* A map with no System RAM at all: the technique applied and found nothing, so
@@ -138,8 +138,8 @@ static void test_no_system_ram_emits_nothing(void) {
   stage_entry("0", "0xf0000000", "0xffffffff", "reserved");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_firmware_memmap_main());
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* No directory at all is firmware that publishes no map — provably
@@ -148,8 +148,8 @@ static void test_absent_tree_is_unavailable(void) {
   clear_entries();
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_firmware_memmap_main());
-  assert(rc == KASLD_EXIT_UNAVAILABLE);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 int main(void) {

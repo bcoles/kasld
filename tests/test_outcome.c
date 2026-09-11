@@ -21,57 +21,67 @@ static int st_signaled(int sig) { return sig & 0x7f; }
 /* A tagged result means the component succeeded, regardless of how it exited —
  * even a denial exit or a SIGSYS death after it already emitted output. */
 static void test_tagged_output_is_success(void) {
-  assert(kasld_classify_outcome(st_exited(KASLD_EXIT_NOPERM), 0, 1) ==
-         OUTCOME_SUCCESS);
-  assert(kasld_classify_outcome(st_signaled(SIGSYS), 0, 1) == OUTCOME_SUCCESS);
-  assert(kasld_classify_outcome(st_exited(0), 0, 1) == OUTCOME_SUCCESS);
+  TH_CHECK(kasld_classify_outcome(st_exited(KASLD_EXIT_NOPERM), 0, 1) ==
+           OUTCOME_SUCCESS);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGSYS), 0, 1) ==
+           OUTCOME_SUCCESS);
+  TH_CHECK(kasld_classify_outcome(st_exited(0), 0, 1) == OUTCOME_SUCCESS);
 }
 
 /* A timed-out component is TIMEOUT even though the kill left a signal status.
  */
 static void test_timeout_beats_status(void) {
-  assert(kasld_classify_outcome(st_signaled(SIGKILL), 1, 0) == OUTCOME_TIMEOUT);
-  assert(kasld_classify_outcome(st_signaled(SIGSYS), 1, 0) == OUTCOME_TIMEOUT);
-  assert(kasld_classify_outcome(st_exited(KASLD_EXIT_NOPERM), 1, 0) ==
-         OUTCOME_TIMEOUT);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGKILL), 1, 0) ==
+           OUTCOME_TIMEOUT);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGSYS), 1, 0) ==
+           OUTCOME_TIMEOUT);
+  TH_CHECK(kasld_classify_outcome(st_exited(KASLD_EXIT_NOPERM), 1, 0) ==
+           OUTCOME_TIMEOUT);
 }
 
 /* seccomp SCMP_ACT_KILL -> SIGSYS -> access denied, not a bare no-result. */
 static void test_sigsys_is_access_denied(void) {
-  assert(kasld_classify_outcome(st_signaled(SIGSYS), 0, 0) ==
-         OUTCOME_ACCESS_DENIED);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGSYS), 0, 0) ==
+           OUTCOME_ACCESS_DENIED);
 }
 
 /* The component's self-reported exit codes. */
 static void test_exit_codes(void) {
-  assert(kasld_classify_outcome(st_exited(KASLD_EXIT_NOPERM), 0, 0) ==
-         OUTCOME_ACCESS_DENIED);
-  assert(kasld_classify_outcome(st_exited(KASLD_EXIT_UNAVAILABLE), 0, 0) ==
-         OUTCOME_UNAVAILABLE);
-  assert(kasld_classify_outcome(st_exited(0), 0, 0) == OUTCOME_NO_RESULT);
-  assert(kasld_classify_outcome(st_exited(1), 0, 0) == OUTCOME_NO_RESULT);
+  TH_CHECK(kasld_classify_outcome(st_exited(KASLD_EXIT_NOPERM), 0, 0) ==
+           OUTCOME_ACCESS_DENIED);
+  TH_CHECK(kasld_classify_outcome(st_exited(KASLD_EXIT_UNAVAILABLE), 0, 0) ==
+           OUTCOME_UNAVAILABLE);
+  TH_CHECK(kasld_classify_outcome(st_exited(0), 0, 0) == OUTCOME_NO_RESULT);
+  TH_CHECK(kasld_classify_outcome(st_exited(1), 0, 0) == OUTCOME_NO_RESULT);
 }
 
 /* A non-SIGSYS fatal signal is a crash: neither an access denial nor the
  * "ran, found nothing" a clean exit reports. The distinction is the point —
  * a component killed by its own input must not read as an empty run. */
 static void test_other_signal_is_crashed(void) {
-  assert(kasld_classify_outcome(st_signaled(SIGSEGV), 0, 0) == OUTCOME_CRASHED);
-  assert(kasld_classify_outcome(st_signaled(SIGABRT), 0, 0) == OUTCOME_CRASHED);
-  assert(kasld_classify_outcome(st_signaled(SIGBUS), 0, 0) == OUTCOME_CRASHED);
-  assert(kasld_classify_outcome(st_signaled(SIGILL), 0, 0) == OUTCOME_CRASHED);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGSEGV), 0, 0) ==
+           OUTCOME_CRASHED);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGABRT), 0, 0) ==
+           OUTCOME_CRASHED);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGBUS), 0, 0) ==
+           OUTCOME_CRASHED);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGILL), 0, 0) ==
+           OUTCOME_CRASHED);
   /* A clean exit with no output stays NO_RESULT, so the two are separable. */
-  assert(kasld_classify_outcome(st_exited(0), 0, 0) == OUTCOME_NO_RESULT);
+  TH_CHECK(kasld_classify_outcome(st_exited(0), 0, 0) == OUTCOME_NO_RESULT);
 }
 
 /* The two signal deaths that mean something more specific keep their own
  * classification: a crash must not swallow either. */
 static void test_crash_does_not_shadow_the_specific_signals(void) {
-  assert(kasld_classify_outcome(st_signaled(SIGSYS), 0, 0) ==
-         OUTCOME_ACCESS_DENIED);
-  assert(kasld_classify_outcome(st_signaled(SIGKILL), 1, 0) == OUTCOME_TIMEOUT);
-  assert(kasld_classify_outcome(st_signaled(SIGSEGV), 1, 0) == OUTCOME_TIMEOUT);
-  assert(kasld_classify_outcome(st_signaled(SIGSEGV), 0, 1) == OUTCOME_SUCCESS);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGSYS), 0, 0) ==
+           OUTCOME_ACCESS_DENIED);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGKILL), 1, 0) ==
+           OUTCOME_TIMEOUT);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGSEGV), 1, 0) ==
+           OUTCOME_TIMEOUT);
+  TH_CHECK(kasld_classify_outcome(st_signaled(SIGSEGV), 0, 1) ==
+           OUTCOME_SUCCESS);
 }
 
 int main(void) {

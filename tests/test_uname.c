@@ -42,13 +42,13 @@ static void stage_version(const char *line) {
 static void test_both_fields_come_from_the_capture(void) {
   struct utsname u, host;
   stage_version(STAGED_LINE);
-  assert(uname(&host) == 0);
-  assert(kasld_uname(&u) == 0);
-  assert(strcmp(u.release, STAGED_RELEASE) == 0);
-  assert(strcmp(u.version, STAGED_VERSION) == 0);
+  TH_CHECK(uname(&host) == 0);
+  TH_CHECK(kasld_uname(&u) == 0);
+  TH_CHECK(strcmp(u.release, STAGED_RELEASE) == 0);
+  TH_CHECK(strcmp(u.version, STAGED_VERSION) == 0);
   /* The staged tree won: neither field is the analysing host's. */
-  assert(strcmp(u.release, host.release) != 0);
-  assert(strcmp(u.version, host.version) != 0);
+  TH_CHECK(strcmp(u.release, host.release) != 0);
+  TH_CHECK(strcmp(u.version, host.version) != 0);
 }
 
 /* .machine is the emulated arch under qemu-user and compile-time on native;
@@ -56,9 +56,9 @@ static void test_both_fields_come_from_the_capture(void) {
 static void test_machine_is_left_alone(void) {
   struct utsname u, host;
   stage_version(STAGED_LINE);
-  assert(uname(&host) == 0);
-  assert(kasld_uname(&u) == 0);
-  assert(strcmp(u.machine, host.machine) == 0);
+  TH_CHECK(uname(&host) == 0);
+  TH_CHECK(kasld_uname(&u) == 0);
+  TH_CHECK(strcmp(u.machine, host.machine) == 0);
 }
 
 /* A compiler string can carry its own " version ": the first match is the
@@ -68,9 +68,10 @@ static void test_compiler_version_is_not_the_release(void) {
   stage_version("Linux version 4.14.141-169 (root@1604_builder_armhf) "
                 "(gcc version 7.4.0 (Ubuntu/Linaro 7.4.0-1ubuntu1~18.04.1)) "
                 "#1 SMP PREEMPT Sat Aug 31 23:19:59 -03 2019\n");
-  assert(kasld_uname(&u) == 0);
-  assert(strcmp(u.release, "4.14.141-169") == 0);
-  assert(strcmp(u.version, "#1 SMP PREEMPT Sat Aug 31 23:19:59 -03 2019") == 0);
+  TH_CHECK(kasld_uname(&u) == 0);
+  TH_CHECK(strcmp(u.release, "4.14.141-169") == 0);
+  TH_CHECK(strcmp(u.version, "#1 SMP PREEMPT Sat Aug 31 23:19:59 -03 2019") ==
+           0);
 }
 
 /* The environment override exists for a run with no captured /proc/version and
@@ -86,11 +87,11 @@ static void test_compiler_version_is_not_the_release(void) {
 static void test_env_release_overrides_the_capture(void) {
   struct utsname u;
   stage_version(STAGED_LINE);
-  assert(setenv("KASLD_UNAME_RELEASE", "9.9.9-explicit", 1) == 0);
-  assert(kasld_uname(&u) == 0);
-  assert(unsetenv("KASLD_UNAME_RELEASE") == 0);
-  assert(strcmp(u.release, "9.9.9-explicit") == 0);
-  assert(strcmp(u.version, STAGED_VERSION) == 0);
+  TH_CHECK(setenv("KASLD_UNAME_RELEASE", "9.9.9-explicit", 1) == 0);
+  TH_CHECK(kasld_uname(&u) == 0);
+  TH_CHECK(unsetenv("KASLD_UNAME_RELEASE") == 0);
+  TH_CHECK(strcmp(u.release, "9.9.9-explicit") == 0);
+  TH_CHECK(strcmp(u.version, STAGED_VERSION) == 0);
 }
 
 /* Unparseable input identifies nothing, so the call fails and neither field is
@@ -108,25 +109,25 @@ static void test_unparseable_identifies_nothing(void) {
       "",                                   /* empty file */
   };
   size_t i;
-  assert(uname(&host) == 0);
+  TH_CHECK(uname(&host) == 0);
   for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
     stage_version(bad[i]);
-    assert(kasld_uname(&u) != 0);
-    assert(u.release[0] == '\0');
-    assert(u.version[0] == '\0');
+    TH_CHECK(kasld_uname(&u) != 0);
+    TH_CHECK(u.release[0] == '\0');
+    TH_CHECK(u.version[0] == '\0');
     /* Specifically not the host's -- the case this exists to catch. */
-    assert(strcmp(u.release, host.release) != 0);
+    TH_CHECK(strcmp(u.release, host.release) != 0);
   }
 }
 
 static void test_absent_version_identifies_nothing(void) {
   struct utsname u, host;
   stage_version(NULL);
-  assert(uname(&host) == 0);
-  assert(kasld_uname(&u) != 0);
-  assert(u.release[0] == '\0');
-  assert(u.version[0] == '\0');
-  assert(strcmp(u.release, host.release) != 0);
+  TH_CHECK(uname(&host) == 0);
+  TH_CHECK(kasld_uname(&u) != 0);
+  TH_CHECK(u.release[0] == '\0');
+  TH_CHECK(u.version[0] == '\0');
+  TH_CHECK(strcmp(u.release, host.release) != 0);
 }
 
 /* .machine describes the binary doing the reading -- the emulated arch under
@@ -134,9 +135,9 @@ static void test_absent_version_identifies_nothing(void) {
 static void test_machine_survives_an_unidentified_capture(void) {
   struct utsname u, host;
   stage_version(NULL);
-  assert(uname(&host) == 0);
-  assert(kasld_uname(&u) != 0);
-  assert(strcmp(u.machine, host.machine) == 0);
+  TH_CHECK(uname(&host) == 0);
+  TH_CHECK(kasld_uname(&u) != 0);
+  TH_CHECK(strcmp(u.machine, host.machine) == 0);
 }
 
 /* The override is what a capture with no /proc/version has: it supplies the
@@ -147,15 +148,15 @@ static void test_override_identifies_a_capture_that_states_nothing(void) {
   struct utsname u, host;
   char fp[192];
   stage_version(NULL);
-  assert(uname(&host) == 0);
-  assert(setenv("KASLD_UNAME_RELEASE", "5.15.207-0-lts", 1) == 0);
-  assert(kasld_uname(&u) == 0);
-  assert(unsetenv("KASLD_UNAME_RELEASE") == 0);
-  assert(strcmp(u.release, "5.15.207-0-lts") == 0);
-  assert(u.version[0] == '\0');
-  assert(strcmp(u.version, host.version) != 0);
+  TH_CHECK(uname(&host) == 0);
+  TH_CHECK(setenv("KASLD_UNAME_RELEASE", "5.15.207-0-lts", 1) == 0);
+  TH_CHECK(kasld_uname(&u) == 0);
+  TH_CHECK(unsetenv("KASLD_UNAME_RELEASE") == 0);
+  TH_CHECK(strcmp(u.release, "5.15.207-0-lts") == 0);
+  TH_CHECK(u.version[0] == '\0');
+  TH_CHECK(strcmp(u.version, host.version) != 0);
   kasld_uname_fingerprint(fp, sizeof(fp), &u);
-  assert(strcmp(fp, "5.15.207-0-lts") == 0);
+  TH_CHECK(strcmp(fp, "5.15.207-0-lts") == 0);
 }
 
 /* The predicate the orchestrator warns on. Under a sysroot it answers for the
@@ -164,27 +165,27 @@ static void test_override_identifies_a_capture_that_states_nothing(void) {
  * capture that named no build, whatever the release beside it says. */
 static void test_identity_predicate_answers_for_the_capture(void) {
   stage_version(STAGED_LINE);
-  assert(kasld_uname_describes_target() == 1);
+  TH_CHECK(kasld_uname_describes_target() == 1);
 
   stage_version("not a version line at all\n");
-  assert(kasld_uname_describes_target() == 0);
+  TH_CHECK(kasld_uname_describes_target() == 0);
 
   stage_version(NULL);
-  assert(kasld_uname_describes_target() == 0);
+  TH_CHECK(kasld_uname_describes_target() == 0);
 
   /* An override supplies the release; the capture still states nothing. */
-  assert(setenv("KASLD_UNAME_RELEASE", "9.9.9-explicit", 1) == 0);
-  assert(kasld_uname_describes_target() == 0);
-  assert(unsetenv("KASLD_UNAME_RELEASE") == 0);
+  TH_CHECK(setenv("KASLD_UNAME_RELEASE", "9.9.9-explicit", 1) == 0);
+  TH_CHECK(kasld_uname_describes_target() == 0);
+  TH_CHECK(unsetenv("KASLD_UNAME_RELEASE") == 0);
 }
 
 static void test_fingerprint_names_the_captured_build(void) {
   struct utsname u;
   char fp[192];
   stage_version(STAGED_LINE);
-  assert(kasld_uname(&u) == 0);
+  TH_CHECK(kasld_uname(&u) == 0);
   kasld_uname_fingerprint(fp, sizeof(fp), &u);
-  assert(strcmp(fp, STAGED_RELEASE " " STAGED_VERSION) == 0);
+  TH_CHECK(strcmp(fp, STAGED_RELEASE " " STAGED_VERSION) == 0);
 }
 
 /* utsname.version is a 64-char field, so the kernel clips a long version
@@ -202,11 +203,11 @@ static void test_long_version_clips_to_the_uname_field(void) {
   snprintf(line, sizeof(line), "Linux version %s (b@h) (gcc) %s\n",
            STAGED_RELEASE, v);
   stage_version(line);
-  assert(kasld_uname(&u) == 0);
-  assert(strlen(u.version) == sizeof(u.version) - 1);
-  assert(strncmp(u.version, v, sizeof(u.version) - 1) == 0);
+  TH_CHECK(kasld_uname(&u) == 0);
+  TH_CHECK(strlen(u.version) == sizeof(u.version) - 1);
+  TH_CHECK(strncmp(u.version, v, sizeof(u.version) - 1) == 0);
   kasld_uname_fingerprint(fp, sizeof(fp), &u);
-  assert(fp[strlen(fp) - 1] != ' ');
+  TH_CHECK(fp[strlen(fp) - 1] != ' ');
 }
 
 int main(void) {

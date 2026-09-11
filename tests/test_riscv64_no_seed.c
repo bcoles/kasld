@@ -34,7 +34,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_rv64noseed_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -86,7 +86,7 @@ static void test_visible_nonzero_seed_pins_disabled(void) {
   stage_seed(0xdeadbeeful);
   stage_cpuinfo(0);
   run_capture();
-  assert(strstr(cap, "virt_kaslr_disabled") != NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled") != NULL);
 }
 
 /* The soundness edge: a present-but-zero cell is ambiguous (consumed then
@@ -98,7 +98,7 @@ static void test_present_zero_seed_stays_silent(void) {
   stage_seed(0);
   stage_cpuinfo(0);
   run_capture();
-  assert(strstr(cap, "virt_kaslr_disabled") == NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled") == NULL);
 }
 
 /* Zkr seeds KASLR ahead of the FDT and leaves the cell untouched, so a visible
@@ -109,7 +109,7 @@ static void test_zkr_with_visible_seed_stays_silent(void) {
   stage_seed(0xdeadbeeful);
   stage_cpuinfo(1);
   run_capture();
-  assert(strstr(cap, "virt_kaslr_disabled") == NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled") == NULL);
 }
 
 /* An absent cell on a non-Zkr CPU is the original no-seed signal and still
@@ -119,12 +119,12 @@ static void test_absent_seed_pins_disabled(void) {
   th_sysroot_write("/proc/device-tree/chosen/bootargs", "console=ttyS0");
   stage_cpuinfo(0);
   run_capture();
-  assert(strstr(cap, "virt_kaslr_disabled") != NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled") != NULL);
 }
 
 #else /* off-riscv64: the component is architecture-gated out of the build. */
 
-static void test_inert_off_riscv64(void) { assert(1); }
+static void test_inert_off_riscv64(void) { TH_CHECK(1); }
 
 #endif
 

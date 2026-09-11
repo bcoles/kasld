@@ -58,8 +58,8 @@ static void test_memtotal_scales_kb_to_bytes(void) {
   th_sysroot_write("/proc/meminfo", "MemTotal:       16384 kB\n");
   int rc;
   run(&rc);
-  assert(th_cap_field_is("value", 16384ul * 1024ul));
-  assert(strstr(th_cap, "phys_memtotal") != NULL);
+  TH_CHECK(th_cap_field_is("value", 16384ul * 1024ul));
+  TH_CHECK(strstr(th_cap, "phys_memtotal") != NULL);
 }
 
 /* LowTotal without HighTotal is not a highmem split: a 64-bit kernel prints it
@@ -70,15 +70,15 @@ static void test_lowmem_needs_a_highmem_counterpart(void) {
                                     "LowTotal:       16384 kB\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "phys_lowmem") == NULL);
+  TH_CHECK(strstr(th_cap, "phys_lowmem") == NULL);
 
   th_sysroot_clear();
   th_sysroot_write("/proc/meminfo", "MemTotal:       16384 kB\n"
                                     "LowTotal:        4096 kB\n"
                                     "HighTotal:      12288 kB\n");
   run(&rc);
-  assert(strstr(th_cap, "phys_lowmem") != NULL);
-  assert(th_cap_field_is("value", 4096ul * 1024ul));
+  TH_CHECK(strstr(th_cap, "phys_lowmem") != NULL);
+  TH_CHECK(th_cap_field_is("value", 4096ul * 1024ul));
 }
 
 /* The highest zone END, which is start_pfn + spanned — not the highest start.
@@ -88,11 +88,11 @@ static void test_max_pfn_is_the_highest_zone_end(void) {
   th_sysroot_write("/proc/zoneinfo", ZONEINFO);
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "phys_max_pfn") != NULL);
-  assert(th_cap_field_is("value", 4096ul + 1044480ul));
+  TH_CHECK(strstr(th_cap, "phys_max_pfn") != NULL);
+  TH_CHECK(th_cap_field_is("value", 4096ul + 1044480ul));
   /* The largest start alone would be 4096, and the first zone's end 4096 too;
    * either shortcut lands below the real top. */
-  assert(!th_cap_field_is("value", 4096ul));
+  TH_CHECK(!th_cap_field_is("value", 4096ul));
 }
 
 /* No files: nothing claimed. A component that reads nothing must say nothing
@@ -101,9 +101,9 @@ static void test_absent_sources_emit_nothing(void) {
   th_sysroot_clear();
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "phys_memtotal") == NULL);
-  assert(strstr(th_cap, "phys_lowmem") == NULL);
-  assert(strstr(th_cap, "phys_max_pfn") == NULL);
+  TH_CHECK(strstr(th_cap, "phys_memtotal") == NULL);
+  TH_CHECK(strstr(th_cap, "phys_lowmem") == NULL);
+  TH_CHECK(strstr(th_cap, "phys_max_pfn") == NULL);
 }
 
 int main(void) {

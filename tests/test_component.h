@@ -32,8 +32,8 @@
  *     th_sysroot_write("/proc/foo", "...");
  *     int rc;
  *     TH_RUN_COMPONENT(rc, foo_main());
- *     assert(rc == 0);
- *     assert(th_cap_field_is("sample", expected));
+ *     TH_CHECK(rc == 0);
+ *     TH_CHECK(th_cap_field_is("sample", expected));
  *
  * TH_RUN_COMPONENT is a macro rather than a function because component mains
  * differ: some take (void), some (int, char **).
@@ -42,6 +42,11 @@
  */
 #ifndef KASLD_TEST_COMPONENT_H
 #define KASLD_TEST_COMPONENT_H
+
+/* TH_CHECK, and the suite state the helpers below report through.
+ * Guarded against double inclusion, so an includer that pulls the
+ * harness in first is unaffected. */
+#include "test_harness.h"
 
 #include <assert.h>
 #include <ctype.h>
@@ -61,7 +66,7 @@ __attribute__((unused)) static void th_cap_begin(void) {
   fflush(stdout);
   strcpy(th_cap_tmpl, "/tmp/kasld_component_capXXXXXX");
   th_cap_out_fd = mkstemp(th_cap_tmpl);
-  assert(th_cap_out_fd >= 0);
+  TH_CHECK(th_cap_out_fd >= 0);
   th_cap_saved_out = dup(1);
   dup2(th_cap_out_fd, 1);
   fflush(stderr);

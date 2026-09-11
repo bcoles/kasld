@@ -63,20 +63,20 @@ static size_t build_btf(unsigned char *b, uint16_t magic) {
 static void test_btf_finds_struct_page_size(void) {
   unsigned char b[256];
   size_t len = build_btf(b, BTF_MAGIC);
-  assert(btf_struct_size(b, len, "page") == 64);
+  TH_CHECK(btf_struct_size(b, len, "page") == 64);
 }
 
 static void test_btf_name_discriminates(void) {
   unsigned char b[256];
   size_t len = build_btf(b, BTF_MAGIC);
-  assert(btf_struct_size(b, len, "other") == 16);
-  assert(btf_struct_size(b, len, "nonexistent") == 0);
+  TH_CHECK(btf_struct_size(b, len, "other") == 16);
+  TH_CHECK(btf_struct_size(b, len, "nonexistent") == 0);
 }
 
 static void test_btf_non_native_magic_rejected(void) {
   unsigned char b[256];
   size_t len = build_btf(b, 0x9FeB); /* byte-swapped magic */
-  assert(btf_struct_size(b, len, "page") == 0);
+  TH_CHECK(btf_struct_size(b, len, "page") == 0);
 }
 
 static void test_btf_truncated_no_overread(void) {
@@ -84,8 +84,8 @@ static void test_btf_truncated_no_overread(void) {
   build_btf(b, BTF_MAGIC);
   /* A length shorter than the header, and one that cuts the type section, must
    * both return 0 without reading past the buffer. */
-  assert(btf_struct_size(b, 10, "page") == 0);
-  assert(btf_struct_size(b, 40, "page") == 0);
+  TH_CHECK(btf_struct_size(b, 10, "page") == 0);
+  TH_CHECK(btf_struct_size(b, 40, "page") == 0);
 }
 
 int main(void) {

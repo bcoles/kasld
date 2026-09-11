@@ -13,9 +13,16 @@
 // Categories are optional: tests that never call BEGIN_CATEGORY get the
 // implicit "(uncategorised)" bucket.
 //
-// Failure model: tests use plain assert(); a failing assert aborts the process
+// Failure model: tests check with TH_CHECK(); a failed check aborts the process
 // (SIGABRT) and the "· name ... " line printed before the test ran is the
 // breadcrumb. No setjmp/longjmp isolation — keeps the harness ~80 lines.
+//
+// TH_CHECK rather than TH_CHECK(): assert is specified to compile away wherever
+// NDEBUG is defined, and NDEBUG arrives through CFLAGS, which the build
+// advertises as an override. A suite whose checks are removable reports a full
+// pass on a broken tree -- exit 0, every test counted, nothing verified -- and
+// the one flag that does it is a release convention. A check is the thing being
+// verified and must not be removable; tests/check-test-checks holds the rule.
 // ---
 // <bcoles@gmail.com>
 
@@ -80,6 +87,18 @@ static void th_close_category(void) {
     th_cat_name = (name);                                                      \
     if (!th_quiet())                                                           \
       fprintf(stderr, "%s%s%s\n", TH_BOLD, th_cat_name, TH_RESET);             \
+  } while (0)
+
+/* One check. Same failure model TH_CHECK() gave -- report, then abort, with the
+ * per-test line already printed standing as the breadcrumb -- but expressed in
+ * a construct the preprocessor cannot remove. */
+#define TH_CHECK(cond)                                                         \
+  do {                                                                         \
+    if (!(cond)) {                                                             \
+      fflush(stdout);                                                          \
+      fprintf(stderr, "%s:%d: check failed: %s\n", __FILE__, __LINE__, #cond); \
+      abort();                                                                 \
+    }                                                                          \
   } while (0)
 
 /* Run a single test. */

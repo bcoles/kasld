@@ -45,7 +45,7 @@ static void test_amd_marginal_base(void) {
     t[B + i] = 8700; /* body */
   t[120] = 77000;    /* isolated scheduler outlier */
   t[200] = 25000;    /* isolated scheduler outlier */
-  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
+  TH_CHECK(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
 }
 
 /* AMD: the base slot sits BELOW the strict 1.5x threshold (a noisy pass) but
@@ -59,7 +59,7 @@ static void test_amd_base_below_strict_walk_recovers(void) {
   t[B] = 6800; /* below 1.5x (~7575), above 1.25x (~6312) */
   for (i = 1; i < 15; i++)
     t[B + i] = 8700;
-  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
+  TH_CHECK(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
 }
 
 /* AMD low-amplitude fallback: a virtualized AMD guest can produce a mapped
@@ -80,7 +80,7 @@ static void test_amd_low_amplitude_wide_plateau(void) {
   for (i = 0; i < 7; i++)
     t[100 + i] = 23800; /* boundary band: taller than the plateau, 7 wide */
   t[150] = 41000;       /* isolated spike */
-  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
+  TH_CHECK(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
 }
 
 /* AMD low-amplitude fallback: a boundary band and isolated spikes with NO wide
@@ -95,7 +95,7 @@ static void test_amd_low_amplitude_narrow_band_rejected(void) {
     t[100 + i] = 23800;
   t[50] = 41000;
   t[200] = 39000;
-  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == -1);
+  TH_CHECK(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == -1);
 }
 
 /* AMD low-amplitude fallback boundary: a plateau exactly PREFETCH_MIN_PLATEAU_
@@ -106,7 +106,7 @@ static void test_amd_low_amplitude_min_width_accepted(void) {
   fill_baseline(t, 19800, 300);
   for (i = 0; i < (size_t)PREFETCH_MIN_PLATEAU_SLOTS; i++)
     t[B + i] = 21200;
-  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
+  TH_CHECK(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
 }
 
 /* Batched finder: the batched collector amplifies the mapped/unmapped
@@ -121,7 +121,7 @@ static void test_batched_plateau_with_hole(void) {
   for (i = 0; i < 27; i++)
     t[B + i] = 80000; /* ~8x mapped plateau */
   t[B + 10] = 10200;  /* an unmapped hole mid-image, back at baseline */
-  assert(prefetch_scan_find_edge_batched(t, N, 5, 8) == (long)B);
+  TH_CHECK(prefetch_scan_find_edge_batched(t, N, 5, 8) == (long)B);
 }
 
 /* Batched finder robustness: under CPU contention a run of baseline slots can
@@ -139,7 +139,7 @@ static void test_batched_rejects_loaded_baseline_false_cluster(void) {
     t[30 + i] = 15500; /* perturbed baseline ~1.55x: a false 1.5x cluster */
   for (i = 0; i < 27; i++)
     t[B + i] = 150000; /* the real ~15x plateau, to the right of the noise */
-  assert(prefetch_scan_find_edge_batched(t, N, 5, 8) == (long)B);
+  TH_CHECK(prefetch_scan_find_edge_batched(t, N, 5, 8) == (long)B);
 }
 
 /* Batched finder: baseline plus a sub-threshold perturbation, no plateau -> -1
@@ -150,7 +150,7 @@ static void test_batched_no_plateau(void) {
   fill_baseline(t, 10000, 400);
   for (i = 0; i < 10; i++)
     t[30 + i] = 15500; /* ~1.55x: below the batched threshold */
-  assert(prefetch_scan_find_edge_batched(t, N, 5, 8) == -1);
+  TH_CHECK(prefetch_scan_find_edge_batched(t, N, 5, 8) == -1);
 }
 
 /* AMD: baseline plus isolated outliers, no contiguous cluster -> -1. */
@@ -159,7 +159,7 @@ static void test_amd_no_cluster(void) {
   fill_baseline(t, 5000, 100);
   t[50] = 60000;
   t[150] = 40000;
-  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == -1);
+  TH_CHECK(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == -1);
 }
 
 /* AMD: a cluster whose left edge is slot 0. */
@@ -170,7 +170,7 @@ static void test_amd_edge_at_zero(void) {
   t[0] = 7900;
   for (i = 1; i < 15; i++)
     t[i] = 8700;
-  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == 0);
+  TH_CHECK(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == 0);
 }
 
 /* Intel (mins, mapped reads FASTER): the global minimum seeds inside the hot
@@ -182,7 +182,7 @@ static void test_intel_weaker_base_walk(void) {
   t[B] = 240;                /* base slot: below the midpoint (mapped) */
   for (i = 1; i < 15; i++)
     t[B + i] = 200; /* body (fastest) */
-  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_INTEL, 5, 8) == (long)B);
+  TH_CHECK(prefetch_scan_find_edge(t, N, CPU_VENDOR_INTEL, 5, 8) == (long)B);
 }
 
 /* Intel: a mapped run beginning at slot 0. */
@@ -192,7 +192,7 @@ static void test_intel_edge_at_zero(void) {
   fill_baseline(t, 300, 20);
   for (i = 0; i < 15; i++)
     t[i] = 200;
-  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_INTEL, 5, 8) == 0);
+  TH_CHECK(prefetch_scan_find_edge(t, N, CPU_VENDOR_INTEL, 5, 8) == 0);
 }
 
 int main(void) {

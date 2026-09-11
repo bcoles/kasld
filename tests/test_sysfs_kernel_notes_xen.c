@@ -106,10 +106,10 @@ static void test_live_notes_are_published(void) {
   th_sysroot_write("/proc/kallsyms", "ffffffff81000000 T _text\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "startup_xen") != NULL);
-  assert(strstr(th_cap, "hypercall_page") != NULL);
-  assert(th_cap_field_is("sample", entry));
-  assert(th_cap_field_is("sample", hyper));
+  TH_CHECK(strstr(th_cap, "startup_xen") != NULL);
+  TH_CHECK(strstr(th_cap, "hypercall_page") != NULL);
+  TH_CHECK(th_cap_field_is("sample", entry));
+  TH_CHECK(th_cap_field_is("sample", hyper));
 }
 
 /* The PHYS32 canary below one alignment step means no slide was applied: the
@@ -125,8 +125,8 @@ static void test_the_unrelocated_canary_discards_everything(void) {
   th_sysroot_write("/proc/kallsyms", "ffffffff81000000 T _text\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "startup_xen") == NULL);
-  assert(strstr(th_cap, "pvh_start_xen") == NULL);
+  TH_CHECK(strstr(th_cap, "startup_xen") == NULL);
+  TH_CHECK(strstr(th_cap, "pvh_start_xen") == NULL);
 }
 
 /* Place-relative encoding: the values look plausible and are not live. The
@@ -143,7 +143,7 @@ static void test_place_relative_symbols_discard_everything(void) {
                                      "ffffffff81234000 T xen_elfnote_entry\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "startup_xen") == NULL);
+  TH_CHECK(strstr(th_cap, "startup_xen") == NULL);
 }
 
 /* Without the canary there is nothing to verify against, and unverified is
@@ -157,7 +157,7 @@ static void test_no_canary_discards_conservatively(void) {
   th_sysroot_write("/proc/kallsyms", "ffffffff81000000 T _text\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "hypercall_page") == NULL);
+  TH_CHECK(strstr(th_cap, "hypercall_page") == NULL);
 }
 
 /* Sizes that would wrap the 4-byte alignment are refused before they are
@@ -169,14 +169,14 @@ static void test_oversized_header_fields_are_refused(void) {
   stage_notes();
   int rc;
   run(&rc);
-  assert(th_cap_count("sample=") == 0);
+  TH_CHECK(th_cap_count("sample=") == 0);
 
   th_sysroot_clear();
   notes_reset();
   note_add_raw_header(4u, 0xfffffffdu, XEN_ELFNOTE_ENTRY);
   stage_notes();
   run(&rc);
-  assert(th_cap_count("sample=") == 0);
+  TH_CHECK(th_cap_count("sample=") == 0);
 }
 
 /* A non-Xen note carrying a text pointer is still a leak, labelled by its
@@ -189,8 +189,8 @@ static void test_a_foreign_note_is_scanned_generically(void) {
   stage_notes();
   int rc;
   run(&rc);
-  assert(th_cap_field_is("sample", val));
-  assert(strstr(th_cap, "Linux") != NULL);
+  TH_CHECK(th_cap_field_is("sample", val));
+  TH_CHECK(strstr(th_cap, "Linux") != NULL);
 }
 
 /* No file at all: nothing claimed, no crash. */
@@ -198,7 +198,7 @@ static void test_absent_notes_emit_nothing(void) {
   th_sysroot_clear();
   int rc;
   run(&rc);
-  assert(th_cap_count("sample=") == 0);
+  TH_CHECK(th_cap_count("sample=") == 0);
 }
 
 int main(void) {

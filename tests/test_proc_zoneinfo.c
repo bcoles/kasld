@@ -66,14 +66,14 @@ static void test_lowest_zone_start_is_a_sample_not_a_base(void) {
 #if !PAGE_SIZE_KNOWN_AT_BUILD
   /* No build-constant page size and a captured tree: PFNs cannot be converted,
    * and the component says so rather than assuming one. */
-  assert(rc == KASLD_EXIT_UNAVAILABLE);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(th_cap[0] == '\0');
 #else
-  assert(rc == 0);
-  assert(th_cap_field_is("sample", phys_of(1)));
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_field_is("sample", phys_of(1)));
   /* Never as a base: pos=base would carry lo= for this value. */
-  assert(!th_cap_field_is("lo", phys_of(1)));
-  assert(strstr(th_cap, "conf=parsed") != NULL);
+  TH_CHECK(!th_cap_field_is("lo", phys_of(1)));
+  TH_CHECK(strstr(th_cap, "conf=parsed") != NULL);
 #endif
 }
 
@@ -85,13 +85,13 @@ static void test_top_bound_uses_the_spanned_count(void) {
   int rc;
   TH_RUN_COMPONENT(rc, proc_zoneinfo_main());
 #if !PAGE_SIZE_KNOWN_AT_BUILD
-  assert(rc == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(rc == KASLD_EXIT_UNAVAILABLE);
 #else
-  assert(rc == 0);
+  TH_CHECK(rc == 0);
   /* end_pfn = 4096 + 1044480; the emitted top is the last byte of that page. */
-  assert(th_cap_field_is("hi", phys_of(4096UL + 1044480UL) - 1));
+  TH_CHECK(th_cap_field_is("hi", phys_of(4096UL + 1044480UL) - 1));
   /* And not the bare highest start. */
-  assert(!th_cap_field_is("hi", phys_of(4096) - 1));
+  TH_CHECK(!th_cap_field_is("hi", phys_of(4096) - 1));
 #endif
 }
 
@@ -106,12 +106,12 @@ static void test_spanned_does_not_leak_into_the_next_zone(void) {
   int rc;
   TH_RUN_COMPONENT(rc, proc_zoneinfo_main());
 #if !PAGE_SIZE_KNOWN_AT_BUILD
-  assert(rc == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(rc == KASLD_EXIT_UNAVAILABLE);
 #else
-  assert(rc == 0);
+  TH_CHECK(rc == 0);
   /* The second zone has no spanned, so its end is its start; the highest end
    * across both zones is 1 + 1000. */
-  assert(th_cap_field_is("hi", phys_of(4096) - 1));
+  TH_CHECK(th_cap_field_is("hi", phys_of(4096) - 1));
 #endif
 }
 
@@ -128,10 +128,10 @@ static void test_zone_at_pfn_zero_is_the_lowest(void) {
   int rc;
   TH_RUN_COMPONENT(rc, proc_zoneinfo_main());
 #if !PAGE_SIZE_KNOWN_AT_BUILD
-  assert(rc == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(rc == KASLD_EXIT_UNAVAILABLE);
 #else
-  assert(rc == 0);
-  assert(th_cap_field_is("sample", 0));
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_field_is("sample", 0));
 #endif
 }
 
@@ -142,8 +142,8 @@ static void test_no_zones_emits_nothing(void) {
                                      "  pages free     3968\n");
   int rc;
   TH_RUN_COMPONENT(rc, proc_zoneinfo_main());
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* No file is a source this kernel does not publish. */
@@ -153,8 +153,8 @@ static void test_absent_file_is_unavailable(void) {
   unlink(full);
   int rc;
   TH_RUN_COMPONENT(rc, proc_zoneinfo_main());
-  assert(rc == KASLD_EXIT_UNAVAILABLE);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 int main(void) {

@@ -1,0 +1,61 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-test-checks — a test's checks may not be written in a construct the
+# preprocessor can remove.
+#
+# assert() is specified to expand to nothing wherever NDEBUG is defined, and
+# NDEBUG reaches the test binaries through CFLAGS, which `make help` advertises
+# as an override and which release conventions commonly carry. A suite whose
+# checks are assert() therefore reports a full pass on a broken tree: every test
+# function returns, the runner counts each one, and the process exits 0 having
+# verified nothing. Demonstrated rather than theorised -- a renderer defect that
+# aborts a normal build reports "124/124 tests passed" under -DNDEBUG.
+#
+# So the checks are TH_CHECK (tests/test_harness.h), which reports and aborts
+# exactly as assert did and cannot be compiled away. This guard holds that: a
+# bare assert( anywhere under tests/ fails here.
+#
+# _Static_assert is untouched -- it is a compile-time construct, NDEBUG does not
+# affect it, and the shipped sources use it deliberately.
+#
+# tests/test_report.c is not exempt but has nothing to exempt: it carries its
+# own CHECK macro, which returns rather than aborting, and uses no assert.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
+cd "$ROOT" || exit 2
+
+# A bare assert( -- not _Static_assert(, not static_assert(, not TH_CHECK(.
+# The leading class excludes any identifier character, so a longer name ending
+# in "assert" is not matched.
+pattern='(^|[^A-Za-z0-9_])assert[[:space:]]*\('
+
+fail=0
+scanned=0
+for f in tests/*.c tests/*.h tests/fuzz/*.c; do
+  [ -f "$f" ] || continue
+  scanned=$((scanned + 1))
+  hits=$(grep -nE "$pattern" "$f" 2>/dev/null || true)
+  [ -n "$hits" ] || continue
+  printf '%s  %s%s\n' "$RED" "$f" "$RESET" >&2
+  printf '%s\n' "$hits" | sed 's/^/      /' >&2
+  fail=1
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '%s\n' "" >&2
+  printf '  assert() compiles away under NDEBUG, which reaches the tests\n' >&2
+  printf '  through CFLAGS. A check written that way is removable, and a\n' >&2
+  printf '  suite of removable checks passes a broken tree. Use TH_CHECK.\n' >&2
+  guard_fail "removable checks in the test suite"
+  exit 1
+fi
+
+guard_ok "$scanned test sources, no removable checks"

@@ -40,25 +40,25 @@ static const char *too_wide_hex(void) {
 
 static void test_plain_hex(void) {
   kasld_addr_t v = 0;
-  assert(kasld_addr_parse("ffff0000", 16, &v, NULL) == 1);
-  assert(v == (kasld_addr_t)0xffff0000UL);
+  TH_CHECK(kasld_addr_parse("ffff0000", 16, &v, NULL) == 1);
+  TH_CHECK(v == (kasld_addr_t)0xffff0000UL);
 }
 
 static void test_base_zero_honours_prefix(void) {
   kasld_addr_t v = 0;
-  assert(kasld_addr_parse("0x1000", 0, &v, NULL) == 1);
-  assert(v == (kasld_addr_t)0x1000);
-  assert(kasld_addr_parse("4096", 0, &v, NULL) == 1);
-  assert(v == (kasld_addr_t)4096);
+  TH_CHECK(kasld_addr_parse("0x1000", 0, &v, NULL) == 1);
+  TH_CHECK(v == (kasld_addr_t)0x1000);
+  TH_CHECK(kasld_addr_parse("4096", 0, &v, NULL) == 1);
+  TH_CHECK(v == (kasld_addr_t)4096);
 }
 
 static void test_decimal(void) {
   kasld_addr_t v = 0;
   /* /proc/<pid>/stat and the iscsi transport handle print decimal. */
-  assert(kasld_addr_parse("18446744073709551615", 10, &v, NULL) ==
-         (sizeof(kasld_addr_t) == 8));
-  assert(kasld_addr_parse("4096", 10, &v, NULL) == 1);
-  assert(v == (kasld_addr_t)4096);
+  TH_CHECK(kasld_addr_parse("18446744073709551615", 10, &v, NULL) ==
+           (sizeof(kasld_addr_t) == 8));
+  TH_CHECK(kasld_addr_parse("4096", 10, &v, NULL) == 1);
+  TH_CHECK(v == (kasld_addr_t)4096);
 }
 
 /* The end pointer is what lets a caller walk "<addr>-<addr>" without sscanf. */
@@ -66,12 +66,12 @@ static void test_end_pointer_walks_a_range(void) {
   const char *line = "100000-1fffff : System RAM";
   kasld_addr_t lo = 0, hi = 0;
   const char *e = NULL;
-  assert(kasld_addr_parse(line, 16, &lo, &e) == 1);
-  assert(lo == (kasld_addr_t)0x100000);
-  assert(*e == '-');
-  assert(kasld_addr_parse(e + 1, 16, &hi, &e) == 1);
-  assert(hi == (kasld_addr_t)0x1fffff);
-  assert(*e == ' ');
+  TH_CHECK(kasld_addr_parse(line, 16, &lo, &e) == 1);
+  TH_CHECK(lo == (kasld_addr_t)0x100000);
+  TH_CHECK(*e == '-');
+  TH_CHECK(kasld_addr_parse(e + 1, 16, &hi, &e) == 1);
+  TH_CHECK(hi == (kasld_addr_t)0x1fffff);
+  TH_CHECK(*e == ' ');
 }
 
 /* No digits is a refusal, and the end pointer still marks where scanning
@@ -79,17 +79,17 @@ static void test_end_pointer_walks_a_range(void) {
 static void test_no_digits_refused(void) {
   kasld_addr_t v = 0xa5;
   const char *e = NULL;
-  assert(kasld_addr_parse(" : System RAM", 16, &v, &e) == 0);
-  assert(v == (kasld_addr_t)0xa5); /* untouched on failure */
-  assert(e != NULL);
-  assert(kasld_addr_parse("", 16, &v, NULL) == 0);
+  TH_CHECK(kasld_addr_parse(" : System RAM", 16, &v, &e) == 0);
+  TH_CHECK(v == (kasld_addr_t)0xa5); /* untouched on failure */
+  TH_CHECK(e != NULL);
+  TH_CHECK(kasld_addr_parse("", 16, &v, NULL) == 0);
 }
 
 /* The case this parser exists for: an address wider than the word. */
 static void test_too_wide_is_refused(void) {
   kasld_addr_t v = 0xa5;
-  assert(kasld_addr_parse(too_wide_hex(), 16, &v, NULL) == 0);
-  assert(v == (kasld_addr_t)0xa5);
+  TH_CHECK(kasld_addr_parse(too_wide_hex(), 16, &v, NULL) == 0);
+  TH_CHECK(v == (kasld_addr_t)0xa5);
 }
 
 /* A PAE /proc/iomem line. On a 32-bit build both edges are unrepresentable and
@@ -102,18 +102,18 @@ static void test_pae_iomem_line(void) {
   const char *e = NULL;
   int ok = kasld_addr_parse(line, 16, &lo, &e);
   if (sizeof(kasld_addr_t) >= 8) {
-    assert(ok == 1);
-    assert(lo == (kasld_addr_t)0x100000000ULL);
-    assert(*e == '-');
-    assert(kasld_addr_parse(e + 1, 16, &hi, NULL) == 1);
-    assert(hi == (kasld_addr_t)0x13fffffffULL);
+    TH_CHECK(ok == 1);
+    TH_CHECK(lo == (kasld_addr_t)0x100000000ULL);
+    TH_CHECK(*e == '-');
+    TH_CHECK(kasld_addr_parse(e + 1, 16, &hi, NULL) == 1);
+    TH_CHECK(hi == (kasld_addr_t)0x13fffffffULL);
   } else {
-    assert(ok == 0);
+    TH_CHECK(ok == 0);
     /* The end pointer still advances past the digits, so a caller can find the
      * separator and report the whole line as unrepresentable rather than
      * mis-parsing its second half. */
-    assert(*e == '-');
-    assert(kasld_addr_parse(e + 1, 16, &hi, NULL) == 0);
+    TH_CHECK(*e == '-');
+    TH_CHECK(kasld_addr_parse(e + 1, 16, &hi, NULL) == 0);
   }
 }
 
@@ -122,8 +122,8 @@ static void test_boundary_is_inclusive(void) {
   char buf[40];
   kasld_addr_t v = 0;
   snprintf(buf, sizeof(buf), "%llx", (unsigned long long)(kasld_addr_t)-1);
-  assert(kasld_addr_parse(buf, 16, &v, NULL) == 1);
-  assert(v == (kasld_addr_t)-1);
+  TH_CHECK(kasld_addr_parse(buf, 16, &v, NULL) == 1);
+  TH_CHECK(v == (kasld_addr_t)-1);
 }
 
 /* A stale errno from an earlier call must not be read as this call's overflow,
@@ -131,8 +131,8 @@ static void test_boundary_is_inclusive(void) {
 static void test_does_not_inherit_stale_errno(void) {
   kasld_addr_t v = 0;
   errno = ERANGE;
-  assert(kasld_addr_parse("1000", 16, &v, NULL) == 1);
-  assert(v == (kasld_addr_t)0x1000);
+  TH_CHECK(kasld_addr_parse("1000", 16, &v, NULL) == 1);
+  TH_CHECK(v == (kasld_addr_t)0x1000);
 }
 
 /* strtoull accepts a sign and NEGATES, so "-1" would convert to the word's
@@ -142,16 +142,16 @@ static void test_does_not_inherit_stale_errno(void) {
 static void test_signed_input_refused(void) {
   kasld_addr_t v = 0xa5;
   const char *e = NULL;
-  assert(kasld_addr_parse("-1", 16, &v, &e) == 0);
-  assert(v == (kasld_addr_t)0xa5);
-  assert(e != NULL && *e == '-');
-  assert(kasld_addr_parse("-0009fbff", 16, &v, NULL) == 0);
-  assert(kasld_addr_parse("+10", 16, &v, NULL) == 0);
-  assert(kasld_addr_parse("  -1", 16, &v, NULL) == 0);
-  assert(v == (kasld_addr_t)0xa5);
+  TH_CHECK(kasld_addr_parse("-1", 16, &v, &e) == 0);
+  TH_CHECK(v == (kasld_addr_t)0xa5);
+  TH_CHECK(e != NULL && *e == '-');
+  TH_CHECK(kasld_addr_parse("-0009fbff", 16, &v, NULL) == 0);
+  TH_CHECK(kasld_addr_parse("+10", 16, &v, NULL) == 0);
+  TH_CHECK(kasld_addr_parse("  -1", 16, &v, NULL) == 0);
+  TH_CHECK(v == (kasld_addr_t)0xa5);
   /* Leading whitespace on an unsigned value is still accepted. */
-  assert(kasld_addr_parse("  1000", 16, &v, NULL) == 1);
-  assert(v == (kasld_addr_t)0x1000);
+  TH_CHECK(kasld_addr_parse("  1000", 16, &v, NULL) == 1);
+  TH_CHECK(v == (kasld_addr_t)0x1000);
 }
 
 /* A refusal for width is distinguishable from a field that held no digits;
@@ -159,11 +159,11 @@ static void test_signed_input_refused(void) {
 static void test_refused_wide_is_distinguishable(void) {
   kasld_addr_t v = 0;
   const char *e = NULL;
-  assert(kasld_addr_parse(too_wide_hex(), 16, &v, &e) == 0);
-  assert(kasld_addr_refused_wide(too_wide_hex(), e) == 1);
+  TH_CHECK(kasld_addr_parse(too_wide_hex(), 16, &v, &e) == 0);
+  TH_CHECK(kasld_addr_refused_wide(too_wide_hex(), e) == 1);
   const char *none = " : System RAM";
-  assert(kasld_addr_parse(none, 16, &v, &e) == 0);
-  assert(kasld_addr_refused_wide(none, e) == 0);
+  TH_CHECK(kasld_addr_parse(none, 16, &v, &e) == 0);
+  TH_CHECK(kasld_addr_refused_wide(none, e) == 0);
 }
 
 int main(void) {

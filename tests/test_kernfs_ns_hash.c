@@ -59,8 +59,8 @@ static void test_recovers_known_salt(void) {
   unsigned long got = 0;
   int ok = kernfs_scan(pr, n, SALT_A - 0x2000, SALT_A + 0x2000, sizeof(long), 0,
                        &got);
-  assert(ok == 1);
-  assert(got == SALT_A);
+  TH_CHECK(ok == 1);
+  TH_CHECK(got == SALT_A);
 }
 
 /* With a build offset, walking the aligned base grid recovers base + off. */
@@ -74,9 +74,9 @@ static void test_offset_table_pin(void) {
   unsigned long got = 0;
   int ok =
       kernfs_scan(pr, n, base - 4 * align, base + 4 * align, align, off, &got);
-  assert(ok == 1);
-  assert(got == salt);       /* == &init_net */
-  assert(got - off == base); /* caller derives the true base */
+  TH_CHECK(ok == 1);
+  TH_CHECK(got == salt);       /* == &init_net */
+  TH_CHECK(got - off == base); /* caller derives the true base */
 }
 
 /* Post-fix the salt is a small ns_id integer; no kernel-VA candidate reproduces
@@ -88,16 +88,16 @@ static void test_patched_is_noop(void) {
   unsigned long got = 0;
   int ok = kernfs_scan(pr, n, SALT_A - 0x4000, SALT_A + 0x4000, sizeof(long), 0,
                        &got);
-  assert(ok == 0);
+  TH_CHECK(ok == 0);
 }
 
 /* The true salt passes the cookie check; an adjacent one does not. */
 static void test_wrong_salt_rejected(void) {
   struct kernfs_pair pr[4];
   int n = build_pairs(SALT_A, NAMES, 3, pr);
-  assert(kernfs_salt_ok(SALT_A, pr, n) == 1);
-  assert(kernfs_salt_ok(SALT_A + sizeof(long), pr, n) == 0);
-  assert(kernfs_salt_ok(SALT_A - sizeof(long), pr, n) == 0);
+  TH_CHECK(kernfs_salt_ok(SALT_A, pr, n) == 1);
+  TH_CHECK(kernfs_salt_ok(SALT_A + sizeof(long), pr, n) == 0);
+  TH_CHECK(kernfs_salt_ok(SALT_A - sizeof(long), pr, n) == 0);
 }
 
 int main(void) {

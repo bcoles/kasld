@@ -25,64 +25,64 @@
 static enum kasld_text_order cls(const char *config, int nofgkaslr) {
   char buf[1024];
   size_t n = strlen(config);
-  assert(n < sizeof(buf));
+  TH_CHECK(n < sizeof(buf));
   memcpy(buf, config, n);
   FILE *f = fmemopen(buf, n, "r");
-  assert(f);
+  TH_CHECK(f);
   enum kasld_text_order o = classify_text_order(f, nofgkaslr);
   fclose(f);
   return o;
 }
 
 static void test_canonical(void) {
-  assert(cls("CONFIG_RANDOMIZE_BASE=y\nCONFIG_X=y\n", 0) ==
-         TEXT_ORDER_CANONICAL);
+  TH_CHECK(cls("CONFIG_RANDOMIZE_BASE=y\nCONFIG_X=y\n", 0) ==
+           TEXT_ORDER_CANONICAL);
 }
 
 static void test_lto_is_static(void) {
-  assert(cls("CONFIG_LTO_CLANG=y\nCONFIG_LTO_CLANG_THIN=y\n", 0) ==
-         TEXT_ORDER_STATIC);
+  TH_CHECK(cls("CONFIG_LTO_CLANG=y\nCONFIG_LTO_CLANG_THIN=y\n", 0) ==
+           TEXT_ORDER_STATIC);
 }
 
 /* Belt-and-suspenders: a variant line alone (umbrella missing) still counts, so
  * a missed LTO can't masquerade as canonical. */
 static void test_lto_variant_only_is_static(void) {
-  assert(cls("CONFIG_LTO_CLANG_FULL=y\n", 0) == TEXT_ORDER_STATIC);
+  TH_CHECK(cls("CONFIG_LTO_CLANG_FULL=y\n", 0) == TEXT_ORDER_STATIC);
 }
 
 static void test_autofdo_is_static(void) {
-  assert(cls("CONFIG_AUTOFDO_CLANG=y\n", 0) == TEXT_ORDER_STATIC);
+  TH_CHECK(cls("CONFIG_AUTOFDO_CLANG=y\n", 0) == TEXT_ORDER_STATIC);
 }
 
 static void test_propeller_is_static(void) {
-  assert(cls("CONFIG_PROPELLER_CLANG=y\n", 0) == TEXT_ORDER_STATIC);
+  TH_CHECK(cls("CONFIG_PROPELLER_CLANG=y\n", 0) == TEXT_ORDER_STATIC);
 }
 
 static void test_fgkaslr_is_dynamic(void) {
-  assert(cls("CONFIG_FG_KASLR=y\n", 0) == TEXT_ORDER_DYNAMIC);
+  TH_CHECK(cls("CONFIG_FG_KASLR=y\n", 0) == TEXT_ORDER_DYNAMIC);
 }
 
 /* FG-KASLR (dynamic) outranks a co-present static reorder when active. */
 static void test_dynamic_outranks_static(void) {
-  assert(cls("CONFIG_FG_KASLR=y\nCONFIG_LTO_CLANG=y\n", 0) ==
-         TEXT_ORDER_DYNAMIC);
+  TH_CHECK(cls("CONFIG_FG_KASLR=y\nCONFIG_LTO_CLANG=y\n", 0) ==
+           TEXT_ORDER_DYNAMIC);
 }
 
 /* nofgkaslr disables FG-KASLR -> falls back to whatever the static configs
  * imply: canonical when nothing else, static when LTO/etc. are also present. */
 static void test_nofgkaslr_demotes(void) {
-  assert(cls("CONFIG_FG_KASLR=y\n", 1) == TEXT_ORDER_CANONICAL);
-  assert(cls("CONFIG_FG_KASLR=y\nCONFIG_AUTOFDO_CLANG=y\n", 1) ==
-         TEXT_ORDER_STATIC);
+  TH_CHECK(cls("CONFIG_FG_KASLR=y\n", 1) == TEXT_ORDER_CANONICAL);
+  TH_CHECK(cls("CONFIG_FG_KASLR=y\nCONFIG_AUTOFDO_CLANG=y\n", 1) ==
+           TEXT_ORDER_STATIC);
 }
 
 /* The prefix guard: a longer config name that merely shares a prefix, and the
  * "=n" / "is not set" forms, must not match. */
 static void test_prefix_and_value_guard(void) {
-  assert(cls("CONFIG_LTO_CLANGXYZ=y\nCONFIG_FG_KASLR_FOO=y\n", 0) ==
-         TEXT_ORDER_CANONICAL);
-  assert(cls("CONFIG_LTO_CLANG=n\n# CONFIG_FG_KASLR is not set\n", 0) ==
-         TEXT_ORDER_CANONICAL);
+  TH_CHECK(cls("CONFIG_LTO_CLANGXYZ=y\nCONFIG_FG_KASLR_FOO=y\n", 0) ==
+           TEXT_ORDER_CANONICAL);
+  TH_CHECK(cls("CONFIG_LTO_CLANG=n\n# CONFIG_FG_KASLR is not set\n", 0) ==
+           TEXT_ORDER_CANONICAL);
 }
 
 int main(void) {

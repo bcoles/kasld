@@ -36,7 +36,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_tl_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -65,13 +65,13 @@ static void run_capture(void) {
 /* classify_timer_base: alignment decided BEFORE the kernel-VAS floor. */
 static void test_classify_alignment_beats_vas(void) {
   unsigned long base = (unsigned long)KERNEL_VIRT_VAS_START;
-  assert(classify_timer_base(0) == TB_SKIP);
-  assert(classify_timer_base(sizeof(void *)) ==
-         TB_SKIP); /* aligned, below VAS */
-  assert(classify_timer_base(base + 0x40) == TB_CANDIDATE);
+  TH_CHECK(classify_timer_base(0) == TB_SKIP);
+  TH_CHECK(classify_timer_base(sizeof(void *)) ==
+           TB_SKIP); /* aligned, below VAS */
+  TH_CHECK(classify_timer_base(base + 0x40) == TB_CANDIDATE);
   /* Misaligned -> hashed, even INSIDE the kernel VAS (the 32-bit failure mode).
    */
-  assert(classify_timer_base(base + 0x45) == TB_HASHED);
+  TH_CHECK(classify_timer_base(base + 0x45) == TB_HASHED);
 }
 
 /* End-to-end: an in-VAS MISALIGNED '.base:' condemns the read despite an
@@ -86,7 +86,7 @@ static void test_hashed_batch_declines(void) {
            base + 0x40); /* aligned sibling, but the read is condemned */
   stage_timer_list(fx);
   run_capture();
-  assert(strstr(cap, "directmap") == NULL);
+  TH_CHECK(strstr(cap, "directmap") == NULL);
 }
 
 /* End-to-end: real (aligned, in-VAS) '.base:' values emit the first as an
@@ -108,12 +108,12 @@ static void test_real_emits(void) {
   run_capture();
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", v);
-  assert(strstr(cap, want) != NULL);
-  assert(strstr(cap, "_band") != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, "_band") != NULL);
   /* The wire field is "V <region> pos=..."; a confident tag would appear with a
    * trailing space, a band tag never does. */
-  assert(strstr(cap, "V directmap ") == NULL);
-  assert(strstr(cap, "V kernel_text ") == NULL);
+  TH_CHECK(strstr(cap, "V directmap ") == NULL);
+  TH_CHECK(strstr(cap, "V kernel_text ") == NULL);
 }
 
 int main(void) {

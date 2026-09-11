@@ -34,7 +34,7 @@ static void parse_capture(const char *line, char *buf, size_t bufsz) {
   fflush(stdout);
   int saved = dup(STDOUT_FILENO);
   FILE *tmp = tmpfile();
-  assert(saved >= 0 && tmp);
+  TH_CHECK(saved >= 0 && tmp);
   dup2(fileno(tmp), STDOUT_FILENO);
   /* Silence the component's stderr diagnostics (the kasld_info/_found
    * data-echo) for the duration of the call so they don't leak into the test
@@ -42,7 +42,7 @@ static void parse_capture(const char *line, char *buf, size_t bufsz) {
   fflush(stderr);
   int saved_err = dup(STDERR_FILENO);
   int devnull = open("/dev/null", O_WRONLY);
-  assert(saved_err >= 0 && devnull >= 0);
+  TH_CHECK(saved_err >= 0 && devnull >= 0);
   dup2(devnull, STDERR_FILENO);
   struct search_ctx ctx = {0};
   on_match(line, &ctx);
@@ -75,10 +75,10 @@ static void test_kernel_line_pins_text_base(void) {
   parse_capture(line, cap, sizeof(cap));
   /* REGION_KERNEL_IMAGE, not KERNEL_TEXT (which the engine treats as _stext and
    * shifts down by the head gap). */
-  assert(strstr(cap, "V kernel_image pos=base") != NULL);
+  TH_CHECK(strstr(cap, "V kernel_image pos=base") != NULL);
   snprintf(want, sizeof(want), "lo=0x%lx",
            image_base); /* _start + head = _text */
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 }
 
 /* An address below the kernel-text window is rejected by the section gate, so
@@ -87,7 +87,7 @@ static void test_kernel_line_pins_text_base(void) {
  * rejection is confirmed by the absence of that token. */
 static void test_kernel_line_below_text_rejected(void) {
   parse_capture("      kernel : 0x1000 - 0xffffffffffffffff", cap, sizeof(cap));
-  assert(strstr(cap, "kernel_image") == NULL);
+  TH_CHECK(strstr(cap, "kernel_image") == NULL);
 }
 
 /* The ARM/arm64/x86_32 layout ".text : 0x<lo> - 0x<hi>" low edge IS _text (the
@@ -104,11 +104,11 @@ static void test_text_line_pins_image_base(void) {
   snprintf(line, sizeof(line), "      .text : 0x%lx - 0x%lx   (  6208 KB)",
            image_base, image_base + 0x600000);
   parse_capture(line, cap, sizeof(cap));
-  assert(strstr(cap, "V kernel_image pos=base") != NULL);
-  assert(strstr(cap, "kernel_text") == NULL); /* not shifted down as _stext */
+  TH_CHECK(strstr(cap, "V kernel_image pos=base") != NULL);
+  TH_CHECK(strstr(cap, "kernel_text") == NULL); /* not shifted down as _stext */
   snprintf(want, sizeof(want), "lo=0x%lx",
            image_base); /* unchanged: no project */
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 }
 
 /* The layout dump's region lines print the address ONE PAST the region -- each
@@ -126,7 +126,7 @@ static void test_vmalloc_range_high_edge_is_exclusive(void) {
   snprintf(want, sizeof(want),
            "V vmalloc pos=base conf=parsed lo=0x%lx hi=0x%lx", lo,
            printed_hi - 1);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 }
 
 /* The vmemmap needle carries the same convention, and the s390 spelling has no
@@ -142,7 +142,7 @@ static void test_vmemmap_and_s390_spelling(void) {
   snprintf(want, sizeof(want),
            "V vmemmap pos=base conf=parsed lo=0x%lx hi=0x%lx", lo,
            printed_hi - 1);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 
   snprintf(line, sizeof(line), "vmalloc area:        0x%lx-0x%lx", lo,
            printed_hi);
@@ -150,7 +150,7 @@ static void test_vmemmap_and_s390_spelling(void) {
   snprintf(want, sizeof(want),
            "V vmalloc pos=base conf=parsed lo=0x%lx hi=0x%lx", lo,
            printed_hi - 1);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 }
 
 /* A line whose two figures are equal describes no region; stepping the high
@@ -161,7 +161,7 @@ static void test_degenerate_range_emits_nothing(void) {
   snprintf(line, sizeof(line), "      vmalloc : 0x%lx - 0x%lx   (   0 MB)", lo,
            lo);
   parse_capture(line, cap, sizeof(cap));
-  assert(strstr(cap, "vmalloc") == NULL);
+  TH_CHECK(strstr(cap, "vmalloc") == NULL);
 }
 
 int main(void) {

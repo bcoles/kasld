@@ -36,6 +36,11 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
 
+/* TH_CHECK, and the suite state the helpers below report through.
+ * Guarded against double inclusion, so an includer that pulls the
+ * harness in first is unaffected. */
+#include "test_harness.h"
+
 #include <assert.h>
 #include <dirent.h>
 #include <stdio.h>
@@ -54,11 +59,11 @@ static char th_sysroot_root[128];
  * root, and the recursive clear below would then be pointed somewhere it has no
  * business being. */
 static void th_sysroot_path(const char *abs, char *out, size_t outsz) {
-  assert(th_sysroot_root[0] != '\0' && "th_sysroot_init() first");
-  assert(abs && abs[0] == '/' && "staged paths are absolute");
-  assert(strstr(abs, "/..") == NULL && "no traversal in a staged path");
+  TH_CHECK(th_sysroot_root[0] != '\0' && "th_sysroot_init() first");
+  TH_CHECK(abs && abs[0] == '/' && "staged paths are absolute");
+  TH_CHECK(strstr(abs, "/..") == NULL && "no traversal in a staged path");
   int n = snprintf(out, outsz, "%s%s", th_sysroot_root, abs);
-  assert(n > 0 && (size_t)n < outsz && "staged path too long");
+  TH_CHECK(n > 0 && (size_t)n < outsz && "staged path too long");
 }
 
 static void th_sysroot_fini(void);
@@ -80,19 +85,19 @@ static void th_sysroot_fini(void);
  * atexit handler, so the tree it was working in survives for a reader. Cleanup
  * on success, evidence on failure. */
 static void th_sysroot_init(const char *label) {
-  assert(th_sysroot_root[0] == '\0' && "th_sysroot_init() called twice");
-  assert(label && *label && "name the binary; the directory carries it");
-  assert(strchr(label, '/') == NULL && "label is a name, not a path");
+  TH_CHECK(th_sysroot_root[0] == '\0' && "th_sysroot_init() called twice");
+  TH_CHECK(label && *label && "name the binary; the directory carries it");
+  TH_CHECK(strchr(label, '/') == NULL && "label is a name, not a path");
 #ifdef KASLD_HERMETIC_PROBE
-  assert(kasld_hermetic_n == 0 &&
-         "th_sysroot_init() must run before the first fact read");
+  TH_CHECK(kasld_hermetic_n == 0 &&
+           "th_sysroot_init() must run before the first fact read");
 #endif
   int n = snprintf(th_sysroot_root, sizeof(th_sysroot_root),
                    "/tmp/kasld_%s_XXXXXX", label);
-  assert(n > 0 && (size_t)n < sizeof(th_sysroot_root) && "label too long");
-  assert(mkdtemp(th_sysroot_root) != NULL);
-  assert(setenv("KASLD_SYSROOT", th_sysroot_root, 1) == 0);
-  assert(atexit(th_sysroot_fini) == 0);
+  TH_CHECK(n > 0 && (size_t)n < sizeof(th_sysroot_root) && "label too long");
+  TH_CHECK(mkdtemp(th_sysroot_root) != NULL);
+  TH_CHECK(setenv("KASLD_SYSROOT", th_sysroot_root, 1) == 0);
+  TH_CHECK(atexit(th_sysroot_fini) == 0);
 }
 
 /* mkdir -p over the directory part of a staged path, in place. */
@@ -121,10 +126,10 @@ static void th_sysroot_write_n(const char *abs, const void *buf, size_t len) {
   th_sysroot_path(abs, full, sizeof(full));
   th_sysroot_mkparents(full);
   FILE *f = fopen(full, "wb");
-  assert(f != NULL);
+  TH_CHECK(f != NULL);
   if (len)
-    assert(fwrite(buf, 1, len, f) == len);
-  assert(fclose(f) == 0);
+    TH_CHECK(fwrite(buf, 1, len, f) == len);
+  TH_CHECK(fclose(f) == 0);
 }
 
 /* Stage `abs` with `contents`. A NULL `contents` writes an empty file, which is
@@ -182,7 +187,7 @@ static void th_sysroot_rm_r(const char *dir) {
  * the top of a test that stages: it starts from a stated tree rather than
  * whatever ran before it. */
 static void th_sysroot_clear(void) {
-  assert(th_sysroot_root[0] != '\0' && "th_sysroot_init() first");
+  TH_CHECK(th_sysroot_root[0] != '\0' && "th_sysroot_init() first");
   DIR *d = opendir(th_sysroot_root);
   if (!d)
     return;

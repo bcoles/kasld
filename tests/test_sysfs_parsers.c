@@ -159,7 +159,7 @@ static void put_be64(unsigned char *p, uint64_t v) {
 /* Stage a device-tree property holding `n` big-endian 32-bit cells. */
 static void stage_cells(const char *rel, const uint32_t *cells, int n) {
   unsigned char b[64];
-  assert(n * 4 <= (int)sizeof(b));
+  TH_CHECK(n * 4 <= (int)sizeof(b));
   for (int i = 0; i < n; i++) {
     b[i * 4 + 0] = (unsigned char)(cells[i] >> 24);
     b[i * 4 + 1] = (unsigned char)(cells[i] >> 16);
@@ -190,7 +190,7 @@ static void run_capture(int (*fn)(void)) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_parser_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   /* Silence the component's stderr diagnostics (kasld_info / kasld_err /
@@ -222,8 +222,8 @@ static void run_capture(int (*fn)(void)) {
 static void test_acpi_mrrm_base(void) {
   stage_text("/sys/firmware/acpi/memory_ranges/range0/base", "0x100000000\n");
   run_capture(acpi_main);
-  assert(strstr(cap, "P ram:range0") != NULL);
-  assert(strstr(cap, "sample=0x100000000") != NULL);
+  TH_CHECK(strstr(cap, "P ram:range0") != NULL);
+  TH_CHECK(strstr(cap, "sample=0x100000000") != NULL);
 }
 
 /* --- coreboot CBMEM: address + sibling size ("0x%llx") -> reserved range. */
@@ -232,8 +232,8 @@ static void test_cbmem_address(void) {
              "0x100000000\n");
   stage_text("/sys/bus/coreboot/devices/cbmem-00000abc/size", "0x10000\n");
   run_capture(cbmem_main);
-  assert(strstr(cap, "reserved_mem:cbmem-00000abc pos=base conf=parsed "
-                     "lo=0x100000000 hi=0x10000ffff") != NULL);
+  TH_CHECK(strstr(cap, "reserved_mem:cbmem-00000abc pos=base conf=parsed "
+                       "lo=0x100000000 hi=0x10000ffff") != NULL);
 }
 
 /* --- CXL region: resource + sibling size ("%#llx") -> pmem range; -1 means
@@ -245,9 +245,9 @@ static void test_cxl_region(void) {
   /* An unallocated region reports 0xff..ff and must be skipped. */
   stage_text("/sys/bus/cxl/devices/region1/resource", "0xffffffffffffffff\n");
   run_capture(cxl_main);
-  assert(strstr(cap, "pmem:region0 pos=base conf=parsed lo=0x100000000 "
-                     "hi=0x13fffffff") != NULL);
-  assert(strstr(cap, "ffffffffffffffff") == NULL);
+  TH_CHECK(strstr(cap, "pmem:region0 pos=base conf=parsed lo=0x100000000 "
+                       "hi=0x13fffffff") != NULL);
+  TH_CHECK(strstr(cap, "ffffffffffffffff") == NULL);
 }
 
 /* --- Qualcomm RMTFS: phys_addr + sibling size ("%pa" = "0x%llx") -> reserved
@@ -258,11 +258,11 @@ static void test_qcom_rmtfs(void) {
   stage_text("/sys/class/rmtfs/qcom_rmtfs_mem0/size", "0x200000\n");
   stage_text("/sys/class/rmtfs/qcom_rmtfs_mem1/phys_addr", "0x200000000\n");
   run_capture(qcom_main);
-  assert(strstr(cap, "reserved_mem:qcom_rmtfs_mem0 pos=base conf=parsed "
-                     "lo=0x100000000 hi=0x1001fffff") != NULL);
+  TH_CHECK(strstr(cap, "reserved_mem:qcom_rmtfs_mem0 pos=base conf=parsed "
+                       "lo=0x100000000 hi=0x1001fffff") != NULL);
   /* no size sibling -> base-only sample (degrades to the prior behavior) */
-  assert(strstr(cap, "reserved_mem:qcom_rmtfs_mem1 pos=interior conf=parsed "
-                     "sample=0x200000000") != NULL);
+  TH_CHECK(strstr(cap, "reserved_mem:qcom_rmtfs_mem1 pos=interior conf=parsed "
+                       "sample=0x200000000") != NULL);
 }
 
 /* --- IOMMU reserved_regions: "0x%016llx 0x%016llx <type>" lines.
@@ -276,9 +276,9 @@ static void test_iommu_reserved_regions(void) {
   run_capture(iommu_main);
   /* the reserved range is emitted as one bounded range [start, end], not two
    * disconnected interior points */
-  assert(strstr(cap, "lo=0x200000000 hi=0x20000ffff") != NULL);
+  TH_CHECK(strstr(cap, "lo=0x200000000 hi=0x20000ffff") != NULL);
   /* the msi range is skipped despite its DRAM address */
-  assert(strstr(cap, "0x100000000") == NULL);
+  TH_CHECK(strstr(cap, "0x100000000") == NULL);
 }
 
 /* --- device-tree elfcorehdr: two big-endian u64 (address, size) --------- */
@@ -289,9 +289,9 @@ static void test_devicetree_elfcorehdr(void) {
   stage("/sys/firmware/devicetree/base/chosen/linux,elfcorehdr", blob,
         sizeof(blob));
   run_capture(dt_main);
-  assert(strstr(cap, "P crashkernel:elfcorehdr") != NULL);
+  TH_CHECK(strstr(cap, "P crashkernel:elfcorehdr") != NULL);
   /* big-endian decode: address 0x100000000, hi = addr + size - 1 */
-  assert(strstr(cap, "lo=0x100000000 hi=0x10000ffff") != NULL);
+  TH_CHECK(strstr(cap, "lo=0x100000000 hi=0x10000ffff") != NULL);
 }
 
 /* --- EFI runtime-map: virt_addr / phys_addr "0x%llx" text; the parser
@@ -319,7 +319,7 @@ static void test_efi_runtime_map(void) {
              "0xffff888000001000\n");
   stage_text("/sys/firmware/efi/runtime-map/0/phys_addr", "0x1000\n");
   run_capture(efi_main);
-  assert(strstr(cap, "V virt_page_offset") == NULL);
+  TH_CHECK(strstr(cap, "V virt_page_offset") == NULL);
 
   /* A second entry at the SAME offset does establish it: one constant offset
    * shared by independent entries is what being a linear map means. */
@@ -327,8 +327,8 @@ static void test_efi_runtime_map(void) {
              "0xffff888000002000\n");
   stage_text("/sys/firmware/efi/runtime-map/1/phys_addr", "0x2000\n");
   run_capture(efi_main);
-  assert(strstr(cap, "V virt_page_offset") != NULL);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, "V virt_page_offset") != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 
   /* Entries that all disagree establish nothing, however many there are — the
    * shape a real EFI runtime mapping produces, since its virtual addresses
@@ -339,7 +339,7 @@ static void test_efi_runtime_map(void) {
              "0xffff888000009000\n");
   stage_text("/sys/firmware/efi/runtime-map/2/phys_addr", "0x4000\n");
   run_capture(efi_main);
-  assert(strstr(cap, "V virt_page_offset") == NULL);
+  TH_CHECK(strstr(cap, "V virt_page_offset") == NULL);
 #endif
 }
 
@@ -347,8 +347,8 @@ static void test_efi_runtime_map(void) {
 static void test_nd_region(void) {
   stage_text("/sys/bus/nd/devices/ndregion0/resource", "0x4000000000\n");
   run_capture(nd_main);
-  assert(strstr(cap, "P pmem:ndregion0") != NULL);
-  assert(strstr(cap, "sample=0x4000000000") != NULL);
+  TH_CHECK(strstr(cap, "P pmem:ndregion0") != NULL);
+  TH_CHECK(strstr(cap, "sample=0x4000000000") != NULL);
 }
 
 /* --- UIO map: maps/mapN/addr is "%pa" text ("0x%llx"); region defaults to
@@ -357,8 +357,8 @@ static void test_uio_map(void) {
   stage_text("/sys/class/uio/uio0/maps/map0/addr", "0x90000000\n");
   stage_text("/sys/class/uio/uio0/maps/map0/name", "uio-mem\n");
   run_capture(uio_main);
-  assert(strstr(cap, "P mmio:uio0/map0") != NULL);
-  assert(strstr(cap, "sample=0x90000000") != NULL);
+  TH_CHECK(strstr(cap, "P mmio:uio0/map0") != NULL);
+  TH_CHECK(strstr(cap, "sample=0x90000000") != NULL);
 }
 
 /* --- iSCSI transport handle (CVE-2021-27363): the "handle" attribute is a
@@ -392,17 +392,17 @@ static void test_iscsi_transport_handle(void) {
            "V kernel_data:iser pos=interior conf=parsed "
            "sample=0x%lx",
            iser);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
   snprintf(want, sizeof(want),
            "V kernel_data:tcp pos=interior conf=parsed "
            "sample=0x%lx",
            tcp);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
   snprintf(want, sizeof(want),
            "V kernel_data:be2iscsi pos=interior "
            "conf=parsed sample=0x%lx",
            hba);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 }
 
 /* --- device-tree MMIO harvester: per-device "reg" (address+size cells)
@@ -451,14 +451,14 @@ static void test_devicetree_mmio(void) {
   run_capture(mmio_run);
 
   /* emitted: real device MMIO (controller reg included) */
-  assert(strstr(cap, "P mmio:uart@10000000") != NULL);
-  assert(strstr(cap, "lo=0x10000000 hi=0x10000fff") != NULL);
-  assert(strstr(cap, "P mmio:i2c@10010000") != NULL);
+  TH_CHECK(strstr(cap, "P mmio:uart@10000000") != NULL);
+  TH_CHECK(strstr(cap, "lo=0x10000000 hi=0x10000fff") != NULL);
+  TH_CHECK(strstr(cap, "P mmio:i2c@10010000") != NULL);
   /* excluded: i2c child, in-DRAM carveout, CPU hartid */
-  assert(strstr(cap, "eeprom") == NULL);
-  assert(strstr(cap, "carveout") == NULL);
-  assert(strstr(cap, "0x90000000") == NULL);
-  assert(strstr(cap, "cpu@0") == NULL);
+  TH_CHECK(strstr(cap, "eeprom") == NULL);
+  TH_CHECK(strstr(cap, "carveout") == NULL);
+  TH_CHECK(strstr(cap, "0x90000000") == NULL);
+  TH_CHECK(strstr(cap, "cpu@0") == NULL);
 #undef DTB
 }
 
@@ -476,9 +476,9 @@ static void test_devicetree_reserved_memory(void) {
   uint32_t reg[] = {0, 0x80000000u, 0, 0x40000u}; /* base 0x80000000, 256 KiB */
   stage_cells(RMB "/reserved-memory/mmode_resv0@80000000/reg", reg, 4);
   run_capture(rm_main);
-  assert(strstr(cap, "P reserved_mem:mmode_resv0@80000000") != NULL);
+  TH_CHECK(strstr(cap, "P reserved_mem:mmode_resv0@80000000") != NULL);
   /* full extent, not just the base point */
-  assert(strstr(cap, "lo=0x80000000 hi=0x8003ffff") != NULL);
+  TH_CHECK(strstr(cap, "lo=0x80000000 hi=0x8003ffff") != NULL);
 #undef RMB
 }
 
@@ -494,10 +494,10 @@ static void test_tracefs_printk_formats(void) {
              "0xffffffff81234560 : \"hello %s\\n\"\n"
              "0x00007f0012340000 : \"userspace bogus\\n\"\n");
   run_capture(printk_run);
-  assert(strstr(cap, "V kernel_text:printk_fmt") != NULL);
-  assert(strstr(cap, "sample=0xffffffff81000040") != NULL); /* lowest */
-  assert(strstr(cap, "sample=0xffffffff81234560") != NULL); /* highest */
-  assert(strstr(cap, "0x00007f0012340000") == NULL);        /* user skipped */
+  TH_CHECK(strstr(cap, "V kernel_text:printk_fmt") != NULL);
+  TH_CHECK(strstr(cap, "sample=0xffffffff81000040") != NULL); /* lowest */
+  TH_CHECK(strstr(cap, "sample=0xffffffff81234560") != NULL); /* highest */
+  TH_CHECK(strstr(cap, "0x00007f0012340000") == NULL);        /* user skipped */
 }
 
 /* --- PCI BARs: /sys/bus/pci/devices/<BDF>/resource — "start end flags" per
@@ -516,12 +516,14 @@ static void test_pci_resource_per_bar(void) {
              "0x000000000000c000 0x000000000000c0ff 0x0000000000040101\n");
   run_capture(pci_main);
   /* each memory BAR -> its own BDF-named PCI_MMIO range */
-  assert(strstr(cap, "pci_mmio:0000:00:02.0 pos=base conf=parsed lo=0xfb000000 "
-                     "hi=0xfb7fffff") != NULL);
-  assert(strstr(cap, "pci_mmio:0000:00:14.0 pos=base conf=parsed lo=0xfe000000 "
-                     "hi=0xfe00ffff") != NULL);
+  TH_CHECK(strstr(cap,
+                  "pci_mmio:0000:00:02.0 pos=base conf=parsed lo=0xfb000000 "
+                  "hi=0xfb7fffff") != NULL);
+  TH_CHECK(strstr(cap,
+                  "pci_mmio:0000:00:14.0 pos=base conf=parsed lo=0xfe000000 "
+                  "hi=0xfe00ffff") != NULL);
   /* the I/O-port BAR is skipped (not emitted as a band) */
-  assert(strstr(cap, "0xc000") == NULL);
+  TH_CHECK(strstr(cap, "0xc000") == NULL);
 }
 
 int main(void) {

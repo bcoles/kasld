@@ -73,7 +73,7 @@ static void run_capture(int (*fn)(void)) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_bpfacts_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -113,11 +113,11 @@ static void test_synthesized_header_states_nothing_build_time(void) {
   stage();
   run_capture(bpfacts_main);
 
-  assert(strstr(cap, "kaslr_randomized conf=parsed value=0x1") != NULL);
-  assert(!emits_kaslr_off());
+  TH_CHECK(strstr(cap, "kaslr_randomized conf=parsed value=0x1") != NULL);
+  TH_CHECK(!emits_kaslr_off());
   /* The same zeroes must not be read as an image size or a slot granularity. */
-  assert(strstr(cap, "image_size_min") == NULL);
-  assert(strstr(cap, "phys_kernel_align") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
+  TH_CHECK(strstr(cap, "phys_kernel_align") == NULL);
 }
 
 /* The same synthesized header, with the image the fields really live in
@@ -139,9 +139,9 @@ static void test_synthesized_header_defers_to_the_image(void) {
   unsetenv("KASLD_UNAME_RELEASE");
   th_sysroot_rm("/boot/vmlinuz-" TEST_RELEASE);
 
-  assert(!emits_kaslr_off());
-  assert(strstr(cap, "image_size_min conf=parsed value=0x4000000") != NULL);
-  assert(strstr(cap, "phys_kernel_align conf=parsed value=0x200000") != NULL);
+  TH_CHECK(!emits_kaslr_off());
+  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x4000000") != NULL);
+  TH_CHECK(strstr(cap, "phys_kernel_align conf=parsed value=0x200000") != NULL);
 }
 
 /* A header a boot loader really copied, from a kernel built without
@@ -153,9 +153,9 @@ static void test_copied_header_reports_non_relocatable(void) {
   stage();
   run_capture(bpfacts_main);
 
-  assert(strstr(cap, "virt_kaslr_disabled conf=parsed value=0x1") != NULL);
-  assert(strstr(cap, "phys_kaslr_disabled conf=parsed value=0x1") != NULL);
-  assert(strstr(cap, "phys_kernel_align conf=parsed value=0x200000") != NULL);
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled conf=parsed value=0x1") != NULL);
+  TH_CHECK(strstr(cap, "phys_kaslr_disabled conf=parsed value=0x1") != NULL);
+  TH_CHECK(strstr(cap, "phys_kernel_align conf=parsed value=0x200000") != NULL);
 }
 
 /* A copied header from a relocatable kernel that the stub randomized: the
@@ -170,8 +170,8 @@ static void test_copied_header_relocatable_is_silent(void) {
   stage();
   run_capture(bpfacts_main);
 
-  assert(!emits_kaslr_off());
-  assert(strstr(cap, "image_size_max conf=parsed value=0x4000000") != NULL);
+  TH_CHECK(!emits_kaslr_off());
+  TH_CHECK(strstr(cap, "image_size_max conf=parsed value=0x4000000") != NULL);
 }
 
 /* A header whose magic is present but whose protocol predates the fields:
@@ -188,9 +188,9 @@ static void test_old_protocol_reads_no_later_field(void) {
   stage();
   run_capture(bpfacts_main);
 
-  assert(!emits_kaslr_off());
-  assert(strstr(cap, "phys_kernel_align") == NULL);
-  assert(strstr(cap, "image_size_min") == NULL);
+  TH_CHECK(!emits_kaslr_off());
+  TH_CHECK(strstr(cap, "phys_kernel_align") == NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
 }
 
 int main(void) {

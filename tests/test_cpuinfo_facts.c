@@ -47,10 +47,10 @@ static void test_reads_the_physical_width(void) {
                    "address sizes\t: 46 bits physical, 48 bits virtual\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "phys_addr_bits") != NULL);
-  assert(th_cap_field_is("value", 46));
+  TH_CHECK(strstr(th_cap, "phys_addr_bits") != NULL);
+  TH_CHECK(th_cap_field_is("value", 46));
   /* The virtual width sits on the same line and must not be the one taken. */
-  assert(!th_cap_field_is("value", 48));
+  TH_CHECK(!th_cap_field_is("value", 48));
 }
 
 /* The capitalised spelling is the same fact. */
@@ -60,7 +60,7 @@ static void test_accepts_the_capitalised_spelling(void) {
                    "Address Sizes\t: 40 bits physical, 48 bits virtual\n");
   int rc;
   run(&rc);
-  assert(th_cap_field_is("value", 40));
+  TH_CHECK(th_cap_field_is("value", 40));
 }
 
 /* A malformed match neither ends the search nor supplies the answer. */
@@ -71,7 +71,7 @@ static void test_a_malformed_line_does_not_end_the_search(void) {
                    "address sizes\t: 52 bits physical, 57 bits virtual\n");
   int rc;
   run(&rc);
-  assert(th_cap_field_is("value", 52));
+  TH_CHECK(th_cap_field_is("value", 52));
 }
 
 /* A key with no colon is not a claim. */
@@ -80,7 +80,7 @@ static void test_a_line_without_a_colon_is_skipped(void) {
   th_sysroot_write("/proc/cpuinfo", "address sizes 46 bits physical\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "phys_addr_bits") == NULL);
+  TH_CHECK(strstr(th_cap, "phys_addr_bits") == NULL);
 }
 
 /* No line, and no file: nothing claimed either way. A zero width would read as
@@ -90,11 +90,11 @@ static void test_absence_emits_nothing(void) {
   th_sysroot_write("/proc/cpuinfo", "processor\t: 0\nvendor_id\t: X\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "phys_addr_bits") == NULL);
+  TH_CHECK(strstr(th_cap, "phys_addr_bits") == NULL);
 
   th_sysroot_clear();
   run(&rc);
-  assert(strstr(th_cap, "phys_addr_bits") == NULL);
+  TH_CHECK(strstr(th_cap, "phys_addr_bits") == NULL);
 }
 
 int main(void) {

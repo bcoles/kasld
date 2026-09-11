@@ -49,7 +49,7 @@ static void clear_tree(void) {
   th_sysroot_path("/sys/devices/system/memory", full, sizeof(full));
   char cmd[TH_SYSROOT_MAX + 16];
   snprintf(cmd, sizeof(cmd), "rm -rf '%s'", full);
-  assert(system(cmd) == 0);
+  TH_CHECK(system(cmd) == 0);
   th_sysroot_write("/sys/devices/system/memory/block_size_bytes", "8000000");
 }
 
@@ -71,12 +71,12 @@ static void test_hull_is_sample_and_top(void) {
   stage_block(2, "online");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_memory_blocks_main());
-  assert(rc == 0);
-  assert(th_cap_field_is("sample", 0));
-  assert(th_cap_field_is("hi", 3UL * BLK - 1));
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_field_is("sample", 0));
+  TH_CHECK(th_cap_field_is("hi", 3UL * BLK - 1));
   /* The lowest start is never a floor: reserved memory below the lowest
    * ONLINE block is invisible here. */
-  assert(!th_cap_field_is("lo", 0) || th_cap_count("pos=base") == 0);
+  TH_CHECK(!th_cap_field_is("lo", 0) || th_cap_count("pos=base") == 0);
 }
 
 /* An offline block is not present RAM and must not widen the extent. */
@@ -87,9 +87,9 @@ static void test_offline_blocks_are_ignored(void) {
   stage_block(9, "offline");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_memory_blocks_main());
-  assert(rc == 0);
-  assert(th_cap_field_is("hi", 3UL * BLK - 1));
-  assert(!th_cap_field_is("hi", 10UL * BLK - 1));
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_field_is("hi", 3UL * BLK - 1));
+  TH_CHECK(!th_cap_field_is("hi", 10UL * BLK - 1));
 }
 
 /* Two separated runs: each becomes an extent, and the gap between them is what
@@ -105,11 +105,11 @@ static void test_two_runs_emit_two_extents(void) {
   stage_block(4, "online");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_memory_blocks_main());
-  assert(rc == 0);
-  assert(th_cap_count("pos=extent") == 2);
-  assert(th_cap_field_is("lo", 0) && th_cap_field_is("hi", 2UL * BLK - 1));
-  assert(th_cap_field_is("lo", 3UL * BLK) &&
-         th_cap_field_is("hi", 5UL * BLK - 1));
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_count("pos=extent") == 2);
+  TH_CHECK(th_cap_field_is("lo", 0) && th_cap_field_is("hi", 2UL * BLK - 1));
+  TH_CHECK(th_cap_field_is("lo", 3UL * BLK) &&
+           th_cap_field_is("hi", 5UL * BLK - 1));
 }
 
 /* One contiguous run has no gap to carve, so no extent is published — an
@@ -122,10 +122,10 @@ static void test_single_run_emits_no_extent(void) {
   stage_block(2, "online");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_memory_blocks_main());
-  assert(rc == 0);
-  assert(th_cap_count("pos=extent") == 0);
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_count("pos=extent") == 0);
   /* The hull is still published. */
-  assert(th_cap_field_is("sample", 0));
+  TH_CHECK(th_cap_field_is("sample", 0));
 }
 
 /* More online blocks than can be collected. The run set would then describe
@@ -139,9 +139,9 @@ static void test_overflow_publishes_no_extents(void) {
   stage_block(SMB_MAX_INDICES + 900UL, "online"); /* a second run */
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_memory_blocks_main());
-  assert(rc == 0);
-  assert(th_cap_count("pos=extent") == 0);
-  assert(th_cap_field_is("sample", 0));
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap_count("pos=extent") == 0);
+  TH_CHECK(th_cap_field_is("sample", 0));
 }
 
 /* No online blocks at all: the tree is present and the technique applied, so
@@ -152,8 +152,8 @@ static void test_all_offline_emits_nothing(void) {
   stage_block(1, "offline");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_memory_blocks_main());
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* A block size of zero cannot convert an index to an address; the component
@@ -165,8 +165,8 @@ static void test_zero_block_size_emits_nothing(void) {
   stage_block(1, "online");
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_memory_blocks_main());
-  assert(rc == 0);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == 0);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 /* No block_size_bytes is a kernel without memory hotplug — provably
@@ -176,11 +176,11 @@ static void test_absent_tree_is_unavailable(void) {
   th_sysroot_path("/sys/devices/system/memory", full, sizeof(full));
   char cmd[TH_SYSROOT_MAX + 16];
   snprintf(cmd, sizeof(cmd), "rm -rf '%s'", full);
-  assert(system(cmd) == 0);
+  TH_CHECK(system(cmd) == 0);
   int rc;
   TH_RUN_COMPONENT(rc, sysfs_memory_blocks_main());
-  assert(rc == KASLD_EXIT_UNAVAILABLE);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(rc == KASLD_EXIT_UNAVAILABLE);
+  TH_CHECK(th_cap[0] == '\0');
 }
 
 int main(void) {

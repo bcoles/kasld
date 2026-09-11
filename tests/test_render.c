@@ -82,11 +82,11 @@ static char render_cap[RENDER_CAP_BUF];
 static int capture_stdout(void (*fn)(void *), void *arg) {
   fflush(stdout);
   int saved_fd = dup(STDOUT_FILENO);
-  assert(saved_fd >= 0);
+  TH_CHECK(saved_fd >= 0);
   FILE *tmp = tmpfile();
-  assert(tmp);
+  TH_CHECK(tmp);
   int rc = dup2(fileno(tmp), STDOUT_FILENO);
-  assert(rc >= 0);
+  TH_CHECK(rc >= 0);
   fn(arg);
   fflush(stdout);
   /* Restore stdout BEFORE reading the tmpfile so subsequent prints work. */
@@ -113,7 +113,7 @@ static void wrap_json_print_escaped(void *arg) {
 static void test_json_print_escaped_passthrough(void) {
   char in[] = "hello world";
   capture_stdout(wrap_json_print_escaped, in);
-  assert(strcmp(render_cap, "\"hello world\"") == 0);
+  TH_CHECK(strcmp(render_cap, "\"hello world\"") == 0);
 }
 
 static void test_json_print_escaped_all_named_escapes(void) {
@@ -122,7 +122,7 @@ static void test_json_print_escaped_all_named_escapes(void) {
   char in[] = "a\\b\"c\bd\fe\nf\rg\th";
   capture_stdout(wrap_json_print_escaped, in);
   /* Expected: opening ", each special escaped, closing ". */
-  assert(strcmp(render_cap, "\"a\\\\b\\\"c\\bd\\fe\\nf\\rg\\th\"") == 0);
+  TH_CHECK(strcmp(render_cap, "\"a\\\\b\\\"c\\bd\\fe\\nf\\rg\\th\"") == 0);
 }
 
 static void test_json_print_escaped_other_control(void) {
@@ -130,13 +130,13 @@ static void test_json_print_escaped_other_control(void) {
    * (e.g. 0x01 SOH). */
   char in[] = {'a', 0x01, 'b', 0};
   capture_stdout(wrap_json_print_escaped, in);
-  assert(strcmp(render_cap, "\"a\\u0001b\"") == 0);
+  TH_CHECK(strcmp(render_cap, "\"a\\u0001b\"") == 0);
 }
 
 static void test_json_print_escaped_empty(void) {
   char in[] = "";
   capture_stdout(wrap_json_print_escaped, in);
-  assert(strcmp(render_cap, "\"\"") == 0);
+  TH_CHECK(strcmp(render_cap, "\"\"") == 0);
 }
 
 /* (No null-input test — json_print_escaped requires non-NULL by contract;
@@ -152,19 +152,19 @@ static void wrap_md_print_cell(void *arg) { md_print_cell((const char *)arg); }
 static void test_md_print_cell_escaping(void) {
   char in1[] = "foo|bar";
   capture_stdout(wrap_md_print_cell, in1);
-  assert(strcmp(render_cap, "foo\\|bar") == 0);
+  TH_CHECK(strcmp(render_cap, "foo\\|bar") == 0);
 
   char in2[] = "a\\b"; /* literal backslash doubled */
   capture_stdout(wrap_md_print_cell, in2);
-  assert(strcmp(render_cap, "a\\\\b") == 0);
+  TH_CHECK(strcmp(render_cap, "a\\\\b") == 0);
 
   char in3[] = {'x', 0x09, 'y', 0}; /* TAB (control) -> space */
   capture_stdout(wrap_md_print_cell, in3);
-  assert(strcmp(render_cap, "x y") == 0);
+  TH_CHECK(strcmp(render_cap, "x y") == 0);
 
   char in4[] = "proc_kallsyms"; /* ordinary name/origin: unchanged */
   capture_stdout(wrap_md_print_cell, in4);
-  assert(strcmp(render_cap, "proc_kallsyms") == 0);
+  TH_CHECK(strcmp(render_cap, "proc_kallsyms") == 0);
 }
 
 /* render_summary dispatcher: a synthetic minimal summary should hit one of
@@ -406,7 +406,7 @@ static void test_render_summary_text_mode_minimal(void) {
   capture_stdout(wrap_render_summary, &s);
   /* Text mode prints a section header somewhere; the exact wording is the
    * renderer's, but a non-empty output is the minimum invariant. */
-  assert(strlen(render_cap) > 0);
+  TH_CHECK(strlen(render_cap) > 0);
 }
 
 static void test_render_summary_json_mode_minimal(void) {
@@ -420,7 +420,7 @@ static void test_render_summary_json_mode_minimal(void) {
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   /* JSON mode produces a top-level object. */
-  assert(render_cap[0] == '{');
+  TH_CHECK(render_cap[0] == '{');
   /* Restore default for subsequent tests. */
   set_render_mode(0, 0, 0);
 }
@@ -441,7 +441,7 @@ static void test_render_summary_oneline_mode_minimal(void) {
   for (int i = 0; render_cap[i]; i++)
     if (render_cap[i] == '\n')
       newlines++;
-  assert(newlines <= 1);
+  TH_CHECK(newlines <= 1);
   set_render_mode(0, 0, 0);
 }
 
@@ -456,7 +456,7 @@ static void test_render_summary_markdown_mode_minimal(void) {
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
   /* Markdown mode emits at least one # heading. */
-  assert(strchr(render_cap, '#') != NULL);
+  TH_CHECK(strchr(render_cap, '#') != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -533,9 +533,9 @@ static void test_render_text_with_rich_content(void) {
   capture_stdout(wrap_render_summary, &s);
   /* Text output should mention the section ("text") and a hex address from the
    * VIRT/KERNEL_TEXT record. */
-  assert(strstr(render_cap, "text") != NULL ||
-         strstr(render_cap, "kernel") != NULL);
-  assert(strstr(render_cap, "0x") != NULL);
+  TH_CHECK(strstr(render_cap, "text") != NULL ||
+           strstr(render_cap, "kernel") != NULL);
+  TH_CHECK(strstr(render_cap, "0x") != NULL);
 }
 
 /* `-1` must not assert a direct-map base the engine only bounded. The field is
@@ -587,13 +587,13 @@ static void test_render_oneline_dmap_not_asserted_when_unpinned(void) {
    * resolved one. The windowed and `na` forms both say so honestly, so the
    * assertion is on the grammar rather than on which of the two appears. */
 #if PAGE_OFFSET_INVARIANT
-  assert(strstr(render_cap, "dmap=") != NULL);
+  TH_CHECK(strstr(render_cap, "dmap=") != NULL);
 #else
   {
     const char *v = strstr(render_cap, "dmap=");
-    assert(v != NULL);
+    TH_CHECK(v != NULL);
     v += strlen("dmap=");
-    assert(*v == '[' || strncmp(v, "na", 2) == 0);
+    TH_CHECK(*v == '[' || strncmp(v, "na", 2) == 0);
   }
 #endif
 }
@@ -604,11 +604,11 @@ static void test_render_json_with_rich_content(void) {
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   /* JSON object with a results array — confirms render_json_group ran. */
-  assert(render_cap[0] == '{');
-  assert(strstr(render_cap, "\"results\"") != NULL ||
-         strstr(render_cap, "\"groups\"") != NULL);
+  TH_CHECK(render_cap[0] == '{');
+  TH_CHECK(strstr(render_cap, "\"results\"") != NULL ||
+           strstr(render_cap, "\"groups\"") != NULL);
   /* Each leak result discloses its extent-position. */
-  assert(strstr(render_cap, "\"pos\": \"base\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"pos\": \"base\"") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -632,17 +632,17 @@ static void test_render_json_posture_always_present(void) {
   kasld_env.hardening.kptr_restrict = saved_kptr;
 
   /* Per-component records with parsed meta, without -H/-v. */
-  assert(strstr(render_cap, "\"components\": [") != NULL);
-  assert(strstr(render_cap, "synthetic_component") != NULL);
-  assert(strstr(render_cap, "\"meta\": {") != NULL);
+  TH_CHECK(strstr(render_cap, "\"components\": [") != NULL);
+  TH_CHECK(strstr(render_cap, "synthetic_component") != NULL);
+  TH_CHECK(strstr(render_cap, "\"meta\": {") != NULL);
   /* The full hardening block, without -H. */
-  assert(strstr(render_cap, "\"hardening\": {") != NULL);
-  assert(strstr(render_cap, "\"active_defenses\": [") != NULL);
-  assert(strstr(render_cap, "\"hardware_side_channels\": [") != NULL);
+  TH_CHECK(strstr(render_cap, "\"hardening\": {") != NULL);
+  TH_CHECK(strstr(render_cap, "\"active_defenses\": [") != NULL);
+  TH_CHECK(strstr(render_cap, "\"hardware_side_channels\": [") != NULL);
   /* Enforcement surface accompanies each active-defense / suggestion row. */
-  assert(strstr(render_cap, "\"surface\":") != NULL);
+  TH_CHECK(strstr(render_cap, "\"surface\":") != NULL);
   /* Raw stdout lines stay behind --verbose. */
-  assert(strstr(render_cap, "\"output\": [") == NULL);
+  TH_CHECK(strstr(render_cap, "\"output\": [") == NULL);
 
   set_render_mode(0, 0, 0);
 }
@@ -671,32 +671,32 @@ static void test_render_likely_window(void) {
   verbose = 1; /* the KASLR analysis block shows in the verbose text flow */
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);
   /* A single surviving slot is one address, not a degenerate "0xX - 0xX"
      range: the row states the address and a search space of one. */
   {
     char one[32];
     snprintf(one, sizeof(one), "0x%lx - 0x%lx", t_vlikely_lo, t_vlikely_lo);
-    assert(strstr(render_cap, one) == NULL);
-    assert(strstr(render_cap, "1 slots") == NULL);
+    TH_CHECK(strstr(render_cap, one) == NULL);
+    TH_CHECK(strstr(render_cap, "1 slots") == NULL);
   }
 
   verbose = 0; /* DEFAULT (compact readout) must also show the likely line */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);
 
   set_render_mode(1, 0, 0); /* json */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "\"likely\"") != NULL);
-  assert(strstr(render_cap, "\"speculative\": true") != NULL);
+  TH_CHECK(strstr(render_cap, "\"likely\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"speculative\": true") != NULL);
 
   /* Markdown carries the same likely window, as a row of the same Layout
      table the readout draws — both are rendered from one row model, so the
      grade word is the one the readout uses. */
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
-  assert(strstr(render_cap, "## Layout") != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);
+  TH_CHECK(strstr(render_cap, "## Layout") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -745,38 +745,38 @@ static void test_render_vtext_speculative(void) {
   verbose = 1;
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);
   /* -v draws the same Layout table as the readout, so the proven window is
      the guaranteed row rather than a separately-worded line. */
-  assert(strstr(render_cap, GRADE_GUARANTEED) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_GUARANTEED) != NULL);
 
   /* DEFAULT compact readout: the concrete base is the headline, graded
    * speculative, with its slide alongside and the proven window shown as
    * "guaranteed" beneath — never buried as a bare status word alone. */
   verbose = 0;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
-  assert(strstr(render_cap, GRADE_GUARANTEED) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_GUARANTEED) != NULL);
   /* A concrete best-guess base carries its slide, graded likely. */
-  assert(strstr(render_cap, "slide +0x10000000") != NULL);
+  TH_CHECK(strstr(render_cap, "slide +0x10000000") != NULL);
   {
     char base_hex[32];
     /* The readout right-aligns addresses without zero-padding, so build the
      * expectation the same way: "0x%016lx" only matches on arches whose
      * addresses happen to fill 16 hex digits. */
     snprintf(base_hex, sizeof(base_hex), "0x%lx", s.kaslr.vtext);
-    assert(strstr(render_cap, base_hex) != NULL);
+    TH_CHECK(strstr(render_cap, base_hex) != NULL);
   }
 
   set_render_mode(1, 0,
                   0); /* json: virtual marked speculative + inferred range */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "\"speculative\": true") != NULL);
-  assert(strstr(render_cap, "\"inferred\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"speculative\": true") != NULL);
+  TH_CHECK(strstr(render_cap, "\"inferred\"") != NULL);
 
   set_render_mode(0, 0, 1); /* markdown: concrete base graded likely */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);
   set_render_mode(0, 0, 0);
 
   layout.virt_kaslr_text_min = sv_lo;
@@ -829,17 +829,18 @@ static void test_render_windowed_base_likely_order(void) {
      * a count is grouped for display, so a literal here asserts the digits and
      * the grouping at once and breaks on a change to either. */
     char want[KASLD_DECIMAL_MAX];
-    assert(strstr(render_cap, kasld_decimal(1391, want, sizeof(want))) != NULL);
+    TH_CHECK(strstr(render_cap, kasld_decimal(1391, want, sizeof(want))) !=
+             NULL);
   }
-  assert(strstr(render_cap, "not derandomized") == NULL);
+  TH_CHECK(strstr(render_cap, "not derandomized") == NULL);
   {
     const char *lk = strstr(render_cap, GRADE_LIKELY);
     const char *gt = strstr(render_cap, GRADE_GUARANTEED);
-    assert(lk != NULL); /* speculative window shown */
-    assert(gt != NULL); /* proven range shown, graded */
+    TH_CHECK(lk != NULL); /* speculative window shown */
+    TH_CHECK(gt != NULL); /* proven range shown, graded */
     /* Proven first, speculative beneath: a quantity's rows read as the claim
        and then the guess drawn inside it. */
-    assert(gt < lk);
+    TH_CHECK(gt < lk);
   }
 
   layout.virt_kaslr_text_min = sv_vlo;
@@ -889,21 +890,21 @@ static void test_render_directmap_entropy_denominator(void) {
    * it restates -- not on the block header, which carries no grade and so
    * cannot own a figure describing one particular row. */
   const char *row = strstr(render_cap, "Direct Map Base");
-  assert(row != NULL);
+  TH_CHECK(row != NULL);
   row = strstr(row, GRADE_GUARANTEED);
-  assert(row != NULL);
+  TH_CHECK(row != NULL);
   {
     const char *eol = strchr(row, '\n');
-    assert(eol != NULL);
+    TH_CHECK(eol != NULL);
     char line[256];
     size_t len = (size_t)(eol - row);
-    assert(len < sizeof(line));
+    TH_CHECK(len < sizeof(line));
     memcpy(line, row, len);
     line[len] = '\0';
     char want[64], nb[KASLD_DECIMAL_MAX];
     snprintf(want, sizeof(want), "16 of %s",
              kasld_decimal(16384, nb, sizeof(nb)));
-    assert(strstr(line, want) != NULL);
+    TH_CHECK(strstr(line, want) != NULL);
   }
 
   /* No sound baseline: the residual stands alone rather than being presented
@@ -912,19 +913,19 @@ static void test_render_directmap_entropy_denominator(void) {
   s.kaslr.virt_page_offset_top_slots = 0;
   capture_stdout(wrap_render_summary, &s);
   row = strstr(render_cap, "Direct Map Base");
-  assert(row != NULL);
+  TH_CHECK(row != NULL);
   row = strstr(row, GRADE_GUARANTEED);
-  assert(row != NULL);
+  TH_CHECK(row != NULL);
   {
     const char *eol = strchr(row, '\n');
-    assert(eol != NULL);
+    TH_CHECK(eol != NULL);
     char line[256];
     size_t len = (size_t)(eol - row);
-    assert(len < sizeof(line));
+    TH_CHECK(len < sizeof(line));
     memcpy(line, row, len);
     line[len] = '\0';
-    assert(strstr(line, "16") != NULL);
-    assert(strstr(line, " of ") == NULL);
+    TH_CHECK(strstr(line, "16") != NULL);
+    TH_CHECK(strstr(line, " of ") == NULL);
   }
 #endif
 }
@@ -952,20 +953,20 @@ static void test_render_memory_likely_window(void) {
   verbose = 1;              /* verbose Memory KASLR block */
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);
 
   verbose = 0; /* DEFAULT readout direct-map likely line */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);
 
   set_render_mode(1, 0, 0); /* json */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "\"likely\"") != NULL);
-  assert(strstr(render_cap, "\"speculative\": true") != NULL);
+  TH_CHECK(strstr(render_cap, "\"likely\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"speculative\": true") != NULL);
 
   set_render_mode(0, 0, 1); /* markdown */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);
   set_render_mode(0, 0, 0);
 #endif
 }
@@ -1015,10 +1016,10 @@ static void test_render_directmap_base_promoted(void) {
   char hex[32], off[32];
   snprintf(hex, sizeof(hex), "0x%lx", base);
   snprintf(off, sizeof(off), "off +0x%lx", 20ul * align); /* base - default */
-  assert(strstr(render_cap, hex) != NULL);                /* headline base */
-  assert(strstr(render_cap, off) != NULL);                /* RM offset */
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL);       /* graded */
-  assert(strstr(render_cap, GRADE_GUARANTEED) != NULL);   /* window beneath */
+  TH_CHECK(strstr(render_cap, hex) != NULL);              /* headline base */
+  TH_CHECK(strstr(render_cap, off) != NULL);              /* RM offset */
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL);     /* graded */
+  TH_CHECK(strstr(render_cap, GRADE_GUARANTEED) != NULL); /* window beneath */
   set_render_mode(0, 0, 0);
   layout.virt_page_offset_unrandomized = sv_ref;
 #endif
@@ -1062,11 +1063,11 @@ static void test_render_directmap_base_promoted_unbounded(void) {
   char hex[32], off[32];
   snprintf(hex, sizeof(hex), "0x%lx", base);
   snprintf(off, sizeof(off), "off +0x%lx", 20ul * align);
-  assert(strstr(render_cap, hex) != NULL);          /* headline base */
-  assert(strstr(render_cap, off) != NULL);          /* RM offset */
-  assert(strstr(render_cap, GRADE_LIKELY) != NULL); /* graded */
-  assert(strstr(render_cap, GRADE_GUARANTEED) !=
-         NULL); /* floor beneath, labelled */
+  TH_CHECK(strstr(render_cap, hex) != NULL);          /* headline base */
+  TH_CHECK(strstr(render_cap, off) != NULL);          /* RM offset */
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) != NULL); /* graded */
+  TH_CHECK(strstr(render_cap, GRADE_GUARANTEED) !=
+           NULL); /* floor beneath, labelled */
   set_render_mode(0, 0, 0);
   layout.virt_page_offset_unrandomized = sv_ref;
 #endif
@@ -1121,8 +1122,8 @@ static void test_render_directmap_offset_follows_paging_level(void) {
     long bad = (long)(base - refs[i ^ 1]);
     snprintf(wrong, sizeof(wrong), "off %s0x%lx", bad < 0 ? "-" : "+",
              (unsigned long)(bad < 0 ? -bad : bad));
-    assert(strstr(render_cap, off) != NULL);
-    assert(strstr(render_cap, wrong) == NULL);
+    TH_CHECK(strstr(render_cap, off) != NULL);
+    TH_CHECK(strstr(render_cap, wrong) == NULL);
     set_render_mode(0, 0, 0);
   }
 
@@ -1154,8 +1155,8 @@ static void test_render_directmap_offset_follows_paging_level(void) {
     capture_stdout(wrap_render_summary, &s);
     char hex[32];
     snprintf(hex, sizeof(hex), "0x%lx", base);
-    assert(strstr(render_cap, hex) != NULL);
-    assert(strstr(render_cap, "off ") == NULL);
+    TH_CHECK(strstr(render_cap, hex) != NULL);
+    TH_CHECK(strstr(render_cap, "off ") == NULL);
     set_render_mode(0, 0, 0);
   }
 
@@ -1196,9 +1197,9 @@ static void test_render_json_publishes_unrandomized_directmap_base(void) {
     char want[80];
     snprintf(want, sizeof(want),
              "\"virt_page_offset_unrandomized\": \"0x%016lx\"", refs[i]);
-    assert(strstr(render_cap, want) != NULL);
+    TH_CHECK(strstr(render_cap, want) != NULL);
     /* The minuend the slide is taken from, in the same object. */
-    assert(strstr(render_cap, "\"virt_page_offset\":") != NULL);
+    TH_CHECK(strstr(render_cap, "\"virt_page_offset\":") != NULL);
     set_render_mode(0, 0, 0);
   }
 
@@ -1225,12 +1226,12 @@ static void test_render_entropy_states_its_baseline(void) {
 
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "24 of 512") != NULL);
+  TH_CHECK(strstr(render_cap, "24 of 512") != NULL);
 
   t_stage.vtop_slots = 0; /* baseline unknown */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "24") != NULL);
-  assert(strstr(render_cap, "of 512") == NULL);
+  TH_CHECK(strstr(render_cap, "24") != NULL);
+  TH_CHECK(strstr(render_cap, "of 512") == NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -1261,12 +1262,13 @@ static void test_render_window_row_always_graded(void) {
 
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Direct Map Base") != NULL);
-  assert(strstr(render_cap, GRADE_LIKELY) == NULL);     /* none to show */
-  assert(strstr(render_cap, GRADE_GUARANTEED) != NULL); /* graded regardless */
+  TH_CHECK(strstr(render_cap, "Direct Map Base") != NULL);
+  TH_CHECK(strstr(render_cap, GRADE_LIKELY) == NULL); /* none to show */
+  TH_CHECK(strstr(render_cap, GRADE_GUARANTEED) !=
+           NULL); /* graded regardless */
   /* The count reconciles with the window it is printed beside: a closed
    * 12-slot span holds 13 candidates. */
-  assert(strstr(render_cap, "13") != NULL);
+  TH_CHECK(strstr(render_cap, "13") != NULL);
   set_render_mode(0, 0, 0);
 #endif
 }
@@ -1296,29 +1298,29 @@ static void test_render_coupling_note(void) {
   /* KASLR live: stated by both formats that carry it. */
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "physical and virtual text") != NULL);
+  TH_CHECK(strstr(render_cap, "physical and virtual text") != NULL);
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Phys/Virt coupling") != NULL);
+  TH_CHECK(strstr(render_cap, "Phys/Virt coupling") != NULL);
 
   /* Unsupported: the banner is the whole answer, and no coupling follows it. */
   s.kaslr.unsupported = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "physical and virtual text") == NULL);
+  TH_CHECK(strstr(render_cap, "physical and virtual text") == NULL);
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Phys/Virt coupling") == NULL);
+  TH_CHECK(strstr(render_cap, "Phys/Virt coupling") == NULL);
   s.kaslr.unsupported = 0;
 
   /* Disabled: likewise. */
   s.kaslr.disabled = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "physical and virtual text") == NULL);
+  TH_CHECK(strstr(render_cap, "physical and virtual text") == NULL);
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Phys/Virt coupling") == NULL);
+  TH_CHECK(strstr(render_cap, "Phys/Virt coupling") == NULL);
   s.kaslr.disabled = 0;
 
   set_render_mode(0, 0, 0);
@@ -1346,18 +1348,18 @@ static void test_render_markdown_text_order_caution(void) {
 
   set_render_mode(0, 0, 1); /* markdown */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "**Caution:**") != NULL);
-  assert(strstr(render_cap, "non-canonical") != NULL);
+  TH_CHECK(strstr(render_cap, "**Caution:**") != NULL);
+  TH_CHECK(strstr(render_cap, "non-canonical") != NULL);
 
   /* Per-boot (dynamic) variant carries the stronger wording. */
   scalar_facts[0].value = TEXT_ORDER_DYNAMIC;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "per-boot randomized") != NULL);
+  TH_CHECK(strstr(render_cap, "per-boot randomized") != NULL);
 
   /* Canonical order → no caution. */
   scalar_facts[0].value = TEXT_ORDER_CANONICAL;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "**Caution:**") == NULL);
+  TH_CHECK(strstr(render_cap, "**Caution:**") == NULL);
 
   set_render_mode(0, 0, 0);
   num_scalar_facts = 0;
@@ -1395,12 +1397,12 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
     const char *row = strstr(render_cap, "Direct Map Base");
     const char *eol;
     char line[256];
-    assert(row != NULL);
+    TH_CHECK(row != NULL);
     eol = strchr(row, '\n');
-    assert(eol != NULL);
-    assert((size_t)(eol - row) < sizeof(line));
+    TH_CHECK(eol != NULL);
+    TH_CHECK((size_t)(eol - row) < sizeof(line));
     snprintf(line, (size_t)(eol - row) + 1, "%s", row);
-    assert(strstr(line, " 7  ") != NULL);
+    TH_CHECK(strstr(line, " 7  ") != NULL);
   }
 #endif
 }
@@ -1480,7 +1482,7 @@ static void test_render_readout_has_no_double_blank(void) {
     }
   }
   /* One blank line between blocks is the separator; two is the defect. */
-  assert(worst <= 1);
+  TH_CHECK(worst <= 1);
 }
 
 /* The verbose block states a baseline the model carries.
@@ -1515,13 +1517,13 @@ static void test_render_verbose_states_the_baseline(void) {
   verbose = 0;
 
   line = strstr(render_cap, "Virtual entropy:");
-  assert(line != NULL);
+  TH_CHECK(line != NULL);
   eol = strchr(line, '\n');
-  assert(eol != NULL);
+  TH_CHECK(eol != NULL);
   /* The baseline is carried, so the line must state what the residual is
    * measured against. */
-  assert(memchr(line, 'o', (size_t)(eol - line)) != NULL &&
-         strstr(line, " of ") != NULL && strstr(line, " of ") < eol);
+  TH_CHECK(memchr(line, 'o', (size_t)(eol - line)) != NULL &&
+           strstr(line, " of ") != NULL && strstr(line, " of ") < eol);
 
   /* The converse, so the assertion above cannot pass on a line that always
    * says "of": with no baseline modelled, the residual stands alone. */
@@ -1538,10 +1540,10 @@ static void test_render_verbose_states_the_baseline(void) {
   verbose = 0;
 
   line = strstr(render_cap, "Virtual entropy:");
-  assert(line != NULL);
+  TH_CHECK(line != NULL);
   eol = strchr(line, '\n');
-  assert(eol != NULL);
-  assert(strstr(line, " of ") == NULL || strstr(line, " of ") > eol);
+  TH_CHECK(eol != NULL);
+  TH_CHECK(strstr(line, " of ") == NULL || strstr(line, " of ") > eol);
 }
 
 static void test_render_baseline_equal_to_count_is_stated(void) {
@@ -1559,7 +1561,7 @@ static void test_render_baseline_equal_to_count_is_stated(void) {
   verbose = 1;
   capture_stdout(wrap_render_summary, &s);
   verbose = 0;
-  assert(strstr(render_cap, "505 of 505") != NULL);
+  TH_CHECK(strstr(render_cap, "505 of 505") != NULL);
 
   /* Same count, no baseline: bare, which is the only thing bare says. */
   reset_results();
@@ -1573,8 +1575,8 @@ static void test_render_baseline_equal_to_count_is_stated(void) {
   verbose = 1;
   capture_stdout(wrap_render_summary, &s);
   verbose = 0;
-  assert(strstr(render_cap, "505 of") == NULL);
-  assert(strstr(render_cap, "505") != NULL);
+  TH_CHECK(strstr(render_cap, "505 of") == NULL);
+  TH_CHECK(strstr(render_cap, "505") != NULL);
 }
 
 static void test_render_markdown_evidence_names_the_edge(void) {
@@ -1626,13 +1628,13 @@ static void test_render_markdown_evidence_names_the_edge(void) {
   set_render_mode(0, 0, 0);
 
   snprintf(addr, sizeof addr, "`0x%016lx`", base);
-  assert(strstr(render_cap, addr) != NULL);
+  TH_CHECK(strstr(render_cap, addr) != NULL);
   /* The interior sample must not stand in for the group's address, whether as
    * the anchor itself or as the far end of a span rooted at the base. */
   snprintf(addr, sizeof addr, "`0x%016lx` |", inside);
-  assert(strstr(render_cap, addr) == NULL);
+  TH_CHECK(strstr(render_cap, addr) == NULL);
   snprintf(addr, sizeof addr, "- `0x%016lx`", inside);
-  assert(strstr(render_cap, addr) == NULL);
+  TH_CHECK(strstr(render_cap, addr) == NULL);
 }
 
 static void test_render_grain_states_a_floor_as_one(void) {
@@ -1657,20 +1659,20 @@ static void test_render_grain_states_a_floor_as_one(void) {
    * built with. The converse -- a resolved granularity dropping the marker --
    * belongs with the report model, which is where the estimate lives. */
   line = strstr(render_cap, "| Virtual Image Base |");
-  assert(line != NULL);
+  TH_CHECK(line != NULL);
   {
     const char *eol = strchr(line, '\n');
-    assert(eol != NULL);
-    assert(memchr(line, '>', (size_t)(eol - line)) != NULL);
+    TH_CHECK(eol != NULL);
+    TH_CHECK(memchr(line, '>', (size_t)(eol - line)) != NULL);
   }
 
   /* json publishes the same judgement as a field rather than a glyph. */
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
-  assert(strstr(render_cap, "\"slots_upper_bound\": true") != NULL);
-  assert(q_grain_exact(Q_VIRT_IMAGE_BASE, NULL,
-                       (unsigned long)KASLR_VIRT_ALIGN) == 0);
+  TH_CHECK(strstr(render_cap, "\"slots_upper_bound\": true") != NULL);
+  TH_CHECK(q_grain_exact(Q_VIRT_IMAGE_BASE, NULL,
+                         (unsigned long)KASLR_VIRT_ALIGN) == 0);
 }
 
 static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
@@ -1692,15 +1694,15 @@ static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
 
   set_render_mode(1, 0, 0); /* json */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "\"slots\": 7") != NULL);
-  assert(strstr(render_cap, "\"entropy_bits\": 3") != NULL);
+  TH_CHECK(strstr(render_cap, "\"slots\": 7") != NULL);
+  TH_CHECK(strstr(render_cap, "\"entropy_bits\": 3") != NULL);
 
   /* Markdown reports the same hole-aware count in the Layout table's search
      space column. Bits stay a machine-format figure: the human table states
      the candidate count itself, which is the same fact without the log. */
   set_render_mode(0, 0, 1); /* markdown */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "| 7 | 1 GiB |") != NULL);
+  TH_CHECK(strstr(render_cap, "| 7 | 1 GiB |") != NULL);
   set_render_mode(0, 0, 0);
 #endif
 }
@@ -1763,31 +1765,31 @@ static void check_static_base_case(int posture_disabled, unsigned long lo,
   char abuf[40];
   if (lo) {
     snprintf(abuf, sizeof(abuf), afmt, lo);
-    assert(strstr(render_cap, abuf) != NULL);
+    TH_CHECK(strstr(render_cap, abuf) != NULL);
   }
   if (hi) {
     snprintf(abuf, sizeof(abuf), afmt, hi);
-    assert(strstr(render_cap, abuf) != NULL);
+    TH_CHECK(strstr(render_cap, abuf) != NULL);
   }
 
   const char *rem = strstr(render_cap, "The compile-time default");
   if (!want_verdict) {
-    assert(rem == NULL);
+    TH_CHECK(rem == NULL);
     return;
   }
-  assert(rem != NULL);
+  TH_CHECK(rem != NULL);
   const char *eol = strchr(rem, '\n');
   char line[256];
-  assert(eol != NULL);
-  assert((size_t)(eol - rem) < sizeof(line));
+  TH_CHECK(eol != NULL);
+  TH_CHECK((size_t)(eol - rem) < sizeof(line));
   snprintf(line, (size_t)(eol - rem) + 1, "%s", rem);
   /* The verdict, the default, and no grade word: the remark is a sentence
    * about a constant, never a row on the confidence ladder. */
-  assert(strstr(line, want_verdict) != NULL);
+  TH_CHECK(strstr(line, want_verdict) != NULL);
   snprintf(abuf, sizeof(abuf), afmt, dflt);
-  assert(strstr(line, abuf) != NULL);
-  assert(strstr(line, GRADE_GUARANTEED) == NULL);
-  assert(strstr(line, GRADE_LIKELY) == NULL);
+  TH_CHECK(strstr(line, abuf) != NULL);
+  TH_CHECK(strstr(line, GRADE_GUARANTEED) == NULL);
+  TH_CHECK(strstr(line, GRADE_LIKELY) == NULL);
 }
 
 static void test_render_static_base_prefers_engine_window(void) {
@@ -1924,14 +1926,14 @@ static void test_render_map_directmap_extent_derived(void) {
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "extent derived") != NULL);
-  assert(strstr(render_cap, abuf) != NULL);
+  TH_CHECK(strstr(render_cap, "extent derived") != NULL);
+  TH_CHECK(strstr(render_cap, abuf) != NULL);
 
   /* --- same facts, base only a lower bound: no derivation. --- */
   layout.virt_page_offset_max = base + step;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "extent derived") == NULL);
-  assert(strstr(render_cap, abuf) == NULL);
+  TH_CHECK(strstr(render_cap, "extent derived") == NULL);
+  TH_CHECK(strstr(render_cap, abuf) == NULL);
   layout.virt_page_offset_max = base;
 
 #if ULONG_MAX <= 0xFFFFFFFFul
@@ -1940,7 +1942,7 @@ static void test_render_map_directmap_extent_derived(void) {
   scalar_facts[num_scalar_facts].value = reach;
   scalar_facts[num_scalar_facts++].conf = CONF_PARSED;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "extent derived") == NULL);
+  TH_CHECK(strstr(render_cap, "extent derived") == NULL);
   num_scalar_facts--;
 
   /* --- meminfo unreadable: indistinguishable from no highmem, so decline. ---
@@ -1948,7 +1950,7 @@ static void test_render_map_directmap_extent_derived(void) {
   scalar_facts[1].fact = SF_PHYS_MAX_PFN; /* drop the MEMTOTAL witness */
   scalar_facts[1].value = pfn;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "extent derived") == NULL);
+  TH_CHECK(strstr(render_cap, "extent derived") == NULL);
 #endif
 
   verbose = 0;
@@ -2007,9 +2009,9 @@ static void test_render_map_directmap_base_from_engine(void) {
   layout.virt_image_base_max = sv_bmax;
 
   const char *map = strstr(render_cap, "Virtual address space");
-  assert(map != NULL);
+  TH_CHECK(map != NULL);
   const char *dmap = strstr(map, "direct map");
-  assert(dmap != NULL);
+  TH_CHECK(dmap != NULL);
 
   /* Bound the search to the virtual column. */
   const char *end = strstr(map, "Physical address space");
@@ -2018,24 +2020,24 @@ static void test_render_map_directmap_base_from_engine(void) {
   char abuf[32];
   snprintf(abuf, sizeof(abuf), "0x%lx", stale);
   const char *bad = strstr(map, abuf);
-  assert(bad == NULL || (size_t)(bad - map) >= vlen);
+  TH_CHECK(bad == NULL || (size_t)(bad - map) >= vlen);
 
   snprintf(abuf, sizeof(abuf), "0x%lx", po_min);
   const char *good = strstr(map, abuf);
-  assert(good != NULL && (size_t)(good - map) < vlen);
+  TH_CHECK(good != NULL && (size_t)(good - map) < vlen);
 
   /* And the floor is not promoted to a proven address while the engine still
    * holds a window around it: the band's own label line says which it is. */
   const char *eol = strchr(dmap, '\n');
-  assert(eol != NULL);
+  TH_CHECK(eol != NULL);
   char line[256];
   size_t ln = (size_t)(eol - dmap);
   if (ln >= sizeof(line))
     ln = sizeof(line) - 1;
   memcpy(line, dmap, ln);
   line[ln] = '\0';
-  assert(strstr(line, "base proven") == NULL);
-  assert(strstr(line, "lower bound") != NULL);
+  TH_CHECK(strstr(line, "base proven") == NULL);
+  TH_CHECK(strstr(line, "lower bound") != NULL);
 }
 
 /* A band that the band above it OVERLAPS has no bookend to carry its top edge:
@@ -2096,7 +2098,7 @@ static void test_render_map_overlapped_band_states_its_ceiling(void) {
   layout.virt_image_base_max = sv_bmax;
 
   const char *map = strstr(render_cap, "Virtual address space");
-  assert(map != NULL);
+  TH_CHECK(map != NULL);
   const char *end = strstr(map, "Physical address space");
   size_t vlen = end ? (size_t)(end - map) : strlen(map);
 
@@ -2119,7 +2121,7 @@ static void test_render_map_overlapped_band_states_its_ceiling(void) {
       break;
     }
   }
-  assert(hit != NULL);
+  TH_CHECK(hit != NULL);
 }
 
 /* The trailing hint is a footer, so it must come after everything it
@@ -2143,8 +2145,8 @@ static void test_render_footer_hint_is_last(void) {
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   const char *hint = strstr(render_cap, "[-v:");
-  assert(hint != NULL);
-  assert(strstr(hint, "memory map") != NULL);
+  TH_CHECK(hint != NULL);
+  TH_CHECK(strstr(hint, "memory map") != NULL);
 
   /* --map: the hint follows the diagram, and stops offering what is already
    * on screen. */
@@ -2152,10 +2154,10 @@ static void test_render_footer_hint_is_last(void) {
   capture_stdout(wrap_render_summary, &s);
   const char *map = strstr(render_cap, "Virtual address space");
   hint = strstr(render_cap, "[-v:");
-  assert(map != NULL);
-  assert(hint != NULL);
-  assert(hint > map);
-  assert(strstr(hint, "memory map") == NULL);
+  TH_CHECK(map != NULL);
+  TH_CHECK(hint != NULL);
+  TH_CHECK(hint > map);
+  TH_CHECK(strstr(hint, "memory map") == NULL);
   map_mode = 0;
 }
 
@@ -2228,7 +2230,7 @@ static void test_render_phys_map_descends_strictly(void) {
   layout.phys_kaslr_text_max = sv_pmax;
 
   const char *phys = strstr(render_cap, "Physical address space");
-  assert(phys != NULL);
+  TH_CHECK(phys != NULL);
 
   int seen = 0;
   unsigned long prev = 0;
@@ -2244,12 +2246,12 @@ static void test_render_phys_map_descends_strictly(void) {
     if (!map_boundary_addr(line, &addr))
       continue;
     if (seen)
-      assert(addr < prev);
+      TH_CHECK(addr < prev);
     prev = addr;
     seen = 1;
   }
   /* The column exists at all -- otherwise the loop above proves nothing. */
-  assert(seen);
+  TH_CHECK(seen);
 }
 
 /* --map draws the address-space diagram without --verbose, which is the whole
@@ -2266,24 +2268,24 @@ static void test_render_map_bar_cell_never_overflows(void) {
   unsigned long wide = ULONG_MAX;
   unsigned prev = 0;
 
-  assert(bar_cell_of(0, wide) == 0);
-  assert(bar_cell_of(wide, wide) == BAR_CELLS - 1);
-  assert(bar_cell_of(wide / 2, wide) < BAR_CELLS);
+  TH_CHECK(bar_cell_of(0, wide) == 0);
+  TH_CHECK(bar_cell_of(wide, wide) == BAR_CELLS - 1);
+  TH_CHECK(bar_cell_of(wide / 2, wide) < BAR_CELLS);
 
   /* Monotone: a higher address never maps to an earlier cell. Stepped across
    * the whole span so the reduction loop runs at every magnitude. */
   for (int i = 0; i <= 64; i++) {
     unsigned long off = (wide / 64) * (unsigned long)i;
     unsigned cell = bar_cell_of(off, wide);
-    assert(cell < BAR_CELLS);
-    assert(cell >= prev);
+    TH_CHECK(cell < BAR_CELLS);
+    TH_CHECK(cell >= prev);
     prev = cell;
   }
 
   /* A span narrower than the grid still resolves, and a degenerate one does
    * not divide by zero. */
-  assert(bar_cell_of(0, 0) == 0);
-  assert(bar_cell_of(3, 4) < BAR_CELLS);
+  TH_CHECK(bar_cell_of(0, 0) == 0);
+  TH_CHECK(bar_cell_of(3, 4) < BAR_CELLS);
 }
 
 /* The carving rule rounds INWARD: a cell is drawn as ruled out only where a
@@ -2325,14 +2327,15 @@ static void test_render_map_bar_rounds_holes_inward(void) {
   t_excl_lo = lo + cell * 8;
   t_excl_hi = t_excl_lo + cell / 2;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Candidates within each resolved window") != NULL);
-  assert(strstr(render_cap, carved) == NULL);
-  assert(strstr(render_cap, "narrower than one cell") != NULL);
+  TH_CHECK(strstr(render_cap, "Candidates within each resolved window") !=
+           NULL);
+  TH_CHECK(strstr(render_cap, carved) == NULL);
+  TH_CHECK(strstr(render_cap, "narrower than one cell") != NULL);
 
   /* Wide enough to cover whole cells: now it is drawn. */
   t_excl_hi = t_excl_lo + cell * 6;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, carved) != NULL);
+  TH_CHECK(strstr(render_cap, carved) != NULL);
 
   stage_likely_reset();
   map_mode = 0;
@@ -2373,8 +2376,8 @@ static void test_render_map_bar_likely_is_a_span(void) {
   capture_stdout(wrap_render_summary, &s);
   {
     const char *bar = strstr(render_cap, "Candidates within each resolved");
-    assert(bar != NULL);
-    assert(strstr(bar, kasld_glyph("\xe2\x94\x94", "[")) != NULL);
+    TH_CHECK(bar != NULL);
+    TH_CHECK(strstr(bar, kasld_glyph("\xe2\x94\x94", "[")) != NULL);
   }
 
   stage_likely_reset();
@@ -2415,9 +2418,9 @@ static void test_render_map_unobserved_band_is_not_solid(void) {
   capture_stdout(wrap_render_summary, &s);
   {
     const char *map = strstr(render_cap, "Virtual address space");
-    assert(map != NULL);
-    assert(strstr(map, light) != NULL); /* bands are drawn at all */
-    assert(strstr(map, solid) == NULL);
+    TH_CHECK(map != NULL);
+    TH_CHECK(strstr(map, light) != NULL); /* bands are drawn at all */
+    TH_CHECK(strstr(map, solid) == NULL);
   }
 
   /* One leaked kernel-text address, and the kernel-text band turns solid.
@@ -2442,14 +2445,14 @@ static void test_render_map_unobserved_band_is_not_solid(void) {
   {
     const char *map = strstr(render_cap, "Virtual address space");
     const char *row, *nl;
-    assert(map != NULL);
+    TH_CHECK(map != NULL);
     row = strstr(map, "kernel text");
-    assert(row != NULL);
+    TH_CHECK(row != NULL);
     /* Back up to the start of that line, then look for the fill within it. */
     while (row > map && row[-1] != '\n')
       row--;
     nl = strchr(row, '\n');
-    assert(nl != NULL);
+    TH_CHECK(nl != NULL);
     {
       char line[256];
       size_t len = (size_t)(nl - row);
@@ -2457,7 +2460,7 @@ static void test_render_map_unobserved_band_is_not_solid(void) {
         len = sizeof(line) - 1;
       memcpy(line, row, len);
       line[len] = '\0';
-      assert(strstr(line, solid) != NULL);
+      TH_CHECK(strstr(line, solid) != NULL);
     }
   }
 
@@ -2480,17 +2483,17 @@ static void test_render_map_flag(void) {
   map_mode = 0;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "address space") == NULL);
+  TH_CHECK(strstr(render_cap, "address space") == NULL);
 
   /* --map alone: diagram, and still no per-component narration. */
   map_mode = 1;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Virtual address space") != NULL);
+  TH_CHECK(strstr(render_cap, "Virtual address space") != NULL);
 
   /* markdown honours it too, as its own section. */
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "## Address space") != NULL);
+  TH_CHECK(strstr(render_cap, "## Address space") != NULL);
 
   /* --verbose implies it: removing content from --verbose would regress
    * anyone relying on it today. */
@@ -2498,7 +2501,7 @@ static void test_render_map_flag(void) {
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Virtual address space") != NULL);
+  TH_CHECK(strstr(render_cap, "Virtual address space") != NULL);
 
   verbose = 0;
   map_mode = 0;
@@ -2575,9 +2578,9 @@ static void test_render_map_band_contains_its_leaks(void) {
    * span inline -- there is no bookend of its own, and the inline upper edge is
    * the ceiling. Read whichever shape was emitted. */
   const char *map = strstr(render_cap, "Virtual address space");
-  assert(map != NULL);
+  TH_CHECK(map != NULL);
   const char *lbl = strstr(map, "kernel text");
-  assert(lbl != NULL);
+  TH_CHECK(lbl != NULL);
 
   unsigned long ceiling = 0;
   int found = 0;
@@ -2599,8 +2602,8 @@ static void test_render_map_band_contains_its_leaks(void) {
       l = nl + 1;
     }
   }
-  assert(found);
-  assert(ceiling >= interior);
+  TH_CHECK(found);
+  TH_CHECK(ceiling >= interior);
 }
 
 /* The physical map's ceiling must sit above every point drawn beneath it. High
@@ -2650,12 +2653,12 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
   set_render_mode(0, 0, 0);
 
   const char *blk = strstr(render_cap, "Physical address space");
-  assert(blk != NULL);
+  TH_CHECK(blk != NULL);
   char hex[32];
   /* Un-padded: the map prints addresses right-aligned to the widest one in the
    * block, not zero-filled to 16 digits. */
   snprintf(hex, sizeof(hex), "0x%lx", mmio);
-  assert(strstr(blk, hex) != NULL); /* the point is drawn */
+  TH_CHECK(strstr(blk, hex) != NULL); /* the point is drawn */
 
   /* The first bare address line after the heading is the ceiling. Right
    * alignment means the leading run of spaces varies with the block's widest
@@ -2668,7 +2671,7 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
     if (sscanf(p, "0x%lx", &ceiling) == 1)
       break;
   }
-  assert(ceiling >= mmio);
+  TH_CHECK(ceiling >= mmio);
 }
 
 /* The physical map's bands must PARTITION the address space: a leak belongs to
@@ -2734,7 +2737,7 @@ static void test_render_map_phys_buckets_partition(void) {
   layout.phys_kaslr_text_max = sv_max;
 
   const char *blk = strstr(render_cap, "Physical address space");
-  assert(blk != NULL);
+  TH_CHECK(blk != NULL);
 
   char hex[32];
   /* Un-padded (the map right-aligns rather than zero-fills); the two trailing
@@ -2743,7 +2746,7 @@ static void test_render_map_phys_buckets_partition(void) {
   int seen = 0;
   for (const char *p = strstr(blk, hex); p; p = strstr(p + 1, hex))
     seen++;
-  assert(seen == 1); /* drawn, and drawn once */
+  TH_CHECK(seen == 1); /* drawn, and drawn once */
 }
 
 /* Kernel text is mapped THROUGH the direct map on coupled arches, and the map
@@ -2781,30 +2784,30 @@ static void test_render_map_directmap_contains_text(void) {
   layout.virt_page_offset = sv_po;
 
   const char *map = strstr(render_cap, "Virtual address space");
-  assert(map != NULL);
+  TH_CHECK(map != NULL);
   const char *dmap = strstr(map, "direct map");
 
 #if TEXT_TRACKS_DIRECTMAP
   /* Present at all -- the whole defect was its absence. */
-  assert(dmap != NULL);
+  TH_CHECK(dmap != NULL);
   const char *text = strstr(dmap, "kernel text");
-  assert(text != NULL);
+  TH_CHECK(text != NULL);
   /* Nested, not stacked: no band bookend separates the two, and the contained
    * region is indented one level deeper than its container's label. */
   for (const char *l = strchr(dmap, '\n'); l && l < text;
        l = strchr(l + 1, '\n'))
-    assert(strncmp(l + 1, "  0x", 4) != 0);
+    TH_CHECK(strncmp(l + 1, "  0x", 4) != 0);
   const char *text_bol = text;
   while (text_bol > map && text_bol[-1] != '\n')
     text_bol--;
   const char *dmap_bol = dmap;
   while (dmap_bol > map && dmap_bol[-1] != '\n')
     dmap_bol--;
-  assert((text - text_bol) > (dmap - dmap_bol));
+  TH_CHECK((text - text_bol) > (dmap - dmap_bol));
 #else
   /* Decoupled: a direct-map base equal to the text floor proves nothing the
    * text band does not already say, and nothing is contained. */
-  assert(dmap == NULL);
+  TH_CHECK(dmap == NULL);
 #endif
 }
 
@@ -2859,7 +2862,7 @@ static void test_render_map_draws_topmost_band_ceiling(void) {
   layout.modules_end = sv_mend;
 
   const char *map = strstr(render_cap, "Virtual address space");
-  assert(map != NULL);
+  TH_CHECK(map != NULL);
 
   unsigned long top = 0, next = 0;
   int have_top = 0, have_next = 0;
@@ -2886,14 +2889,14 @@ static void test_render_map_draws_topmost_band_ceiling(void) {
         len = sizeof(line) - 1;
       memcpy(line, l, len);
       line[len] = '\0';
-      assert(line[0] == '\0' || strstr(line, " gap") != NULL ||
-             strstr(line, "^ extent unknown") != NULL);
+      TH_CHECK(line[0] == '\0' || strstr(line, " gap") != NULL ||
+               strstr(line, "^ extent unknown") != NULL);
     }
     l = nl ? nl + 1 : NULL;
   }
-  assert(have_top && have_next);
-  assert(top == vas_hi);
-  assert(next < top);
+  TH_CHECK(have_top && have_next);
+  TH_CHECK(top == vas_hi);
+  TH_CHECK(next < top);
 }
 
 /* Walk the bare address bookends of one map block (lines whose first four
@@ -2917,7 +2920,7 @@ static int assert_map_column_descends(const char *block) {
      * under a bucket header is that the leak row carries a "[section]" tag. */
     if (sscanf(p, "0x%lx", &v) == 1 && memchr(l, '[', len) == NULL) {
       if (seen)
-        assert(v <= prev);
+        TH_CHECK(v <= prev);
       prev = v;
       seen++;
     }
@@ -2964,8 +2967,8 @@ static void test_render_phys_ceiling_covers_bucket_footers(void) {
   layout.phys_kaslr_text_max = sv_max;
 
   const char *blk = strstr(render_cap, "Physical address space");
-  assert(blk != NULL);
-  assert(assert_map_column_descends(blk) >= 2);
+  TH_CHECK(blk != NULL);
+  TH_CHECK(assert_map_column_descends(blk) >= 2);
 
   /* And the window itself is reported untouched: the ceiling moved, pmax did
    * not. */
@@ -2973,7 +2976,7 @@ static void test_render_phys_ceiling_covers_bucket_footers(void) {
   /* Un-padded: the map right-aligns addresses rather than zero-filling them,
    * so on a 32-bit target the padded form does not appear at all. */
   snprintf(hex, sizeof(hex), "0x%lx", ULONG_MAX - 1);
-  assert(strstr(blk, hex) != NULL);
+  TH_CHECK(strstr(blk, hex) != NULL);
 }
 
 /* A KASLR-disabled base is a proven pin, not a speculative "likely" value: the
@@ -3003,8 +3006,8 @@ static void test_render_disabled_base_not_labeled_likely(void) {
   /* The static postures render from the shared row model, so the quantity
    * wears the same name it does in the table -- not a second label for the
    * same thing. */
-  assert(strstr(render_cap, "Virtual Image Base") != NULL);
-  assert(strstr(render_cap, "Likely kernel image base") == NULL);
+  TH_CHECK(strstr(render_cap, "Virtual Image Base") != NULL);
+  TH_CHECK(strstr(render_cap, "Likely kernel image base") == NULL);
 
   /* Markdown carries the same pinned base in the disabled case (not just a
    * "KASLR is disabled" banner) — the base IS the answer when there is no
@@ -3016,13 +3019,13 @@ static void test_render_disabled_base_not_labeled_likely(void) {
   /* The static postures render from the shared row model, so the quantity
    * wears the same name it does in the table -- not a second label for the
    * same thing. */
-  assert(strstr(render_cap, "Virtual Image Base") != NULL);
+  TH_CHECK(strstr(render_cap, "Virtual Image Base") != NULL);
   char pinhex[32];
   /* Built unpadded: the Layout rows markdown draws are the ones the readout
    * draws, and they right-align addresses rather than zero-filling them, so
    * "0x%016lx" matches only on arches whose addresses fill 16 hex digits. */
   snprintf(pinhex, sizeof(pinhex), "0x%lx", vt);
-  assert(strstr(render_cap, pinhex) != NULL);
+  TH_CHECK(strstr(render_cap, pinhex) != NULL);
 
   layout.virt_kaslr_text_min = smin;
   layout.virt_kaslr_text_max = smax;
@@ -3058,8 +3061,8 @@ static void test_render_leak_discloses_interior(void) {
    * sample for the region's base. Asserted on that row rather than anywhere on
    * screen: "interior" appearing somewhere proves nothing about which finding
    * carries it. */
-  assert(evidence_sources(render_cap, "virt kernel text", "interior") == 1);
-  assert(evidence_sources(render_cap, "virt kernel text", "base") == -1);
+  TH_CHECK(evidence_sources(render_cap, "virt kernel text", "interior") == 1);
+  TH_CHECK(evidence_sources(render_cap, "virt kernel text", "base") == -1);
 }
 
 static void test_render_markdown_with_rich_content(void) {
@@ -3070,14 +3073,14 @@ static void test_render_markdown_with_rich_content(void) {
   capture_stdout(wrap_render_summary, &s);
   verbose = 0;
   /* Markdown produces a table and discloses each leak's extent-position. */
-  assert(strstr(render_cap, "|") != NULL);
-  assert(strstr(render_cap, "| Pos |") != NULL);
-  assert(strstr(render_cap, "| base |") != NULL);
+  TH_CHECK(strstr(render_cap, "|") != NULL);
+  TH_CHECK(strstr(render_cap, "| Pos |") != NULL);
+  TH_CHECK(strstr(render_cap, "| base |") != NULL);
   /* Verbose markdown embeds the ASCII memory-layout maps in a fenced code
    * block (the same diagrams the text readout draws). */
-  assert(strstr(render_cap, "## Address space") != NULL);
-  assert(strstr(render_cap, "```") != NULL);
-  assert(strstr(render_cap, "address space") != NULL); /* map heading text */
+  TH_CHECK(strstr(render_cap, "## Address space") != NULL);
+  TH_CHECK(strstr(render_cap, "```") != NULL);
+  TH_CHECK(strstr(render_cap, "address space") != NULL); /* map heading text */
   set_render_mode(0, 0, 0);
 }
 
@@ -3087,7 +3090,7 @@ static void test_render_oneline_with_rich_content(void) {
   set_render_mode(0, 1, 0);
   capture_stdout(wrap_render_summary, &s);
   /* Oneline output should contain the vtext address. */
-  assert(strstr(render_cap, "0x") != NULL);
+  TH_CHECK(strstr(render_cap, "0x") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -3205,7 +3208,7 @@ static void test_render_map_ceiling_from_target_not_host(void) {
   snprintf(small, sizeof small, "%s", render_cap);
 
   render_map_with_memtotal(&s, ceiling * 4);
-  assert(strcmp(small, render_cap) != 0);
+  TH_CHECK(strcmp(small, render_cap) != 0);
 }
 
 static void test_render_excluded_ranges_are_disclosed(void) {
@@ -3225,9 +3228,9 @@ static void test_render_excluded_ranges_are_disclosed(void) {
   set_render_mode(0, 0, 0);
   {
     char hex[40];
-    assert(strstr(render_cap, "excludes 3 ranges") != NULL);
+    TH_CHECK(strstr(render_cap, "excludes 3 ranges") != NULL);
     snprintf(hex, sizeof hex, "0x%lx - 0x%lx", t_excl_lo, t_excl_hi);
-    assert(strstr(render_cap, hex) != NULL);
+    TH_CHECK(strstr(render_cap, hex) != NULL);
   }
 
   /* The default readout has no room for the ranges, but must still say why its
@@ -3235,8 +3238,8 @@ static void test_render_excluded_ranges_are_disclosed(void) {
    * whole complaint, and it is the format most people see. */
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "sub-range") != NULL);
-  assert(strstr(render_cap, "3") != NULL);
+  TH_CHECK(strstr(render_cap, "sub-range") != NULL);
+  TH_CHECK(strstr(render_cap, "3") != NULL);
 
   /* Markdown is a document with room, so it lists them like -v does. */
   set_render_mode(0, 0, 1);
@@ -3244,9 +3247,9 @@ static void test_render_excluded_ranges_are_disclosed(void) {
   set_render_mode(0, 0, 0);
   {
     char hex[48];
-    assert(strstr(render_cap, "excludes 3 ranges") != NULL);
+    TH_CHECK(strstr(render_cap, "excludes 3 ranges") != NULL);
     snprintf(hex, sizeof hex, "`0x%016lx` - `0x%016lx`", t_excl_lo, t_excl_hi);
-    assert(strstr(render_cap, hex) != NULL);
+    TH_CHECK(strstr(render_cap, hex) != NULL);
   }
 }
 
@@ -3271,11 +3274,11 @@ static void test_render_directmap_residual_has_a_denominator(void) {
   {
     const char *e = strstr(render_cap, "Direct map entropy:");
     const char *eol;
-    assert(e != NULL);
+    TH_CHECK(e != NULL);
     eol = strchr(e, '\n');
-    assert(eol != NULL);
-    assert(memchr(e, 'o', (size_t)(eol - e)) != NULL);
-    assert(strstr(e, " of ") != NULL && strstr(e, " of ") < eol);
+    TH_CHECK(eol != NULL);
+    TH_CHECK(memchr(e, 'o', (size_t)(eol - e)) != NULL);
+    TH_CHECK(strstr(e, " of ") != NULL && strstr(e, " of ") < eol);
   }
 #endif
 }
@@ -3291,10 +3294,10 @@ static void test_render_oneline_set_value_is_not_hex(void) {
   set_render_mode(0, 0, 0);
   {
     const char *v = strstr(render_cap, " vabits=");
-    assert(v != NULL);
+    TH_CHECK(v != NULL);
     v += strlen(" vabits=");
     /* Decimal, or the `na` sentinel -- never `0x`. */
-    assert(strncmp(v, "0x", 2) != 0);
+    TH_CHECK(strncmp(v, "0x", 2) != 0);
   }
 }
 
@@ -3311,8 +3314,8 @@ static void test_render_oneline_tokens_are_key_value(void) {
   for (tok = strtok_r(buf, " \t\n", &save); tok;
        tok = strtok_r(NULL, " \t\n", &save)) {
     const char *eq = strchr(tok, '=');
-    assert(eq != NULL); /* a token with no '=' is not a pair */
-    assert(eq != tok);  /* nor is one with an empty key */
+    TH_CHECK(eq != NULL); /* a token with no '=' is not a pair */
+    TH_CHECK(eq != tok);  /* nor is one with an empty key */
   }
 }
 
@@ -3335,11 +3338,11 @@ static void test_render_oneline_region_key_needs_one_candidate(void) {
   {
     char want[64];
     const char *v = strstr(render_cap, "module=");
-    assert(v != NULL);
-    assert(v[strlen("module=")] == '[');
+    TH_CHECK(v != NULL);
+    TH_CHECK(v[strlen("module=")] == '[');
     snprintf(want, sizeof want, "module=[0x%lx..0x%lx]", base,
              base + 0x400000ul);
-    assert(strstr(render_cap, want) != NULL);
+    TH_CHECK(strstr(render_cap, want) != NULL);
   }
 
   /* The same region resolved: the address, now that it is one. */
@@ -3350,7 +3353,7 @@ static void test_render_oneline_region_key_needs_one_candidate(void) {
   {
     char hex[32];
     snprintf(hex, sizeof hex, "module=0x%lx", base);
-    assert(strstr(render_cap, hex) != NULL);
+    TH_CHECK(strstr(render_cap, hex) != NULL);
   }
 }
 
@@ -3386,8 +3389,8 @@ static void test_render_oneline_dmap_is_base_not_interior(void) {
   set_render_mode(0, 0, 0);
   layout.virt_page_offset = saved;
 
-  assert(strstr(render_cap, "dmap=0xc0000000") != NULL);
-  assert(strstr(render_cap, "c1a2b000") == NULL);
+  TH_CHECK(strstr(render_cap, "dmap=0xc0000000") != NULL);
+  TH_CHECK(strstr(render_cap, "c1a2b000") == NULL);
 }
 
 /* oneline `text=` presents the engine-resolved image base only, never a raw
@@ -3416,11 +3419,11 @@ static void test_render_oneline_text_na_when_engine_unresolved(void) {
   {
     const char *v = strstr(render_cap, " text=");
     char leakbuf[32];
-    assert(v != NULL);
+    TH_CHECK(v != NULL);
     v += strlen(" text=");
-    assert(*v == '[' || strncmp(v, "na", 2) == 0);
+    TH_CHECK(*v == '[' || strncmp(v, "na", 2) == 0);
     snprintf(leakbuf, sizeof(leakbuf), " text=0x%lx", leak);
-    assert(strstr(render_cap, leakbuf) == NULL);
+    TH_CHECK(strstr(render_cap, leakbuf) == NULL);
   }
 }
 
@@ -3468,16 +3471,16 @@ static void test_render_oneline_schema_is_stable(void) {
       " dmap=",  " dram=",  " results=",
   };
   for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
-    assert(strstr(render_cap, keys[i]) != NULL);
+    TH_CHECK(strstr(render_cap, keys[i]) != NULL);
 
   /* With nothing resolved, every optional field is the na sentinel. */
-  assert(strstr(render_cap, " text=na") != NULL);
-  assert(strstr(render_cap, " slide=na") != NULL);
-  assert(strstr(render_cap, " slots=na") != NULL);
-  assert(strstr(render_cap, " ptext=na") != NULL);
-  assert(strstr(render_cap, " pslide=na") != NULL);
-  assert(strstr(render_cap, " dmap=na") != NULL);
-  assert(strstr(render_cap, " dram=na") != NULL);
+  TH_CHECK(strstr(render_cap, " text=na") != NULL);
+  TH_CHECK(strstr(render_cap, " slide=na") != NULL);
+  TH_CHECK(strstr(render_cap, " slots=na") != NULL);
+  TH_CHECK(strstr(render_cap, " ptext=na") != NULL);
+  TH_CHECK(strstr(render_cap, " pslide=na") != NULL);
+  TH_CHECK(strstr(render_cap, " dmap=na") != NULL);
+  TH_CHECK(strstr(render_cap, " dram=na") != NULL);
 }
 
 /* Oneline slots reflect the guaranteed-window residual even with NO concrete
@@ -3503,13 +3506,13 @@ static void test_render_oneline_slots_and_failed(void) {
     /* No concrete base: not a bare address. The window may be reported in its
      * place, which states bounds rather than an answer. */
     const char *v = strstr(render_cap, " text=");
-    assert(v != NULL);
+    TH_CHECK(v != NULL);
     v += strlen(" text=");
-    assert(*v == '[' || strncmp(v, "na", 2) == 0);
+    TH_CHECK(*v == '[' || strncmp(v, "na", 2) == 0);
   }
-  assert(strstr(render_cap, " slots=512") != NULL); /* residual shown */
-  assert(strstr(render_cap, " pslots=64") != NULL); /* phys too */
-  assert(strstr(render_cap, " kaslr=on") != NULL);
+  TH_CHECK(strstr(render_cap, " slots=512") != NULL); /* residual shown */
+  TH_CHECK(strstr(render_cap, " pslots=64") != NULL); /* phys too */
+  TH_CHECK(strstr(render_cap, " kaslr=on") != NULL);
 
   /* Pin: one surviving slot, reported as slots=1 (not na). */
   memset(&s, 0, sizeof(s));
@@ -3517,8 +3520,8 @@ static void test_render_oneline_slots_and_failed(void) {
   s.kaslr.vtext = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   t_stage.vslots = 1;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, " slots=1") != NULL);
-  assert(strstr(render_cap, " slots=na") == NULL);
+  TH_CHECK(strstr(render_cap, " slots=1") != NULL);
+  TH_CHECK(strstr(render_cap, " slots=na") == NULL);
 
   /* Randomization-failed posture -> kaslr=failed (distinct from off/on). The
    * proven window residual is still reported; kaslr=failed is the effective-
@@ -3528,10 +3531,10 @@ static void test_render_oneline_slots_and_failed(void) {
   s.kaslr.randomization_failed = 1;
   t_stage.vslots = 512;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, " kaslr=failed") != NULL);
-  assert(strstr(render_cap, " kaslr=on") == NULL);
-  assert(strstr(render_cap, " kaslr=off") == NULL);
-  assert(strstr(render_cap, " slots=512") != NULL);
+  TH_CHECK(strstr(render_cap, " kaslr=failed") != NULL);
+  TH_CHECK(strstr(render_cap, " kaslr=on") == NULL);
+  TH_CHECK(strstr(render_cap, " kaslr=off") == NULL);
+  TH_CHECK(strstr(render_cap, " slots=512") != NULL);
 
   set_render_mode(0, 0, 0);
 }
@@ -3582,13 +3585,13 @@ static void test_render_randomization_failed_posture(void) {
     set_render_mode(0, 0, 0);
     verbose = 0;
 
-    assert(strstr(render_cap, modes[i].want) != NULL);
+    TH_CHECK(strstr(render_cap, modes[i].want) != NULL);
     /* Never reported as the disabled posture ... */
-    assert(strstr(render_cap, "KASLR is disabled") == NULL);
-    assert(strstr(render_cap, "\"disabled\": true") == NULL);
+    TH_CHECK(strstr(render_cap, "KASLR is disabled") == NULL);
+    TH_CHECK(strstr(render_cap, "\"disabled\": true") == NULL);
     /* ... and the default is not offered as a candidate: the stub relocated
        the image, so "still possible" would invite the wrong guess. */
-    assert(strstr(render_cap, "The compile-time default") == NULL);
+    TH_CHECK(strstr(render_cap, "The compile-time default") == NULL);
   }
 }
 
@@ -3610,7 +3613,7 @@ static void seed_multi_origin_text_result(struct summary *s) {
       return;
     }
   }
-  assert(0 && "set_rich_render_state did not seed VIRT/KERNEL_TEXT");
+  TH_CHECK(0 && "set_rich_render_state did not seed VIRT/KERNEL_TEXT");
 }
 
 static void test_render_text_lists_all_origins(void) {
@@ -3623,22 +3626,22 @@ static void test_render_text_lists_all_origins(void) {
    * default must get right is the COUNT: all three origins credited to the one
    * finding, not just the record that represents it. Asserted on the row's own
    * trailing field, since a bare "3" could match any digit on screen. */
-  assert(strstr(render_cap, "virt kernel text") != NULL);
+  TH_CHECK(strstr(render_cap, "virt kernel text") != NULL);
   /* The base leak self-discloses its position, not just interior/top. */
-  assert(strstr(render_cap, "base") != NULL);
+  TH_CHECK(strstr(render_cap, "base") != NULL);
   /* At least the three seeded here: the row credits every contributor, not the
    * single record that represents the finding. The exact figure is not pinned
    * because the rich state this builds on seeds origins of its own, and a test
    * that hardcoded the total would fail whenever that fixture gained one. */
-  assert(evidence_sources(render_cap, "virt kernel text", NULL) >= 3);
+  TH_CHECK(evidence_sources(render_cap, "virt kernel text", NULL) >= 3);
 
   /* The names themselves are detail, and -v is where they live. */
   verbose = 1;
   capture_stdout(wrap_render_summary, &s);
   verbose = 0;
-  assert(strstr(render_cap, "prefetch") != NULL);
-  assert(strstr(render_cap, "perf_event_open") != NULL);
-  assert(strstr(render_cap, "perf_lbr_sampling") != NULL);
+  TH_CHECK(strstr(render_cap, "prefetch") != NULL);
+  TH_CHECK(strstr(render_cap, "perf_event_open") != NULL);
+  TH_CHECK(strstr(render_cap, "perf_lbr_sampling") != NULL);
 }
 
 /* The leaks bracket must aggregate provenance across SEPARATE merged records of
@@ -3664,7 +3667,7 @@ static void test_render_text_leaks_aggregates_across_records(void) {
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
   int before = evidence_sources(render_cap, "virt kernel text", NULL);
-  assert(before > 0);
+  TH_CHECK(before > 0);
 
   struct result *r = push_result();
   r->type = KASLD_TYPE_VIRT;
@@ -3683,15 +3686,16 @@ static void test_render_text_leaks_aggregates_across_records(void) {
    * representing record's origins would still have contained the name, since
    * both records sit under the same finding. */
   capture_stdout(wrap_render_summary, &s);
-  assert(evidence_sources(render_cap, "virt kernel text", NULL) == before + 1);
+  TH_CHECK(evidence_sources(render_cap, "virt kernel text", NULL) ==
+           before + 1);
 
   /* Verbose lists every aggregated contributor by name, including the one from
    * the separate record. */
   verbose = 1;
   capture_stdout(wrap_render_summary, &s);
   verbose = 0;
-  assert(strstr(render_cap, "proc_kallsyms") != NULL);
-  assert(strstr(render_cap, "prefetch") != NULL);
+  TH_CHECK(strstr(render_cap, "proc_kallsyms") != NULL);
+  TH_CHECK(strstr(render_cap, "prefetch") != NULL);
 }
 
 static void test_render_json_emits_origins_array(void) {
@@ -3701,16 +3705,16 @@ static void test_render_json_emits_origins_array(void) {
   capture_stdout(wrap_render_summary, &s);
   /* JSON must carry "origins": [...] with all three names. The deprecated
    * single-value "origin": string field must NOT reappear. */
-  assert(strstr(render_cap, "\"origins\":") != NULL);
-  assert(strstr(render_cap, "\"prefetch\"") != NULL);
-  assert(strstr(render_cap, "\"perf_event_open\"") != NULL);
-  assert(strstr(render_cap, "\"perf_lbr_sampling\"") != NULL);
-  assert(strstr(render_cap, "\"origin\":") == NULL);
+  TH_CHECK(strstr(render_cap, "\"origins\":") != NULL);
+  TH_CHECK(strstr(render_cap, "\"prefetch\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"perf_event_open\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"perf_lbr_sampling\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"origin\":") == NULL);
   /* The methods array surfaces the full diversity: prefetch contributes
    * "timing", perf_event_open "parsed". */
-  assert(strstr(render_cap, "\"methods\":") != NULL);
-  assert(strstr(render_cap, "\"timing\"") != NULL);
-  assert(strstr(render_cap, "\"parsed\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"methods\":") != NULL);
+  TH_CHECK(strstr(render_cap, "\"timing\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"parsed\"") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -3719,11 +3723,11 @@ static void test_render_json_emits_origins_array(void) {
 static void test_result_method_returns_strongest(void) {
   struct result r = {0};
   r.method_set = (1u << KM_TIMING) | (1u << KM_PARSED);
-  assert(strcmp(result_method(&r), "parsed") == 0);
+  TH_CHECK(strcmp(result_method(&r), "parsed") == 0);
   r.method_set = 1u << KM_TIMING;
-  assert(strcmp(result_method(&r), "timing") == 0);
+  TH_CHECK(strcmp(result_method(&r), "timing") == 0);
   r.method_set = 0;
-  assert(strcmp(result_method(&r), "unknown") == 0);
+  TH_CHECK(strcmp(result_method(&r), "unknown") == 0);
 }
 
 static void test_render_markdown_lists_all_origins(void) {
@@ -3733,9 +3737,9 @@ static void test_render_markdown_lists_all_origins(void) {
   verbose = 1;
   capture_stdout(wrap_render_summary, &s);
   verbose = 0;
-  assert(strstr(render_cap, "prefetch") != NULL);
-  assert(strstr(render_cap, "perf_event_open") != NULL);
-  assert(strstr(render_cap, "perf_lbr_sampling") != NULL);
+  TH_CHECK(strstr(render_cap, "prefetch") != NULL);
+  TH_CHECK(strstr(render_cap, "perf_event_open") != NULL);
+  TH_CHECK(strstr(render_cap, "perf_lbr_sampling") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -3752,7 +3756,7 @@ static void seed_no_provenance_text_result(struct summary *s) {
       return;
     }
   }
-  assert(0 && "set_rich_render_state did not seed VIRT/KERNEL_TEXT");
+  TH_CHECK(0 && "set_rich_render_state did not seed VIRT/KERNEL_TEXT");
 }
 
 static void test_render_text_leaks_no_provenance(void) {
@@ -3762,14 +3766,14 @@ static void test_render_text_leaks_no_provenance(void) {
   capture_stdout(wrap_render_summary, &s);
   /* Address must still appear, and a record with no origins gets no
    * provenance line at all. */
-  assert(strstr(render_cap, "0x") != NULL);
+  TH_CHECK(strstr(render_cap, "0x") != NULL);
   const char *evidence = strstr(render_cap, "Evidence");
-  assert(evidence != NULL);
+  TH_CHECK(evidence != NULL);
   const char *label = strstr(evidence, "virt kernel text");
-  assert(label != NULL);
+  TH_CHECK(label != NULL);
   /* The single finding has no origins, so the "from ..." continuation the
    * empty-origins fallback suppresses must be absent from the whole block. */
-  assert(strstr(evidence, "from") == NULL);
+  TH_CHECK(strstr(evidence, "from") == NULL);
 }
 
 static void test_render_json_emits_empty_origins_array(void) {
@@ -3779,8 +3783,8 @@ static void test_render_json_emits_empty_origins_array(void) {
   capture_stdout(wrap_render_summary, &s);
   /* Empty array is the well-formed shape. The deprecated single-value
    * "origin": string must not reappear. */
-  assert(strstr(render_cap, "\"origins\": []") != NULL);
-  assert(strstr(render_cap, "\"origin\":") == NULL);
+  TH_CHECK(strstr(render_cap, "\"origins\": []") != NULL);
+  TH_CHECK(strstr(render_cap, "\"origin\":") == NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -3828,15 +3832,15 @@ static void test_render_text_leaks_count_is_groups_not_contributors(void) {
    * origins contribute to each. The heading now states findings and
    * contributing components separately, so a row count can no longer be
    * mistaken for a component count. */
-  assert(strstr(render_cap, "2 findings") != NULL);
-  assert(strstr(render_cap, "components)") != NULL);
-  assert(strstr(render_cap, "virt kernel text") != NULL);
-  assert(strstr(render_cap, "virt directmap") != NULL);
+  TH_CHECK(strstr(render_cap, "2 findings") != NULL);
+  TH_CHECK(strstr(render_cap, "components)") != NULL);
+  TH_CHECK(strstr(render_cap, "virt kernel text") != NULL);
+  TH_CHECK(strstr(render_cap, "virt directmap") != NULL);
   /* Both seeded contributors are credited to the text row, and the directmap
    * row carries its own single one -- the counts are per finding, so a row's
    * figure never borrows from its neighbour. */
-  assert(evidence_sources(render_cap, "virt kernel text", NULL) >= 2);
-  assert(evidence_sources(render_cap, "virt directmap", NULL) >= 1);
+  TH_CHECK(evidence_sources(render_cap, "virt kernel text", NULL) >= 2);
+  TH_CHECK(evidence_sources(render_cap, "virt directmap", NULL) >= 1);
 }
 
 /* Even richer state: in addition to set_rich_render_state(), seed
@@ -3911,16 +3915,16 @@ static void test_render_text_with_memory_kaslr_bound(void) {
    * what "pinned" used to say. (Under -v render_memory_kaslr_bound runs too,
    * producing "(pinned)" / ">= 0x" / "<= 0x" — covered below.) */
   const char *row = strstr(render_cap, "Direct Map Base");
-  assert(row != NULL);
+  TH_CHECK(row != NULL);
   {
     const char *eol = strchr(row, '\n');
     char line[256];
-    assert(eol != NULL);
-    assert((size_t)(eol - row) < sizeof(line));
+    TH_CHECK(eol != NULL);
+    TH_CHECK((size_t)(eol - row) < sizeof(line));
     snprintf(line, (size_t)(eol - row) + 1, "%s", row);
     /* One candidate, and one address rather than a range. */
-    assert(strstr(line, " 1  ") != NULL);
-    assert(strstr(line, " - ") == NULL);
+    TH_CHECK(strstr(line, " 1  ") != NULL);
+    TH_CHECK(strstr(line, " - ") == NULL);
   }
 #endif
 }
@@ -3934,7 +3938,7 @@ static void test_render_derived_text(void) {
   verbose = 0;
   /* The "Derived addresses:" heading fires when at least one CONF_DERIVED
    * result is present (which set_richer_render_state plants). */
-  assert(strstr(render_cap, "Derived addresses") != NULL);
+  TH_CHECK(strstr(render_cap, "Derived addresses") != NULL);
 }
 
 /* Seed one PHYS "dram" section carrying two unrelated regions: a RAM extent
@@ -3985,9 +3989,9 @@ static void assert_group_key_hex(const char *from, const char *key,
   char needle[64], expect[96];
   snprintf(needle, sizeof(needle), "\"%s\": ", key);
   const char *p = strstr(from, needle);
-  assert(p != NULL);
+  TH_CHECK(p != NULL);
   snprintf(expect, sizeof(expect), "\"%s\": \"0x%016lx\"", key, want);
-  assert(strncmp(p, expect, strlen(expect)) == 0);
+  TH_CHECK(strncmp(p, expect, strlen(expect)) == 0);
 }
 
 /* A JSON group's aggregate describes exactly the region it names — it never
@@ -4003,8 +4007,8 @@ static void test_render_json_group_aggregate_is_per_region(void) {
 
   const char *ram = json_group_at_region("ram");
   const char *cmdline = json_group_at_region("cmdline");
-  assert(ram != NULL);
-  assert(cmdline != NULL);
+  TH_CHECK(ram != NULL);
+  TH_CHECK(cmdline != NULL);
 
   /* Each group's consensus and span come from its own records only. */
   assert_group_key_hex(ram, "consensus", 0x40000000ul);
@@ -4030,18 +4034,18 @@ static void test_render_json_groups_split_by_region(void) {
   for (const char *p = render_cap;
        (p = strstr(p, "\"consensus_method\": ")) != NULL; p++)
     groups++;
-  assert(groups == 2);
+  TH_CHECK(groups == 2);
 
   /* Both groups still report the section they belong to. */
   int sections = 0;
   for (const char *p = render_cap;
        (p = strstr(p, "\"section\": \"dram\"")) != NULL; p++)
     sections++;
-  assert(sections == 2);
+  TH_CHECK(sections == 2);
 
   /* ...and are told apart by their region. */
-  assert(json_group_at_region("ram") != NULL);
-  assert(json_group_at_region("cmdline") != NULL);
+  TH_CHECK(json_group_at_region("ram") != NULL);
+  TH_CHECK(json_group_at_region("cmdline") != NULL);
 }
 
 static void test_render_text_kernel_region_promotion(void) {
@@ -4065,8 +4069,8 @@ static void test_render_text_kernel_region_promotion(void) {
    * "KASLR analysis" / "Memory KASLR" / "Derived addresses" / "Virtual
    * memory layout" branches is the test's value — pulls render_text to
    * substantially higher coverage even when promotion is filtered. */
-  assert(strstr(render_cap, "Results") != NULL ||
-         strstr(render_cap, "KASLR") != NULL);
+  TH_CHECK(strstr(render_cap, "Results") != NULL ||
+           strstr(render_cap, "KASLR") != NULL);
 }
 
 static void wrap_readout_leaks(void *arg) {
@@ -4134,12 +4138,13 @@ static void test_render_evidence_distinct_interior_samples_span(void) {
    * show only `best` (s1). And all three sources stay credited. */
   char hex2[24];
   snprintf(hex2, sizeof hex2, "0x%lx", s2);
-  assert(strstr(render_cap, hex2) != NULL);
+  TH_CHECK(strstr(render_cap, hex2) != NULL);
   /* All three stay credited, and to the right rows: the two interior samples
    * to the span, the base bound to its own. A row crediting every record of the
    * region regardless of kind would put 3 on both. */
-  assert(evidence_sources(render_cap, "virt directmap", "interior span") == 2);
-  assert(evidence_sources(render_cap, "virt directmap", "base") == 1);
+  TH_CHECK(evidence_sources(render_cap, "virt directmap", "interior span") ==
+           2);
+  TH_CHECK(evidence_sources(render_cap, "virt directmap", "base") == 1);
 }
 
 /* section_consensus / section_consensus_pick: every observation in a
@@ -4171,7 +4176,8 @@ static void test_section_consensus_lowest_among_ties(void) {
   /* Make all three pass in_bounds: the directmap base lives at PAGE_OFFSET
    * by construction, all three samples are above it. */
   layout.virt_page_offset = (unsigned long)PAGE_OFFSET;
-  assert(section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN) == lo);
+  TH_CHECK(section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN) ==
+           lo);
 }
 
 static void test_section_consensus_prefers_pos_base(void) {
@@ -4204,8 +4210,8 @@ static void test_section_consensus_prefers_pos_base(void) {
   add_origin(r_base, "synth");
   r_base->method_set = 1u << KM_PARSED;
 
-  assert(section_consensus(KASLD_TYPE_VIRT, "text", REGION_UNKNOWN) ==
-         base_addr);
+  TH_CHECK(section_consensus(KASLD_TYPE_VIRT, "text", REGION_UNKNOWN) ==
+           base_addr);
 }
 
 static void test_section_consensus_higher_conf_wins(void) {
@@ -4236,13 +4242,14 @@ static void test_section_consensus_higher_conf_wins(void) {
   r_p->method_set = 1u << KM_PARSED;
 
   layout.virt_page_offset = (unsigned long)PAGE_OFFSET;
-  assert(section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN) ==
-         hi_parsed);
+  TH_CHECK(section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN) ==
+           hi_parsed);
 }
 
 static void test_section_consensus_empty(void) {
   reset_results();
-  assert(section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN) == 0);
+  TH_CHECK(section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN) ==
+           0);
 }
 
 /* The "dram" section bundles multiple regions (ram, initrd, crashkernel,
@@ -4272,14 +4279,14 @@ static void test_section_consensus_per_subgroup_scope(void) {
   ck->set_mask = SAMPLE_SET;
 
   /* Section-wide pick: layer 2 prefers POS_BASE → initrd record wins. */
-  assert(section_consensus(KASLD_TYPE_PHYS, "dram", REGION_UNKNOWN) ==
-         0x6300000ul);
+  TH_CHECK(section_consensus(KASLD_TYPE_PHYS, "dram", REGION_UNKNOWN) ==
+           0x6300000ul);
   /* Subgroup pick on crashkernel: scoped to that region only. */
-  assert(section_consensus(KASLD_TYPE_PHYS, "dram", REGION_CRASHKERNEL) ==
-         0x20000000ul);
+  TH_CHECK(section_consensus(KASLD_TYPE_PHYS, "dram", REGION_CRASHKERNEL) ==
+           0x20000000ul);
   /* Subgroup pick on initrd: scoped to that region only. */
-  assert(section_consensus(KASLD_TYPE_PHYS, "dram", REGION_INITRD) ==
-         0x6300000ul);
+  TH_CHECK(section_consensus(KASLD_TYPE_PHYS, "dram", REGION_INITRD) ==
+           0x6300000ul);
 }
 
 static void test_render_json_with_memory_kaslr(void) {
@@ -4289,7 +4296,7 @@ static void test_render_json_with_memory_kaslr(void) {
   capture_stdout(wrap_render_summary, &s);
   /* memory_kaslr block emitted when at least one of virt_page_offset/vmalloc/
    * vmemmap min or max is set. */
-  assert(strstr(render_cap, "memory_kaslr") != NULL);
+  TH_CHECK(strstr(render_cap, "memory_kaslr") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -4321,7 +4328,7 @@ static void test_render_derived_text_range_form(void) {
   verbose = 0;
   /* The range branch prints " - " between two hex addresses on the
    * derived line. */
-  assert(strstr(render_cap, "Derived addresses") != NULL);
+  TH_CHECK(strstr(render_cap, "Derived addresses") != NULL);
 }
 
 /* A KASLR-disabled kernel whose text base resolves to a *range* rather than a
@@ -4355,10 +4362,10 @@ static void test_render_readout_disabled_range_no_entropy(void) {
   /* Every posture renders the same table from the shared row model, so the
    * quantity wears the name and the range spelling it wears when KASLR is
    * active -- not a second label and a second grammar for the same thing. */
-  assert(strstr(render_cap, "Virtual Image Base") != NULL);
-  assert(strstr(render_cap, " - ") != NULL);
-  assert(strstr(render_cap, "bits") == NULL);
-  assert(strstr(render_cap, "candidates") == NULL);
+  TH_CHECK(strstr(render_cap, "Virtual Image Base") != NULL);
+  TH_CHECK(strstr(render_cap, " - ") != NULL);
+  TH_CHECK(strstr(render_cap, "bits") == NULL);
+  TH_CHECK(strstr(render_cap, "candidates") == NULL);
 }
 
 /* Exercise render_hardening_text and render_hardening_json by toggling
@@ -4374,9 +4381,9 @@ static void test_render_hardening_text(void) {
   hardening_mode = 0;
   /* The hardening section emits a labelled heading; both "Hardening" and
    * "Defenses" appear in the renderer's vocabulary. Match any. */
-  assert(strstr(render_cap, "ardening") != NULL ||
-         strstr(render_cap, "efenses") != NULL ||
-         strstr(render_cap, "itigation") != NULL);
+  TH_CHECK(strstr(render_cap, "ardening") != NULL ||
+           strstr(render_cap, "efenses") != NULL ||
+           strstr(render_cap, "itigation") != NULL);
 }
 
 static void test_render_hardening_json(void) {
@@ -4388,9 +4395,9 @@ static void test_render_hardening_json(void) {
   hardening_mode = 0;
   set_render_mode(0, 0, 0);
   /* JSON output gains a hardening object/key when -H is on. */
-  assert(strstr(render_cap, "ardening") != NULL ||
-         strstr(render_cap, "itigation") != NULL ||
-         strstr(render_cap, "lockdown") != NULL);
+  TH_CHECK(strstr(render_cap, "ardening") != NULL ||
+           strstr(render_cap, "itigation") != NULL ||
+           strstr(render_cap, "lockdown") != NULL);
 }
 
 /* Markdown mode under -H appends the hardening assessment (built from the same
@@ -4403,9 +4410,9 @@ static void test_render_hardening_markdown(void) {
   capture_stdout(wrap_render_summary, &s);
   hardening_mode = 0;
   set_render_mode(0, 0, 0);
-  assert(strstr(render_cap, "## Hardening Assessment") != NULL);
-  assert(strstr(render_cap, "### Active defenses") != NULL);
-  assert(strstr(render_cap, "### Available hardening") != NULL);
+  TH_CHECK(strstr(render_cap, "## Hardening Assessment") != NULL);
+  TH_CHECK(strstr(render_cap, "### Active defenses") != NULL);
+  TH_CHECK(strstr(render_cap, "### Available hardening") != NULL);
 }
 
 /* Direct coverage of the hardening model (the text/json/markdown renderers all
@@ -4477,13 +4484,13 @@ static void test_render_system_config_confinement_without_identity(void) {
   capture_stdout(wrap_render_system_config, &replay);
   kasld_env.have_uts = saved_uts;
 
-  assert(strstr(render_cap, "Container:") != NULL);
-  assert(strstr(render_cap, "docker") != NULL);
+  TH_CHECK(strstr(render_cap, "Container:") != NULL);
+  TH_CHECK(strstr(render_cap, "docker") != NULL);
   /* The identity lines are the ones that genuinely depend on the fact, so
    * their absence is half the claim: without it this passes on a renderer
    * that ignores have_uts altogether. */
-  assert(strstr(render_cap, "Kernel release:") == NULL);
-  assert(strstr(render_cap, "Kernel arch:") == NULL);
+  TH_CHECK(strstr(render_cap, "Kernel release:") == NULL);
+  TH_CHECK(strstr(render_cap, "Kernel arch:") == NULL);
 }
 
 /* The other direction: with an identity to print, the block still leads with
@@ -4503,9 +4510,9 @@ static void test_render_system_config_identity_when_known(void) {
   kasld_env.have_uts = saved_uts;
   kasld_env.uts = saved_uts_val;
 
-  assert(strstr(render_cap, "9.9.9-test") != NULL);
-  assert(strstr(render_cap, "testarch") != NULL);
-  assert(strstr(render_cap, "Container:") != NULL);
+  TH_CHECK(strstr(render_cap, "9.9.9-test") != NULL);
+  TH_CHECK(strstr(render_cap, "testarch") != NULL);
+  TH_CHECK(strstr(render_cap, "Container:") != NULL);
 }
 
 /* A deliberate KASLR opt-out collapses the posture: the kernel sits at its
@@ -4518,9 +4525,9 @@ static void test_hardening_posture_kaslr_disabled(void) {
   hr_seed_fact(SF_VIRT_KASLR_DISABLED, 1, "proc_cmdline");
   struct hardening_report rep;
   build_hardening_report(&rep);
-  assert(rep.posture == HR_POSTURE_DISABLED);
-  assert(rep.slot_entropy_zero == 1);
-  assert(rep.kernel_at_default == 1);
+  TH_CHECK(rep.posture == HR_POSTURE_DISABLED);
+  TH_CHECK(rep.slot_entropy_zero == 1);
+  TH_CHECK(rep.kernel_at_default == 1);
 }
 
 /* A zero-valued fact is absent, not false: the loop skips it before it can be
@@ -4533,8 +4540,8 @@ static void test_hardening_zero_valued_fact_is_not_an_opt_out(void) {
   hr_seed_fact(SF_VIRT_KASLR_DISABLED, 0, "proc_cmdline");
   struct hardening_report rep;
   build_hardening_report(&rep);
-  assert(rep.posture != HR_POSTURE_DISABLED);
-  assert(rep.kernel_at_default == 0);
+  TH_CHECK(rep.posture != HR_POSTURE_DISABLED);
+  TH_CHECK(rep.kernel_at_default == 0);
 }
 
 /* The posture states are ordered, and a run can witness more than one. A
@@ -4548,10 +4555,10 @@ static void test_hardening_disabled_outranks_randomization_failed(void) {
   hr_seed_fact(SF_VIRT_KASLR_DISABLED, 1, "proc_cmdline");
   struct hardening_report rep;
   build_hardening_report(&rep);
-  assert(rep.posture == HR_POSTURE_DISABLED);
+  TH_CHECK(rep.posture == HR_POSTURE_DISABLED);
   /* The failure witness is still recorded — the report drops the state, not
    * the evidence. */
-  assert(rep.n_rand_detectors == 1);
+  TH_CHECK(rep.n_rand_detectors == 1);
 }
 
 /* A perf denial under a seccomp filter, on a host whose perf_event_paranoid is
@@ -4575,14 +4582,14 @@ static void test_hardening_synthesises_a_seccomp_gate(void) {
     if (strcmp(rep.gates[i].surface, "seccomp") != 0)
       continue;
     found = 1;
-    assert(rep.gates[i].active == 1);
-    assert(rep.gates[i].value == 2);
-    assert(rep.gates[i].gated == 1);
-    assert(rep.gates[i].blocked == 1);
-    assert(rep.gates[i].n_blocked_names == 1);
-    assert(strcmp(rep.gates[i].blocked_names[0], "c_perf") == 0);
+    TH_CHECK(rep.gates[i].active == 1);
+    TH_CHECK(rep.gates[i].value == 2);
+    TH_CHECK(rep.gates[i].gated == 1);
+    TH_CHECK(rep.gates[i].blocked == 1);
+    TH_CHECK(rep.gates[i].n_blocked_names == 1);
+    TH_CHECK(strcmp(rep.gates[i].blocked_names[0], "c_perf") == 0);
   }
-  assert(found);
+  TH_CHECK(found);
 }
 
 /* Without a filter there is no seccomp gate to synthesise, however the denial
@@ -4604,7 +4611,7 @@ static void test_hardening_no_seccomp_gate_without_a_filter(void) {
   struct hardening_report rep;
   build_hardening_report(&rep);
   for (int i = 0; i < rep.n_gates; i++)
-    assert(strcmp(rep.gates[i].surface, "seccomp") != 0);
+    TH_CHECK(strcmp(rep.gates[i].surface, "seccomp") != 0);
 }
 
 /* A denial no declared sysctl accounts for, under an enforcing policy, is
@@ -4626,11 +4633,11 @@ static void test_hardening_attributes_a_denial_to_selinux(void) {
     if (strcmp(rep.gates[i].surface, HR_SURFACE_MAC) != 0)
       continue;
     found = 1;
-    assert(strcmp(rep.gates[i].display, "SELinux policy") == 0);
-    assert(rep.gates[i].gated == 1 && rep.gates[i].blocked == 1);
-    assert(strcmp(rep.gates[i].blocked_names[0], "c_mac") == 0);
+    TH_CHECK(strcmp(rep.gates[i].display, "SELinux policy") == 0);
+    TH_CHECK(rep.gates[i].gated == 1 && rep.gates[i].blocked == 1);
+    TH_CHECK(strcmp(rep.gates[i].blocked_names[0], "c_mac") == 0);
   }
-  assert(found);
+  TH_CHECK(found);
 }
 
 /* The same denial under an enforcing AppArmor profile carries the other label.
@@ -4654,9 +4661,9 @@ static void test_hardening_names_apparmor_when_it_is_the_enforcer(void) {
     if (strcmp(rep.gates[i].surface, HR_SURFACE_MAC) != 0)
       continue;
     found = 1;
-    assert(strcmp(rep.gates[i].display, "AppArmor profile") == 0);
+    TH_CHECK(strcmp(rep.gates[i].display, "AppArmor profile") == 0);
   }
-  assert(found);
+  TH_CHECK(found);
 }
 
 static void test_build_hardening_report(void) {
@@ -4719,19 +4726,19 @@ static void test_build_hardening_report(void) {
 
   /* Exposure: 8 non-detection components, 7 succeeded (the blocked one did
    * not); the detection-only component is excluded. */
-  assert(rep.total == 8);
-  assert(rep.succeeded == 7);
+  TH_CHECK(rep.total == 8);
+  TH_CHECK(rep.succeeded == 7);
 
   /* Posture: the randomization-failure witness is always collected, but the
    * prioritised state is "unsupported" on arches without KASLR (that priority
    * outranks randomization_failed). slot_entropy_zero holds in both cases. */
-  assert(rep.n_rand_detectors == 1);
-  assert(rep.posture == (KASLR_SUPPORTED ? HR_POSTURE_RANDOMIZATION_FAILED
-                                         : HR_POSTURE_UNSUPPORTED));
-  assert(rep.slot_entropy_zero == 1);
+  TH_CHECK(rep.n_rand_detectors == 1);
+  TH_CHECK(rep.posture == (KASLR_SUPPORTED ? HR_POSTURE_RANDOMIZATION_FAILED
+                                           : HR_POSTURE_UNSUPPORTED));
+  TH_CHECK(rep.slot_entropy_zero == 1);
 
   /* Gates: all three are gated by >= 1 component. */
-  assert(rep.n_gates == 3);
+  TH_CHECK(rep.n_gates == 3);
   const struct hr_gate *gk = NULL, *gd = NULL, *gp = NULL;
   for (int i = 0; i < rep.n_gates; i++) {
     if (strcmp(rep.gates[i].display, "kernel.kptr_restrict") == 0)
@@ -4741,32 +4748,33 @@ static void test_build_hardening_report(void) {
     else if (strcmp(rep.gates[i].display, "kernel.perf_event_paranoid") == 0)
       gp = &rep.gates[i];
   }
-  assert(gk && gd && gp);
-  assert(gk->active && gk->gated == 1 && gk->blocked == 1 && gk->bypassed == 0);
-  assert(gk->n_blocked_names == 1 &&
-         strcmp(gk->blocked_names[0], "c_kptr_blocked") == 0);
-  assert(gd->active && gd->bypassed == 1 && gd->fallback == 1);
-  assert(!gp->active && gp->bypassed == 1);
+  TH_CHECK(gk && gd && gp);
+  TH_CHECK(gk->active && gk->gated == 1 && gk->blocked == 1 &&
+           gk->bypassed == 0);
+  TH_CHECK(gk->n_blocked_names == 1 &&
+           strcmp(gk->blocked_names[0], "c_kptr_blocked") == 0);
+  TH_CHECK(gd->active && gd->bypassed == 1 && gd->fallback == 1);
+  TH_CHECK(!gp->active && gp->bypassed == 1);
 
   /* Available hardening: the inactive perf gate is a suggestion; the
    * dmesg-restrict-with-fallback prompts the fallback suggestion; lockdown is
    * off with a lockdown-gated component, so suggest enabling it. */
-  assert(rep.n_gate_suggestions == 1);
-  assert(strcmp(rep.gate_suggestions[0].display,
-                "kernel.perf_event_paranoid") == 0);
-  assert(rep.gate_suggestions[0].threshold == 2);
-  assert(rep.suggest_dmesg_fallback == 1 && rep.dmesg_fallback_count == 1);
-  assert(rep.suggest_lockdown == 1 && rep.lockdown_impact == 1);
+  TH_CHECK(rep.n_gate_suggestions == 1);
+  TH_CHECK(strcmp(rep.gate_suggestions[0].display,
+                  "kernel.perf_event_paranoid") == 0);
+  TH_CHECK(rep.gate_suggestions[0].threshold == 2);
+  TH_CHECK(rep.suggest_dmesg_fallback == 1 && rep.dmesg_fallback_count == 1);
+  TH_CHECK(rep.suggest_lockdown == 1 && rep.lockdown_impact == 1);
 
   /* Lists. */
-  assert(rep.vuln_total == 1 && rep.n_vulns == 1);
-  assert(strcmp(rep.vulns[0].cve, "CVE-2021-1234") == 0);
-  assert(strcmp(rep.vulns[0].patch, "v5.10") == 0);
-  assert(rep.n_surface == 1 &&
-         strcmp(rep.surface[0].config, "CONFIG_FOO") == 0);
-  assert(rep.n_hw == 1 && rep.hw_succeeded == 1 &&
-         strcmp(rep.hw[0].hardware, "KPTI") == 0);
-  assert(rep.n_nomit == 1 && strcmp(rep.nomit[0].name, "c_nomit") == 0);
+  TH_CHECK(rep.vuln_total == 1 && rep.n_vulns == 1);
+  TH_CHECK(strcmp(rep.vulns[0].cve, "CVE-2021-1234") == 0);
+  TH_CHECK(strcmp(rep.vulns[0].patch, "v5.10") == 0);
+  TH_CHECK(rep.n_surface == 1 &&
+           strcmp(rep.surface[0].config, "CONFIG_FOO") == 0);
+  TH_CHECK(rep.n_hw == 1 && rep.hw_succeeded == 1 &&
+           strcmp(rep.hw[0].hardware, "KPTI") == 0);
+  TH_CHECK(rep.n_nomit == 1 && strcmp(rep.nomit[0].name, "c_nomit") == 0);
 
   /* Restore globals so later tests see a clean sysctl state. */
   kasld_env.hardening.kptr_restrict = 0;
@@ -4799,12 +4807,12 @@ static void test_render_json_disposition(void) {
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
 
-  assert(strstr(render_cap, "\"disposition\"") != NULL);
-  assert(strstr(render_cap, "\"category\": \"mitigation\"") != NULL);
-  assert(strstr(render_cap, "\"gate\": \"kpti\"") != NULL);
-  assert(strstr(render_cap, "KPTI enabled") != NULL);
-  assert(strstr(render_cap, "\"category\": \"absent\"") != NULL);
-  assert(strstr(render_cap, "not an Intel CPU") != NULL);
+  TH_CHECK(strstr(render_cap, "\"disposition\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"category\": \"mitigation\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"gate\": \"kpti\"") != NULL);
+  TH_CHECK(strstr(render_cap, "KPTI enabled") != NULL);
+  TH_CHECK(strstr(render_cap, "\"category\": \"absent\"") != NULL);
+  TH_CHECK(strstr(render_cap, "not an Intel CPU") != NULL);
 
   reset_comp_logs();
   stage_likely_reset();
@@ -4850,15 +4858,15 @@ static void test_hardening_disclosure_is_observed(void) {
   for (int i = 0; i < rep.n_surface; i++)
     if (strcmp(rep.surface[i].name, "c_obs") == 0) {
       seen_obs = 1;
-      assert(rep.surface[i].discloses != NULL);
-      assert(strcmp(rep.surface[i].discloses, DISCLOSE_VIRT) == 0);
+      TH_CHECK(rep.surface[i].discloses != NULL);
+      TH_CHECK(strcmp(rep.surface[i].discloses, DISCLOSE_VIRT) == 0);
     }
   for (int i = 0; i < rep.n_hw; i++)
     if (strcmp(rep.hw[i].name, "c_unstated") == 0) {
       seen_unstated = 1;
-      assert(rep.hw[i].discloses == NULL);
+      TH_CHECK(rep.hw[i].discloses == NULL);
     }
-  assert(seen_obs && seen_unstated);
+  TH_CHECK(seen_obs && seen_unstated);
 }
 
 /* The declaration IS used where there is nothing to observe, and only there. */
@@ -4878,11 +4886,11 @@ static void test_hardening_disclosure_declared_fallback(void) {
   for (int i = 0; i < rep.n_hw; i++)
     if (strcmp(rep.hw[i].name, "c_quiet") == 0) {
       seen = 1;
-      assert(rep.hw[i].discloses != NULL);
-      assert(strcmp(rep.hw[i].discloses, DISCLOSE_FACTS) == 0);
-      assert(!rep.hw[i].succeeded);
+      TH_CHECK(rep.hw[i].discloses != NULL);
+      TH_CHECK(strcmp(rep.hw[i].discloses, DISCLOSE_FACTS) == 0);
+      TH_CHECK(!rep.hw[i].succeeded);
     }
-  assert(seen);
+  TH_CHECK(seen);
 }
 
 static void test_render_hardening_confirmed_mitigations(void) {
@@ -4904,11 +4912,11 @@ static void test_render_hardening_confirmed_mitigations(void) {
    * carry through, and absent/inconclusive are excluded. */
   struct hardening_report rep;
   build_hardening_report(&rep);
-  assert(rep.n_confirmed == 1);
-  assert(strcmp(rep.confirmed[0].gate, "kpti") == 0);
-  assert(strcmp(rep.confirmed[0].component, "prefetch") == 0);
-  assert(rep.confirmed[0].message != NULL &&
-         strcmp(rep.confirmed[0].message, "KPTI enabled") == 0);
+  TH_CHECK(rep.n_confirmed == 1);
+  TH_CHECK(strcmp(rep.confirmed[0].gate, "kpti") == 0);
+  TH_CHECK(strcmp(rep.confirmed[0].component, "prefetch") == 0);
+  TH_CHECK(rep.confirmed[0].message != NULL &&
+           strcmp(rep.confirmed[0].message, "KPTI enabled") == 0);
 
   /* Rendered JSON hardening object carries the array. */
   set_render_mode(1, 0, 0);
@@ -4916,8 +4924,8 @@ static void test_render_hardening_confirmed_mitigations(void) {
   capture_stdout(wrap_render_summary, &s);
   hardening_mode = 0;
   set_render_mode(0, 0, 0);
-  assert(strstr(render_cap, "\"confirmed_mitigations\"") != NULL);
-  assert(strstr(render_cap, "\"gate\": \"kpti\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"confirmed_mitigations\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"gate\": \"kpti\"") != NULL);
 
   reset_comp_logs();
   stage_likely_reset();
@@ -4966,25 +4974,25 @@ static void test_section_interior_only_and_conflicts(void) {
    * conflict. */
   stage_vt_interior(vt + 0x1000, "comp_a");
   stage_vt_interior(vt + 0x5000, "comp_b");
-  assert(section_is_interior_only(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN) == 1);
-  assert(section_source_count(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN) == 2);
+  TH_CHECK(section_is_interior_only(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN) == 1);
+  TH_CHECK(section_source_count(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN) == 2);
   section_consensus_info(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN, &bm, &ns, &nc,
                          &io);
-  assert(io == 1 && ns == 2 && nc == 0);
+  TH_CHECK(io == 1 && ns == 2 && nc == 0);
 
   /* Add a base from a third component: no longer interior-only, still no
    * conflict (a base and interior samples above it agree), 3 sources. */
   stage_vt_base(vt, "comp_c");
-  assert(section_is_interior_only(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN) == 0);
+  TH_CHECK(section_is_interior_only(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN) == 0);
   section_consensus_info(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN, &bm, &ns, &nc,
                          &io);
-  assert(io == 0 && ns == 3 && nc == 0);
+  TH_CHECK(io == 0 && ns == 3 && nc == 0);
 
   /* A second, differing base is a genuine disagreement: one conflict. */
   stage_vt_base(vt + 0x100000, "comp_d");
   section_consensus_info(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN, &bm, &ns, &nc,
                          &io);
-  assert(io == 0 && nc == 1);
+  TH_CHECK(io == 0 && nc == 1);
 
   reset_results();
 }
@@ -5008,8 +5016,8 @@ static void test_render_interior_only_surface(void) {
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
-  assert(strstr(render_cap, "\"interior_only\": true") != NULL);
-  assert(strstr(render_cap, "\"conflicts\": 0") != NULL);
+  TH_CHECK(strstr(render_cap, "\"interior_only\": true") != NULL);
+  TH_CHECK(strstr(render_cap, "\"conflicts\": 0") != NULL);
 
   reset_results();
 }
@@ -5040,15 +5048,15 @@ static void test_hardening_unprivileged_bpf_gate(void) {
   for (int i = 0; i < rep.n_gates; i++)
     if (strcmp(rep.gates[i].display, "kernel.unprivileged_bpf_disabled") == 0)
       gb = &rep.gates[i];
-  assert(gb && !gb->active && gb->gated == 1 && gb->bypassed == 1);
+  TH_CHECK(gb && !gb->active && gb->gated == 1 && gb->bypassed == 1);
   int found = 0;
   for (int i = 0; i < rep.n_gate_suggestions; i++)
     if (strcmp(rep.gate_suggestions[i].display,
                "kernel.unprivileged_bpf_disabled") == 0) {
       found = 1;
-      assert(rep.gate_suggestions[i].threshold == 1);
+      TH_CHECK(rep.gate_suggestions[i].threshold == 1);
     }
-  assert(found);
+  TH_CHECK(found);
 
   /* Active gate + denied leak -> credited as blocking, not a suggestion. */
   reset_results();
@@ -5066,10 +5074,10 @@ static void test_hardening_unprivileged_bpf_gate(void) {
   for (int i = 0; i < rep.n_gates; i++)
     if (strcmp(rep.gates[i].display, "kernel.unprivileged_bpf_disabled") == 0)
       gb = &rep.gates[i];
-  assert(gb && gb->active && gb->gated == 1 && gb->blocked == 1);
+  TH_CHECK(gb && gb->active && gb->gated == 1 && gb->blocked == 1);
   for (int i = 0; i < rep.n_gate_suggestions; i++)
-    assert(strcmp(rep.gate_suggestions[i].display,
-                  "kernel.unprivileged_bpf_disabled") != 0);
+    TH_CHECK(strcmp(rep.gate_suggestions[i].display,
+                    "kernel.unprivileged_bpf_disabled") != 0);
 
   kasld_env.hardening.unprivileged_bpf_disabled = KASLD_SYSCTL_UNREAD;
   reset_comp_logs();
@@ -5092,23 +5100,23 @@ static void test_render_hardening_value_states(void) {
 
   v = 2;
   capture_stdout(wrap_print_hardening_value, &v);
-  assert(strstr(render_cap, "2") != NULL);
-  assert(strstr(render_cap, "(") == NULL);
+  TH_CHECK(strstr(render_cap, "2") != NULL);
+  TH_CHECK(strstr(render_cap, "(") == NULL);
 
   /* The permissive extreme, not a marker. */
   v = -1;
   capture_stdout(wrap_print_hardening_value, &v);
-  assert(strstr(render_cap, "-1") != NULL);
-  assert(strstr(render_cap, "(") == NULL);
+  TH_CHECK(strstr(render_cap, "-1") != NULL);
+  TH_CHECK(strstr(render_cap, "(") == NULL);
 
   v = KASLD_SYSCTL_UNREAD;
   capture_stdout(wrap_print_hardening_value, &v);
-  assert(strstr(render_cap, "(unavailable)") != NULL);
+  TH_CHECK(strstr(render_cap, "(unavailable)") != NULL);
 
   v = KASLD_SYSCTL_DENIED;
   capture_stdout(wrap_print_hardening_value, &v);
-  assert(strstr(render_cap, "(denied)") != NULL);
-  assert(strstr(render_cap, "(unavailable)") == NULL);
+  TH_CHECK(strstr(render_cap, "(denied)") != NULL);
+  TH_CHECK(strstr(render_cap, "(unavailable)") == NULL);
 }
 
 static void wrap_render_hardening_text(void *a) {
@@ -5175,60 +5183,60 @@ static void test_hardening_projection(void) {
    * three size-1 silenced sets (stub: 4 + 3 = 7). Each suggestion's
    * leave-one-out excludes the union minus its own set = 2 (stub: 4 + 2 = 6),
    * so each forfeits all_vbits - skip_vbits = 7 - 6 = 1 bit. */
-  assert(rep.has_projection == 1);
-  assert(rep.cur_vbits == 4);
-  assert(rep.all_impact == 3 && rep.all_vbits == 7);
-  assert(rep.n_gate_suggestions == 1);
-  assert(rep.gate_suggestions[0].has_projection == 1 &&
-         rep.gate_suggestions[0].silences == 1 &&
-         rep.gate_suggestions[0].skip_vbits == 6);
-  assert(rep.suggest_lockdown && rep.lockdown_has_projection == 1 &&
-         rep.lockdown_silences == 1 && rep.lockdown_skip_vbits == 6);
-  assert(rep.suggest_dmesg_fallback && rep.dmesg_fallback_has_projection == 1 &&
-         rep.dmesg_fallback_silences == 1 &&
-         rep.dmesg_fallback_skip_vbits == 6);
+  TH_CHECK(rep.has_projection == 1);
+  TH_CHECK(rep.cur_vbits == 4);
+  TH_CHECK(rep.all_impact == 3 && rep.all_vbits == 7);
+  TH_CHECK(rep.n_gate_suggestions == 1);
+  TH_CHECK(rep.gate_suggestions[0].has_projection == 1 &&
+           rep.gate_suggestions[0].silences == 1 &&
+           rep.gate_suggestions[0].skip_vbits == 6);
+  TH_CHECK(rep.suggest_lockdown && rep.lockdown_has_projection == 1 &&
+           rep.lockdown_silences == 1 && rep.lockdown_skip_vbits == 6);
+  TH_CHECK(
+      rep.suggest_dmesg_fallback && rep.dmesg_fallback_has_projection == 1 &&
+      rep.dmesg_fallback_silences == 1 && rep.dmesg_fallback_skip_vbits == 6);
 
   /* Text: the current-vs-hardened anchor + a load-bearing verdict per
    * suggestion (each forfeits 1 bit). */
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_hardening_text, NULL);
-  assert(strstr(render_cap,
-                "base recoverable: 4 bits now \xe2\x86\x92 7 bits") != NULL);
-  assert(strstr(render_cap,
-                "load-bearing - omitting forfeits 1 virtual bits") != NULL);
+  TH_CHECK(strstr(render_cap,
+                  "base recoverable: 4 bits now \xe2\x86\x92 7 bits") != NULL);
+  TH_CHECK(strstr(render_cap,
+                  "load-bearing - omitting forfeits 1 virtual bits") != NULL);
 
   /* JSON: each suggestion carries silences + the leave-one-out projection;
    * top-level projected_posture reports current and the all-applied ceiling. */
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_hardening_json, NULL);
-  assert(strstr(render_cap, "\"silences\": 1") != NULL);
-  assert(strstr(render_cap, "\"virt_base_entropy_forfeited\": 1") != NULL);
-  assert(strstr(render_cap, "\"projected_posture\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"silences\": 1") != NULL);
+  TH_CHECK(strstr(render_cap, "\"virt_base_entropy_forfeited\": 1") != NULL);
+  TH_CHECK(strstr(render_cap, "\"projected_posture\"") != NULL);
 
   /* Markdown: the inline load-bearing verdict on the suggestion bullets, plus
    * each suggestion's enforcement surface as a trailing [`lever`] tag — the
    * three suggestions here sit on three distinct levers. */
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_hardening_markdown, NULL);
-  assert(strstr(render_cap,
-                "load-bearing - omitting forfeits 1 virtual bits") != NULL);
-  assert(strstr(render_cap, "[`sysctl`]") != NULL);
-  assert(strstr(render_cap, "[`lsm`]") != NULL);
-  assert(strstr(render_cap, "[`file_permissions`]") != NULL);
+  TH_CHECK(strstr(render_cap,
+                  "load-bearing - omitting forfeits 1 virtual bits") != NULL);
+  TH_CHECK(strstr(render_cap, "[`sysctl`]") != NULL);
+  TH_CHECK(strstr(render_cap, "[`lsm`]") != NULL);
+  TH_CHECK(strstr(render_cap, "[`file_permissions`]") != NULL);
 
   /* Suppressed path: the default (unavailable) stub drops every projected row.
    */
   kasld_test_projection = 0;
   build_hardening_report(&rep);
-  assert(rep.has_projection == 0 && rep.lockdown_has_projection == 0 &&
-         rep.dmesg_fallback_has_projection == 0);
+  TH_CHECK(rep.has_projection == 0 && rep.lockdown_has_projection == 0 &&
+           rep.dmesg_fallback_has_projection == 0);
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_hardening_text, NULL);
-  assert(strstr(render_cap, "load-bearing") == NULL &&
-         strstr(render_cap, "base recoverable") == NULL);
+  TH_CHECK(strstr(render_cap, "load-bearing") == NULL &&
+           strstr(render_cap, "base recoverable") == NULL);
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_hardening_json, NULL);
-  assert(strstr(render_cap, "projected_posture") == NULL);
+  TH_CHECK(strstr(render_cap, "projected_posture") == NULL);
 
   set_render_mode(0, 0, 0);
   kasld_env.hardening.perf_event_paranoid = 0;
@@ -5266,21 +5274,21 @@ static void test_hardening_projection_no_exposure(void) {
 
   /* Constant stub: current == ceiling == 9, so no recoverable exposure; the
    * lockdown suggestion silences its leak but forfeits nothing. */
-  assert(rep.has_projection && rep.cur_vbits == 9 && rep.all_vbits == 9);
-  assert(rep.suggest_lockdown && rep.lockdown_has_projection &&
-         rep.lockdown_silences == 1 && rep.lockdown_skip_vbits == 9);
+  TH_CHECK(rep.has_projection && rep.cur_vbits == 9 && rep.all_vbits == 9);
+  TH_CHECK(rep.suggest_lockdown && rep.lockdown_has_projection &&
+           rep.lockdown_silences == 1 && rep.lockdown_skip_vbits == 9);
 
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_hardening_text, NULL);
-  assert(strstr(render_cap, "guaranteed base already at 9 bits") != NULL);
-  assert(strstr(render_cap, "speculative window only, no guaranteed bits") !=
-         NULL);
-  assert(strstr(render_cap, "load-bearing") == NULL);
+  TH_CHECK(strstr(render_cap, "guaranteed base already at 9 bits") != NULL);
+  TH_CHECK(strstr(render_cap, "speculative window only, no guaranteed bits") !=
+           NULL);
+  TH_CHECK(strstr(render_cap, "load-bearing") == NULL);
 
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_hardening_markdown, NULL);
-  assert(strstr(render_cap, "speculative window only (no guaranteed bits)") !=
-         NULL);
+  TH_CHECK(strstr(render_cap, "speculative window only (no guaranteed bits)") !=
+           NULL);
 
   kasld_test_projection = 0;
   set_render_mode(0, 0, 0);
@@ -5335,7 +5343,7 @@ static void test_hardening_projection_redundant(void) {
   build_hardening_report(&rep);
 
   /* Base recoverable (stub: 0 with c_critical present, 9 once excluded). */
-  assert(rep.has_projection && rep.cur_vbits == 0 && rep.all_vbits == 9);
+  TH_CHECK(rep.has_projection && rep.cur_vbits == 0 && rep.all_vbits == 9);
   const struct hr_suggestion *crit = NULL, *redu = NULL;
   for (int i = 0; i < rep.n_gate_suggestions; i++) {
     if (strcmp(rep.gate_suggestions[i].display, "kernel.perf_event_paranoid") ==
@@ -5345,38 +5353,38 @@ static void test_hardening_projection_redundant(void) {
              0)
       redu = &rep.gate_suggestions[i];
   }
-  assert(crit && redu);
+  TH_CHECK(crit && redu);
   /* Critical gate: leave-one-out keeps c_critical in -> 0 bits -> forfeits 9.
    */
-  assert(crit->silences == 1 && crit->skip_vbits == 0);
+  TH_CHECK(crit->silences == 1 && crit->skip_vbits == 0);
   /* Redundant gate: leave-one-out still excludes c_critical -> 9 bits -> 0. */
-  assert(redu->silences == 1 && redu->skip_vbits == 9);
+  TH_CHECK(redu->silences == 1 && redu->skip_vbits == 9);
   /* Suggestions are ranked by forfeit, so the critical gate (forfeits 9) sorts
    * ahead of the redundant one (forfeits 0), regardless of gate-table order. */
-  assert(&rep.gate_suggestions[0] == crit);
+  TH_CHECK(&rep.gate_suggestions[0] == crit);
   /* Hashed-pointers gate: governs a denied component, so silences nothing. */
   const struct hr_suggestion *none = NULL;
   for (int i = 0; i < rep.n_gate_suggestions; i++)
     if (strcmp(rep.gate_suggestions[i].display,
                "kernel pointer hashing (%pK)") == 0)
       none = &rep.gate_suggestions[i];
-  assert(none && none->silences == 0);
+  TH_CHECK(none && none->silences == 0);
 
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_hardening_text, NULL);
-  assert(strstr(render_cap,
-                "base recoverable: 0 bits now \xe2\x86\x92 9 bits") != NULL);
-  assert(strstr(render_cap,
-                "load-bearing - omitting forfeits 9 virtual bits") != NULL);
-  assert(strstr(render_cap, "not required (the rest reach the same posture)") !=
-         NULL);
-  assert(strstr(render_cap, "no base-leak behind this - recovers "
-                            "nothing") != NULL);
+  TH_CHECK(strstr(render_cap,
+                  "base recoverable: 0 bits now \xe2\x86\x92 9 bits") != NULL);
+  TH_CHECK(strstr(render_cap,
+                  "load-bearing - omitting forfeits 9 virtual bits") != NULL);
+  TH_CHECK(strstr(render_cap,
+                  "not required (the rest reach the same posture)") != NULL);
+  TH_CHECK(strstr(render_cap, "no base-leak behind this - recovers "
+                              "nothing") != NULL);
 
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_hardening_markdown, NULL);
-  assert(strstr(render_cap, "not required - the rest reach the same posture") !=
-         NULL);
+  TH_CHECK(strstr(render_cap,
+                  "not required - the rest reach the same posture") != NULL);
 
   kasld_test_projection = 0;
   set_render_mode(0, 0, 0);
@@ -5414,20 +5422,20 @@ static void test_render_hardening_pointer_hashing_gate(void) {
   build_hardening_report(&rep);
 
   /* The leak ran but pointer hashing blocked it: counted, did not succeed. */
-  assert(rep.total == 1 && rep.succeeded == 0);
+  TH_CHECK(rep.total == 1 && rep.succeeded == 0);
 
   /* Exactly the pointer-hashing gate surfaces, active, gating the one leak,
    * with neither a blocked (access-denied) nor bypassed (success) outcome. */
-  assert(rep.n_gates == 1);
+  TH_CHECK(rep.n_gates == 1);
   const struct hr_gate *g = &rep.gates[0];
-  assert(strcmp(g->display, "kernel pointer hashing (%pK)") == 0);
-  assert(g->active && g->value == 1);
-  assert(g->gated == 1 && g->n_gated_names == 1 &&
-         strcmp(g->gated_names[0], "c_pk_leak") == 0);
-  assert(g->blocked == 0 && g->bypassed == 0);
+  TH_CHECK(strcmp(g->display, "kernel pointer hashing (%pK)") == 0);
+  TH_CHECK(g->active && g->value == 1);
+  TH_CHECK(g->gated == 1 && g->n_gated_names == 1 &&
+           strcmp(g->gated_names[0], "c_pk_leak") == 0);
+  TH_CHECK(g->blocked == 0 && g->bypassed == 0);
 
   /* An active gate is not offered as available hardening. */
-  assert(rep.n_gate_suggestions == 0);
+  TH_CHECK(rep.n_gate_suggestions == 0);
 
   /* Restore globals so later tests see a clean state. */
   kasld_env.hardening.hashed_pointers = KASLD_SYSCTL_UNREAD;
@@ -5441,10 +5449,10 @@ static void test_render_hardening_pointer_hashing_gate(void) {
  * name but no consequence tells a reader nothing they could act on. */
 static void test_group_gate_table_is_complete(void) {
   for (int i = 0; i < KASLD_N_GROUP_GATES; i++) {
-    assert(kasld_group_gates[i].name != NULL);
-    assert(kasld_group_gates[i].name[0] != '\0');
-    assert(kasld_group_gates[i].gates != NULL);
-    assert(kasld_group_gates[i].gates[0] != '\0');
+    TH_CHECK(kasld_group_gates[i].name != NULL);
+    TH_CHECK(kasld_group_gates[i].name[0] != '\0');
+    TH_CHECK(kasld_group_gates[i].gates != NULL);
+    TH_CHECK(kasld_group_gates[i].gates[0] != '\0');
   }
   /* readproc is the load-bearing one: without it a hidepid /proc hides every
    * other task, which silences a whole class of components. */
@@ -5452,7 +5460,7 @@ static void test_group_gate_table_is_complete(void) {
   for (int i = 0; i < KASLD_N_GROUP_GATES; i++)
     if (kasld_group_gates[i].gid == 3009)
       seen = 1;
-  assert(seen);
+  TH_CHECK(seen);
 }
 
 /* The MAC posture helpers. Two honesty rules are load-bearing: an unreadable
@@ -5465,35 +5473,35 @@ static void test_vantage_mac_posture_helpers(void) {
   /* Nothing observable: "unknown", not "none". */
   memset(&v, 0, sizeof(v));
   v.selinux = SELINUX_UNAVAILABLE;
-  assert(!kasld_vantage_mac_enforcing(&v));
-  assert(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)), "unknown") == 0);
+  TH_CHECK(!kasld_vantage_mac_enforcing(&v));
+  TH_CHECK(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)), "unknown") == 0);
 
   /* SELinux enforcing, securityfs unreadable (the Android shape). */
   v.selinux = SELINUX_ENFORCING;
   snprintf(v.sec_context, sizeof(v.sec_context), "u:r:shell:s0");
-  assert(kasld_vantage_mac_enforcing(&v));
-  assert(kasld_vantage_confined(&v));
-  assert(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)),
-                "selinux (enforcing)") == 0);
+  TH_CHECK(kasld_vantage_mac_enforcing(&v));
+  TH_CHECK(kasld_vantage_confined(&v));
+  TH_CHECK(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)),
+                  "selinux (enforcing)") == 0);
 
   /* Permissive logs but does not deny, so it is not confinement. */
   v.selinux = SELINUX_PERMISSIVE;
-  assert(!kasld_vantage_mac_enforcing(&v));
-  assert(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)),
-                "selinux (permissive)") == 0);
+  TH_CHECK(!kasld_vantage_mac_enforcing(&v));
+  TH_CHECK(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)),
+                  "selinux (permissive)") == 0);
 
   /* AppArmor: the mode is carried in the context, and only enforce denies. */
   memset(&v, 0, sizeof(v));
   v.selinux = SELINUX_UNAVAILABLE;
   snprintf(v.lsm_list, sizeof(v.lsm_list), "capability,yama,apparmor");
   snprintf(v.sec_context, sizeof(v.sec_context), "firefox (unconfined)");
-  assert(!kasld_vantage_mac_enforcing(&v));
+  TH_CHECK(!kasld_vantage_mac_enforcing(&v));
   snprintf(v.sec_context, sizeof(v.sec_context), "firefox (complain)");
-  assert(!kasld_vantage_mac_enforcing(&v));
+  TH_CHECK(!kasld_vantage_mac_enforcing(&v));
   snprintf(v.sec_context, sizeof(v.sec_context), "firefox (enforce)");
-  assert(kasld_vantage_mac_enforcing(&v));
-  assert(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)),
-                "capability,yama,apparmor") == 0);
+  TH_CHECK(kasld_vantage_mac_enforcing(&v));
+  TH_CHECK(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)),
+                  "capability,yama,apparmor") == 0);
 }
 
 /* Which denials a MAC policy may be credited with. The rule is narrow: the
@@ -5511,15 +5519,15 @@ static void test_hardening_mac_attribution_scope(void) {
 
   /* readable and permissive => attributable */
   kasld_env.hardening.dmesg_restrict = 0;
-  assert(declared_sysctl_gates_permit(c) == 1);
+  TH_CHECK(declared_sysctl_gates_permit(c) == 1);
 
   /* the knob was blocking => it explains it */
   kasld_env.hardening.dmesg_restrict = 1;
-  assert(declared_sysctl_gates_permit(c) == 0);
+  TH_CHECK(declared_sysctl_gates_permit(c) == 0);
 
   /* Absent => unexplained, so attribute nothing. */
   kasld_env.hardening.dmesg_restrict = KASLD_SYSCTL_UNREAD;
-  assert(declared_sysctl_gates_permit(c) == 0);
+  TH_CHECK(declared_sysctl_gates_permit(c) == 0);
 
   /* A negative value that is a real SETTING, not an unread marker, is a knob
    * that was read and found permissive — so it does not explain the denial and
@@ -5532,13 +5540,13 @@ static void test_hardening_mac_attribution_scope(void) {
   hr_seed_meta(pp, "method", "parsed");
   hr_seed_meta(pp, "sysctl", "perf_event_paranoid>=2");
   kasld_env.hardening.perf_event_paranoid = -1;
-  assert(declared_sysctl_gates_permit(pp) == 1);
+  TH_CHECK(declared_sysctl_gates_permit(pp) == 1);
   kasld_env.hardening.perf_event_paranoid = KASLD_SYSCTL_UNREAD;
-  assert(declared_sysctl_gates_permit(pp) == 0);
+  TH_CHECK(declared_sysctl_gates_permit(pp) == 0);
 
   /* refused => policy is acting */
   kasld_env.hardening.dmesg_restrict = KASLD_SYSCTL_DENIED;
-  assert(declared_sysctl_gates_permit(c) == 1);
+  TH_CHECK(declared_sysctl_gates_permit(c) == 1);
 
   /* No declared knob: nothing is known about what should have gated it, so it
    * stays unattributed however the denial arose. */
@@ -5546,7 +5554,7 @@ static void test_hardening_mac_attribution_scope(void) {
   stage_likely_reset();
   struct component_log *u = hr_seed_comp("c_ungated", OUTCOME_ACCESS_DENIED);
   hr_seed_meta(u, "method", "parsed");
-  assert(declared_sysctl_gates_permit(u) == 0);
+  TH_CHECK(declared_sysctl_gates_permit(u) == 0);
 
   kasld_env.hardening.dmesg_restrict = 0;
   reset_comp_logs();
@@ -5569,23 +5577,23 @@ static void test_hardening_mac_blocked_predicate(void) {
   hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
   kasld_env.hardening.dmesg_restrict = 0;
 
-  assert(mac_blocked(c, &v, -1) == 1);
+  TH_CHECK(mac_blocked(c, &v, -1) == 1);
 
   /* Not enforcing: a permissive policy logs, it does not deny. */
   v.selinux = SELINUX_PERMISSIVE;
-  assert(mac_blocked(c, &v, -1) == 0);
+  TH_CHECK(mac_blocked(c, &v, -1) == 0);
   v.selinux = SELINUX_ENFORCING;
 
   /* A component that ran or found nothing is not a denial to attribute. */
   c->outcome = OUTCOME_SUCCESS;
-  assert(mac_blocked(c, &v, -1) == 0);
+  TH_CHECK(mac_blocked(c, &v, -1) == 0);
   c->outcome = OUTCOME_NO_RESULT;
-  assert(mac_blocked(c, &v, -1) == 0);
+  TH_CHECK(mac_blocked(c, &v, -1) == 0);
   c->outcome = OUTCOME_ACCESS_DENIED;
 
   /* The knob was blocking, so it — not the policy — explains the denial. */
   kasld_env.hardening.dmesg_restrict = 1;
-  assert(mac_blocked(c, &v, -1) == 0);
+  TH_CHECK(mac_blocked(c, &v, -1) == 0);
   kasld_env.hardening.dmesg_restrict = 0;
 
   /* seccomp wins the tie for a perf denial it can account for. */
@@ -5596,9 +5604,9 @@ static void test_hardening_mac_blocked_predicate(void) {
   hr_seed_meta(p, "sysctl", "perf_event_paranoid>=2");
   kasld_env.hardening.perf_event_paranoid = 0;
   v.seccomp = 2;
-  assert(mac_blocked(p, &v, 0) == 0); /* host paranoid 0 < 2 => seccomp's */
+  TH_CHECK(mac_blocked(p, &v, 0) == 0); /* host paranoid 0 < 2 => seccomp's */
   v.seccomp = 0;
-  assert(mac_blocked(p, &v, 0) == 1); /* no filter => the policy's */
+  TH_CHECK(mac_blocked(p, &v, 0) == 1); /* no filter => the policy's */
 
   kasld_env.hardening.dmesg_restrict = 0;
   kasld_env.hardening.perf_event_paranoid = KASLD_SYSCTL_UNREAD;
@@ -5629,9 +5637,9 @@ static void test_render_hardening_text_rand_failed_surfaces(void) {
   capture_stdout(wrap_render_summary, &s);
   hardening_mode = 0;
   /* The dedicated posture section names the state and the detector. */
-  assert(strstr(render_cap, "KASLR posture") != NULL);
-  assert(strstr(render_cap, "randomization failed") != NULL);
-  assert(strstr(render_cap, "dmesg_kaslr_disabled") != NULL);
+  TH_CHECK(strstr(render_cap, "KASLR posture") != NULL);
+  TH_CHECK(strstr(render_cap, "randomization failed") != NULL);
+  TH_CHECK(strstr(render_cap, "dmesg_kaslr_disabled") != NULL);
 }
 
 /* JSON mirror: the kaslr_posture object reports state="randomization_failed",
@@ -5653,18 +5661,18 @@ static void test_render_hardening_json_rand_failed_state(void) {
   capture_stdout(wrap_render_summary, &s);
   hardening_mode = 0;
   set_render_mode(0, 0, 0);
-  assert(strstr(render_cap, "\"kaslr_posture\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"kaslr_posture\"") != NULL);
   /* The JSON posture state is mutually exclusive and prioritises capability:
    * on arches without KASLR support it is "unsupported" regardless of the
    * injected rand-failed scalar (and the detector origin is not echoed);
    * everywhere else it is "randomization_failed". Branch on the compile-time
    * capability so the test asserts the arch-correct state on every target
    * without skipping. */
-  assert(strstr(render_cap, KASLR_SUPPORTED ? "\"randomization_failed\""
-                                            : "\"unsupported\"") != NULL);
+  TH_CHECK(strstr(render_cap, KASLR_SUPPORTED ? "\"randomization_failed\""
+                                              : "\"unsupported\"") != NULL);
   if (KASLR_SUPPORTED)
     /* The detector origin is echoed in the JSON detected_by array. */
-    assert(strstr(render_cap, "dmesg_kaslr_disabled") != NULL);
+    TH_CHECK(strstr(render_cap, "dmesg_kaslr_disabled") != NULL);
 }
 
 /* Without the new scalar, the posture section must NOT appear in text mode.
@@ -5683,7 +5691,7 @@ static void test_render_hardening_text_no_rand_failed_silent(void) {
   /* Distinguish: the new posture section's heading is "KASLR posture";
    * the always-present results banner is "KASLR is disabled" (different
    * substring). Asserting absence of the posture heading. */
-  assert(strstr(render_cap, "KASLR posture") == NULL);
+  TH_CHECK(strstr(render_cap, "KASLR posture") == NULL);
 }
 
 /* An empty tree for the whole suite. It is staged before the first test because
@@ -5713,17 +5721,17 @@ static const enum kasld_text_order th_orders[] = {
     TEXT_ORDER_UNKNOWN};
 
 static void test_text_order_labels_cover_every_class(void) {
-  assert(strcmp(text_order_label(TEXT_ORDER_CANONICAL), "canonical") == 0);
-  assert(strcmp(text_order_label(TEXT_ORDER_STATIC), "reordered (static)") ==
-         0);
-  assert(strcmp(text_order_label(TEXT_ORDER_DYNAMIC), "reordered (per-boot)") ==
-         0);
+  TH_CHECK(strcmp(text_order_label(TEXT_ORDER_CANONICAL), "canonical") == 0);
+  TH_CHECK(strcmp(text_order_label(TEXT_ORDER_STATIC), "reordered (static)") ==
+           0);
+  TH_CHECK(strcmp(text_order_label(TEXT_ORDER_DYNAMIC),
+                  "reordered (per-boot)") == 0);
   /* The actionable half: what a System.map is worth under each class. */
-  assert(strcmp(symbol_resolution_label(TEXT_ORDER_CANONICAL),
-                "generic System.map OK") == 0);
-  assert(strcmp(symbol_resolution_label(TEXT_ORDER_STATIC),
-                "needs this build's System.map") == 0);
-  assert(strcmp(symbol_resolution_json(TEXT_ORDER_DYNAMIC), "none") == 0);
+  TH_CHECK(strcmp(symbol_resolution_label(TEXT_ORDER_CANONICAL),
+                  "generic System.map OK") == 0);
+  TH_CHECK(strcmp(symbol_resolution_label(TEXT_ORDER_STATIC),
+                  "needs this build's System.map") == 0);
+  TH_CHECK(strcmp(symbol_resolution_json(TEXT_ORDER_DYNAMIC), "none") == 0);
 }
 
 static void test_text_order_json_classes_are_bare_tokens(void) {
@@ -5733,12 +5741,12 @@ static void test_text_order_json_classes_are_bare_tokens(void) {
   for (unsigned i = 0; i < sizeof(th_orders) / sizeof(th_orders[0]); i++) {
     const char *j = text_order_json_class(th_orders[i]);
     const char *s = symbol_resolution_json(th_orders[i]);
-    assert(j && *j && s && *s);
-    assert(strchr(j, ' ') == NULL && strchr(j, '(') == NULL);
-    assert(strchr(s, ' ') == NULL && strchr(s, '(') == NULL);
+    TH_CHECK(j && *j && s && *s);
+    TH_CHECK(strchr(j, ' ') == NULL && strchr(j, '(') == NULL);
+    TH_CHECK(strchr(s, ' ') == NULL && strchr(s, '(') == NULL);
   }
   /* And the prose form is the one allowed to be prose. */
-  assert(strchr(text_order_label(TEXT_ORDER_STATIC), '(') != NULL);
+  TH_CHECK(strchr(text_order_label(TEXT_ORDER_STATIC), '(') != NULL);
 }
 
 static void test_text_order_vocabularies_are_injective(void) {
@@ -5746,14 +5754,14 @@ static void test_text_order_vocabularies_are_injective(void) {
   for (unsigned i = 0; i < sizeof(th_orders) / sizeof(th_orders[0]); i++) {
     for (unsigned k = i + 1; k < sizeof(th_orders) / sizeof(th_orders[0]);
          k++) {
-      assert(strcmp(text_order_label(th_orders[i]),
-                    text_order_label(th_orders[k])) != 0);
-      assert(strcmp(text_order_json_class(th_orders[i]),
-                    text_order_json_class(th_orders[k])) != 0);
-      assert(strcmp(symbol_resolution_label(th_orders[i]),
-                    symbol_resolution_label(th_orders[k])) != 0);
-      assert(strcmp(symbol_resolution_json(th_orders[i]),
-                    symbol_resolution_json(th_orders[k])) != 0);
+      TH_CHECK(strcmp(text_order_label(th_orders[i]),
+                      text_order_label(th_orders[k])) != 0);
+      TH_CHECK(strcmp(text_order_json_class(th_orders[i]),
+                      text_order_json_class(th_orders[k])) != 0);
+      TH_CHECK(strcmp(symbol_resolution_label(th_orders[i]),
+                      symbol_resolution_label(th_orders[k])) != 0);
+      TH_CHECK(strcmp(symbol_resolution_json(th_orders[i]),
+                      symbol_resolution_json(th_orders[k])) != 0);
     }
   }
 }
@@ -5765,24 +5773,24 @@ static void test_text_order_unknown_is_the_fallback(void) {
   const enum kasld_text_order off[] = {(enum kasld_text_order)0,
                                        (enum kasld_text_order)99};
   for (unsigned i = 0; i < sizeof(off) / sizeof(off[0]); i++) {
-    assert(strcmp(text_order_label(off[i]), "unknown") == 0);
-    assert(strcmp(text_order_json_class(off[i]), "unknown") == 0);
-    assert(strcmp(symbol_resolution_label(off[i]), "unknown") == 0);
-    assert(strcmp(symbol_resolution_json(off[i]), "unknown") == 0);
+    TH_CHECK(strcmp(text_order_label(off[i]), "unknown") == 0);
+    TH_CHECK(strcmp(text_order_json_class(off[i]), "unknown") == 0);
+    TH_CHECK(strcmp(symbol_resolution_label(off[i]), "unknown") == 0);
+    TH_CHECK(strcmp(symbol_resolution_json(off[i]), "unknown") == 0);
   }
-  assert(strcmp(text_order_label(TEXT_ORDER_UNKNOWN), "unknown") == 0);
+  TH_CHECK(strcmp(text_order_label(TEXT_ORDER_UNKNOWN), "unknown") == 0);
 }
 
 static void test_disclosure_eq_null_handling(void) {
   /* Components without a `discloses` key reach this with NULL, and two of them
    * are equal in the sense the caller groups by. A plain strcmp would fault. */
-  assert(disclosure_eq(NULL, NULL));
-  assert(!disclosure_eq(NULL, "virtual"));
-  assert(!disclosure_eq("virtual", NULL));
-  assert(disclosure_eq("virtual", "virtual"));
-  assert(!disclosure_eq("virtual", "physical"));
-  assert(disclosure_eq("", ""));
-  assert(!disclosure_eq("", "virtual"));
+  TH_CHECK(disclosure_eq(NULL, NULL));
+  TH_CHECK(!disclosure_eq(NULL, "virtual"));
+  TH_CHECK(!disclosure_eq("virtual", NULL));
+  TH_CHECK(disclosure_eq("virtual", "virtual"));
+  TH_CHECK(!disclosure_eq("virtual", "physical"));
+  TH_CHECK(disclosure_eq("", ""));
+  TH_CHECK(!disclosure_eq("", "virtual"));
 }
 
 int main(void) {

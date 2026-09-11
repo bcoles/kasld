@@ -17,6 +17,11 @@
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
 
+/* TH_CHECK, and the suite state the helpers below report through.
+ * Guarded against double inclusion, so an includer that pulls the
+ * harness in first is unaffected. */
+#include "test_harness.h"
+
 #include <assert.h>
 #include <limits.h>
 
@@ -65,7 +70,7 @@ static int test_origin(const char *name) {
   for (int i = 0; i < num_components; i++)
     if (strcmp(components[i].name, name) == 0)
       return i;
-  assert(num_components < MAX_COMPONENTS);
+  TH_CHECK(num_components < MAX_COMPONENTS);
   int slot = num_components++;
   memset(&components[slot], 0, sizeof(components[slot]));
   snprintf(components[slot].name, sizeof(components[slot].name), "%s", name);

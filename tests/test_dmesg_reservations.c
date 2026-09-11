@@ -84,7 +84,7 @@ static void run_capture(int (*fn)(void)) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_dmesg_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -118,11 +118,11 @@ static void test_reserved_mem_per_region(void) {
               "OF: reserved mem: 0x0000000088000000..0x000000008bffffff (65536 "
               "KiB) map b@88000000\n");
   run_capture(resmem_main);
-  assert(
+  TH_CHECK(
       strstr(cap,
              "reserved_mem pos=base conf=parsed lo=0x80000000 hi=0x801fffff") !=
       NULL);
-  assert(
+  TH_CHECK(
       strstr(cap,
              "reserved_mem pos=base conf=parsed lo=0x88000000 hi=0x8bffffff") !=
       NULL);
@@ -134,7 +134,7 @@ static void test_swiotlb_single_range(void) {
   stage_dmesg("software IO TLB: mapped [mem "
               "0x00000000bbed0000-0x00000000bfed0000] (64MB)\n");
   run_capture(swiotlb_main);
-  assert(
+  TH_CHECK(
       strstr(cap, "swiotlb pos=base conf=parsed lo=0xbbed0000 hi=0xbfecffff") !=
       NULL);
 }
@@ -150,15 +150,16 @@ static void test_crashkernel_two_disjoint_bands(void) {
       "0x0000000008000000 "
       "(64 MB)\n");
   run_capture(crashkernel_main);
-  assert(
+  TH_CHECK(
       strstr(cap,
              "crashkernel pos=base conf=parsed lo=0x27e00000 hi=0x3fdfffff") !=
       NULL);
-  assert(strstr(cap,
-                "crashkernel pos=base conf=parsed lo=0x4000000 hi=0x7ffffff") !=
-         NULL);
+  TH_CHECK(
+      strstr(cap,
+             "crashkernel pos=base conf=parsed lo=0x4000000 hi=0x7ffffff") !=
+      NULL);
   /* the collapsed span [low.lo, high.hi] must never be emitted */
-  assert(strstr(cap, "lo=0x4000000 hi=0x3fdfffff") == NULL);
+  TH_CHECK(strstr(cap, "lo=0x4000000 hi=0x3fdfffff") == NULL);
 }
 
 /* --- dmesg_cma_reserved: per-pool range computed from the MiB size (both the
@@ -170,12 +171,12 @@ static void test_cma_size_to_range(void) {
       "cma: Reserved 256 MiB at 0x00000000f0000000 on node -1\n");
   run_capture(cma_main);
   /* 96 MiB:  0x7a000000 + 0x6000000  - 1 = 0x7fffffff */
-  assert(
+  TH_CHECK(
       strstr(cap,
              "reserved_mem pos=base conf=parsed lo=0x7a000000 hi=0x7fffffff") !=
       NULL);
   /* 256 MiB: 0xf0000000 + 0x10000000 - 1 = 0xffffffff */
-  assert(
+  TH_CHECK(
       strstr(cap,
              "reserved_mem pos=base conf=parsed lo=0xf0000000 hi=0xffffffff") !=
       NULL);
@@ -187,11 +188,11 @@ static void test_cma_size_absent_fallback(void) {
   stage_dmesg(
       "Reserved memory: created restricted DMA pool at 0x0000000060000000\n");
   run_capture(cma_main);
-  assert(
+  TH_CHECK(
       strstr(cap, "reserved_mem pos=interior conf=parsed sample=0x60000000") !=
       NULL);
   /* no size => no [lo,hi] band may be invented */
-  assert(strstr(cap, "lo=0x60000000 hi=") == NULL);
+  TH_CHECK(strstr(cap, "lo=0x60000000 hi=") == NULL);
 }
 
 int main(void) {

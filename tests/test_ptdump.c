@@ -45,7 +45,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_ptdump_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -90,8 +90,8 @@ static void test_recovers_image_base(void) {
   run_capture();
   char want[64];
   snprintf(want, sizeof(want), "lo=0x%lx", text);
-  assert(strstr(cap, "kernel_image") != NULL);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, "kernel_image") != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 }
 
 /* A dump without the "High Kernel Mapping" region pins nothing (the arm64
@@ -102,12 +102,12 @@ static void test_no_marker_declines(void) {
       "---[ vmalloc() Area ]---\n"
       "0xffffc90000000000-0xffffc90000001000   4K   RW         GLB NX pte\n");
   run_capture();
-  assert(strstr(cap, "kernel_image") == NULL);
+  TH_CHECK(strstr(cap, "kernel_image") == NULL);
 }
 
 #else /* coupled-text arch: the component is inert. */
 
-static void test_inert_on_coupled(void) { assert(ptdump_main() == 0); }
+static void test_inert_on_coupled(void) { TH_CHECK(ptdump_main() == 0); }
 
 #endif
 

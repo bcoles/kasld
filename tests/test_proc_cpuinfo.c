@@ -54,8 +54,8 @@ static void test_48_bits_publishes_the_active_level(void) {
   with_widths("address sizes\t: 46 bits physical, 48 bits virtual\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "virt_addr_bits") != NULL);
-  assert(th_cap_field_is("value", 48));
+  TH_CHECK(strstr(th_cap, "virt_addr_bits") != NULL);
+  TH_CHECK(th_cap_field_is("value", 48));
 }
 
 /* 57 bits is a capability, not a level, and must not be published as one. */
@@ -63,7 +63,7 @@ static void test_57_bits_does_not_publish_a_level(void) {
   with_widths("address sizes\t: 52 bits physical, 57 bits virtual\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "virt_addr_bits") == NULL);
+  TH_CHECK(strstr(th_cap, "virt_addr_bits") == NULL);
 }
 
 /* Either width still floors the direct-map base, on the constraint channel —
@@ -72,16 +72,16 @@ static void test_both_widths_floor_the_direct_map(void) {
   with_widths("address sizes\t: 46 bits physical, 48 bits virtual\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "C virt_page_offset >=") != NULL);
-  assert(th_cap_field_is("value", PAGE_OFFSET_BASE_MIN_L4));
+  TH_CHECK(strstr(th_cap, "C virt_page_offset >=") != NULL);
+  TH_CHECK(th_cap_field_is("value", PAGE_OFFSET_BASE_MIN_L4));
 
   with_widths("address sizes\t: 52 bits physical, 57 bits virtual\n");
   run(&rc);
-  assert(strstr(th_cap, "C virt_page_offset >=") != NULL);
-  assert(th_cap_field_is("value", PAGE_OFFSET_BASE_MIN_L5));
+  TH_CHECK(strstr(th_cap, "C virt_page_offset >=") != NULL);
+  TH_CHECK(th_cap_field_is("value", PAGE_OFFSET_BASE_MIN_L5));
   /* The 5-level floor is the lower of the two: reading a capability as a level
    * loosens the bound, it does not raise it past the truth. */
-  assert(PAGE_OFFSET_BASE_MIN_L5 < PAGE_OFFSET_BASE_MIN_L4);
+  TH_CHECK(PAGE_OFFSET_BASE_MIN_L5 < PAGE_OFFSET_BASE_MIN_L4);
 }
 
 /* A line that cannot be parsed is not a width. */
@@ -89,12 +89,12 @@ static void test_unparsable_widths_claim_nothing(void) {
   with_widths("address sizes\t: unknown\n");
   int rc;
   run(&rc);
-  assert(strstr(th_cap, "virt_addr_bits") == NULL);
-  assert(strstr(th_cap, "virt_page_offset") == NULL);
+  TH_CHECK(strstr(th_cap, "virt_addr_bits") == NULL);
+  TH_CHECK(strstr(th_cap, "virt_page_offset") == NULL);
 
   th_sysroot_clear();
   run(&rc);
-  assert(th_cap[0] == '\0');
+  TH_CHECK(th_cap[0] == '\0');
 }
 #endif
 

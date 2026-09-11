@@ -60,10 +60,11 @@ static void test_search_converges_exact(void) {
     unsigned long out = 0;
     enum kasld_ts_status st =
         kasld__ts_search(mock_step, ANCHOR, CEILING, PAGE, &out);
-    assert(st == KASLD_TS_EXACT);
-    assert(out == splits[i]); /* the exact boundary, not a containing window */
+    TH_CHECK(st == KASLD_TS_EXACT);
+    TH_CHECK(out ==
+             splits[i]); /* the exact boundary, not a containing window */
     /* A 32-bit space at page granularity is ~20 halvings; guard the loop. */
-    assert(g_probes > 0 && g_probes < 40);
+    TH_CHECK(g_probes > 0 && g_probes < 40);
   }
 }
 
@@ -75,7 +76,7 @@ static void test_search_untrusted_aborts(void) {
   unsigned long out = 0xdeadbeef;
   enum kasld_ts_status st =
       kasld__ts_search(mock_step, ANCHOR, CEILING, PAGE, &out);
-  assert(st == KASLD_TS_UNRELIABLE);
+  TH_CHECK(st == KASLD_TS_UNRELIABLE);
 }
 
 /* ========================================================================
@@ -84,7 +85,8 @@ static void test_search_untrusted_aborts(void) {
 static void test_nothing_above_clean_boundary(void) {
   /* A real top: nothing maps above it. Every sample refuses -> 1. */
   reset(0xc0000000ul);
-  assert(kasld__ts_nothing_above(mock_step, 0xc0000000ul, PAGE, CEILING) == 1);
+  TH_CHECK(kasld__ts_nothing_above(mock_step, 0xc0000000ul, PAGE, CEILING) ==
+           1);
 }
 
 static void test_nothing_above_detects_gap(void) {
@@ -94,7 +96,8 @@ static void test_nothing_above_detects_gap(void) {
   reset(0x80000000ul);
   g_gap_lo = 0x90000000ul;
   g_gap_hi = 0xa0000000ul; /* 256 MiB of mappable space above the candidate */
-  assert(kasld__ts_nothing_above(mock_step, 0x80000000ul, PAGE, CEILING) == 0);
+  TH_CHECK(kasld__ts_nothing_above(mock_step, 0x80000000ul, PAGE, CEILING) ==
+           0);
 }
 
 static void test_nothing_above_narrow_gap_found(void) {
@@ -103,13 +106,15 @@ static void test_nothing_above_narrow_gap_found(void) {
   reset(0x80000000ul);
   g_gap_lo = 0x80010000ul;
   g_gap_hi = 0x80014000ul; /* four pages, just above the candidate */
-  assert(kasld__ts_nothing_above(mock_step, 0x80000000ul, PAGE, CEILING) == 0);
+  TH_CHECK(kasld__ts_nothing_above(mock_step, 0x80000000ul, PAGE, CEILING) ==
+           0);
 }
 
 static void test_nothing_above_untrusted(void) {
   reset(0xc0000000ul);
   g_fail_at = 0xc0000000ul; /* every sample above the split is untrusted */
-  assert(kasld__ts_nothing_above(mock_step, 0xc0000000ul, PAGE, CEILING) == -1);
+  TH_CHECK(kasld__ts_nothing_above(mock_step, 0xc0000000ul, PAGE, CEILING) ==
+           -1);
 }
 
 int main(void) {

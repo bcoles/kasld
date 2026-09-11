@@ -43,7 +43,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_sock_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -75,14 +75,14 @@ static void run_capture(void) {
 static void test_classify_alignment_beats_vas(void) {
   unsigned long base = (unsigned long)KERNEL_VIRT_VAS_START;
   /* Zero and aligned-but-non-kernel are skipped. */
-  assert(classify_sock_ptr(0) == SOCK_PTR_SKIP);
-  assert(classify_sock_ptr(8) == SOCK_PTR_SKIP); /* aligned, below the VAS */
+  TH_CHECK(classify_sock_ptr(0) == SOCK_PTR_SKIP);
+  TH_CHECK(classify_sock_ptr(8) == SOCK_PTR_SKIP); /* aligned, below the VAS */
   /* Aligned + in the kernel VAS -> a plausible sock pointer. */
-  assert(classify_sock_ptr(base + 0x40) == SOCK_PTR_CANDIDATE);
+  TH_CHECK(classify_sock_ptr(base + 0x40) == SOCK_PTR_CANDIDATE);
   /* Misaligned -> hashed, even when the value sits INSIDE the kernel VAS (the
    * 32-bit failure mode, where a hashed id passes the wide VAS floor). */
-  assert(classify_sock_ptr(base + 0x45) == SOCK_PTR_HASHED);
-  assert(classify_sock_ptr(0x7a5476c5UL) == SOCK_PTR_HASHED); /* misaligned */
+  TH_CHECK(classify_sock_ptr(base + 0x45) == SOCK_PTR_HASHED);
+  TH_CHECK(classify_sock_ptr(0x7a5476c5UL) == SOCK_PTR_HASHED); /* misaligned */
 }
 
 /* End-to-end: an in-VAS MISALIGNED (hashed) token condemns the whole read, even
@@ -99,7 +99,7 @@ static void test_hashed_batch_declines(void) {
            base + 0x40); /* aligned sibling, but the read is condemned */
   stage_unix(fx);
   run_capture();
-  assert(strstr(cap, "directmap") == NULL); /* nothing forged */
+  TH_CHECK(strstr(cap, "directmap") == NULL); /* nothing forged */
 }
 
 /* End-to-end: real (aligned, in-VAS) pointers emit the lowest as a direct-map
@@ -117,8 +117,8 @@ static void test_real_pointers_emit_lowest(void) {
   run_capture();
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", lo);
-  assert(strstr(cap, "directmap") != NULL);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, "directmap") != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 }
 
 int main(void) {

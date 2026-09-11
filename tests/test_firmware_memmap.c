@@ -68,13 +68,13 @@ static void test_publishes_ram_spans_and_omits_other_types(void) {
   entry("2", "System RAM\n", "0x100000000\n", "0x33fffffff\n");
   int rc;
   run(&rc);
-  assert(th_cap_count("pos=extent") == 2);
-  assert(th_cap_field_is("lo", 0x100000ul) &&
-         th_cap_field_is("hi", 0xbfecfffful));
-  assert(th_cap_field_is("lo", 0x100000000ul) &&
-         th_cap_field_is("hi", 0x33ffffffful));
+  TH_CHECK(th_cap_count("pos=extent") == 2);
+  TH_CHECK(th_cap_field_is("lo", 0x100000ul) &&
+           th_cap_field_is("hi", 0xbfecfffful));
+  TH_CHECK(th_cap_field_is("lo", 0x100000000ul) &&
+           th_cap_field_is("hi", 0x33ffffffful));
   /* The reserved span is a gap, not an extent. */
-  assert(!th_cap_field_is("lo", 0xbfed0000ul));
+  TH_CHECK(!th_cap_field_is("lo", 0xbfed0000ul));
 }
 
 /* The loader's verdict on an incomplete map, asserted directly: -1 for the
@@ -90,10 +90,10 @@ static void test_a_typeless_entry_withholds_the_whole_map(void) {
   th_sysroot_clear();
   entry("0", "System RAM\n", "0x100000\n", "0xbfecffff\n");
   entry("1", NULL, "0xbfed0000\n", "0xbfefffff\n");
-  assert(load_verdict() == -1);
+  TH_CHECK(load_verdict() == -1);
   int rc;
   run(&rc);
-  assert(th_cap_count("pos=extent") == 0);
+  TH_CHECK(th_cap_count("pos=extent") == 0);
 }
 
 /* An unparsable start, and an end below its start, are the same kind of
@@ -102,12 +102,12 @@ static void test_an_unreadable_span_withholds_the_whole_map(void) {
   th_sysroot_clear();
   entry("0", "System RAM\n", "0x100000\n", "0xbfecffff\n");
   entry("1", "System RAM\n", "not-a-number\n", "0xbfefffff\n");
-  assert(load_verdict() == -1);
+  TH_CHECK(load_verdict() == -1);
 
   th_sysroot_clear();
   entry("0", "System RAM\n", "0x100000\n", "0xbfecffff\n");
   entry("1", "System RAM\n", "0xbff00000\n", "0xbfe00000\n");
-  assert(load_verdict() == -1);
+  TH_CHECK(load_verdict() == -1);
 }
 
 /* More RAM spans than the caller's array is the same unknown: the map that
@@ -117,7 +117,7 @@ static void test_a_map_too_large_for_the_array_is_withheld(void) {
   entry("0", "System RAM\n", "0x100000\n", "0xbfecffff\n");
   entry("1", "System RAM\n", "0x100000000\n", "0x33fffffff\n");
   struct kasld_ram_extent one[1];
-  assert(kasld_load_ram_extents(one, 1) == -1);
+  TH_CHECK(kasld_load_ram_extents(one, 1) == -1);
 }
 
 /* No map at all: nothing claimed, and no failure either. */
@@ -125,7 +125,7 @@ static void test_absent_map_emits_nothing(void) {
   th_sysroot_clear();
   int rc;
   run(&rc);
-  assert(th_cap_count("pos=extent") == 0);
+  TH_CHECK(th_cap_count("pos=extent") == 0);
 }
 
 int main(void) {

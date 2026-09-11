@@ -58,8 +58,8 @@ static void test_pin_cpu_keeps_allowed_preference(void) {
   CPU_ZERO(&orig);
   sched_getaffinity(0, sizeof(orig), &orig);
 
-  assert(pin_cpu(cpus[1]) == cpus[1]);
-  assert(current_single_cpu() == cpus[1]);
+  TH_CHECK(pin_cpu(cpus[1]) == cpus[1]);
+  TH_CHECK(current_single_cpu() == cpus[1]);
 
   sched_setaffinity(0, sizeof(orig), &orig);
 }
@@ -80,10 +80,10 @@ static void test_pin_cpu_falls_back_when_pref_excluded(void) {
   CPU_ZERO(&sub);
   for (int i = 1; i < n; i++)
     CPU_SET(cpus[i], &sub);
-  assert(sched_setaffinity(0, sizeof(sub), &sub) == 0);
+  TH_CHECK(sched_setaffinity(0, sizeof(sub), &sub) == 0);
 
-  assert(pin_cpu(cpus[0]) == cpus[1]); /* excluded pref -> lowest allowed */
-  assert(current_single_cpu() == cpus[1]);
+  TH_CHECK(pin_cpu(cpus[0]) == cpus[1]); /* excluded pref -> lowest allowed */
+  TH_CHECK(current_single_cpu() == cpus[1]);
 
   sched_setaffinity(0, sizeof(orig), &orig);
 }
@@ -102,10 +102,10 @@ static void test_pin_cpu_single_cpu_mask(void) {
   cpu_set_t one;
   CPU_ZERO(&one);
   CPU_SET(only, &one);
-  assert(sched_setaffinity(0, sizeof(one), &one) == 0);
+  TH_CHECK(sched_setaffinity(0, sizeof(one), &one) == 0);
 
-  assert(pin_cpu(0) == only); /* 0 may be excluded; only one choice anyway */
-  assert(current_single_cpu() == only);
+  TH_CHECK(pin_cpu(0) == only); /* 0 may be excluded; only one choice anyway */
+  TH_CHECK(current_single_cpu() == only);
 
   sched_setaffinity(0, sizeof(orig), &orig);
 }

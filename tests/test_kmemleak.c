@@ -35,7 +35,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_kmemleak_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -84,15 +84,15 @@ static void test_lowest_directmap_object(void) {
   run_capture();
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", lo);
-  assert(strstr(cap, "directmap_band") != NULL);
-  assert(strstr(cap, want) != NULL);
+  TH_CHECK(strstr(cap, "directmap_band") != NULL);
+  TH_CHECK(strstr(cap, want) != NULL);
 }
 
 /* An empty report declines: no direct-map witness emitted. */
 static void test_empty_report_declines(void) {
   th_sysroot_write("/sys/kernel/debug/kmemleak", "");
   run_capture();
-  assert(strstr(cap, "directmap") == NULL);
+  TH_CHECK(strstr(cap, "directmap") == NULL);
 }
 
 int main(void) {

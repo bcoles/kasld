@@ -48,8 +48,8 @@ static void write_prop(const char *name, unsigned long long v, int cells) {
   wr_be(b, v, cells);
   snprintf(path, sizeof(path), "%s/%s", g_chosen, name);
   int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  assert(write(fd, b, (size_t)cells * 4) == (ssize_t)cells * 4);
+  TH_CHECK(fd >= 0);
+  TH_CHECK(write(fd, b, (size_t)cells * 4) == (ssize_t)cells * 4);
   close(fd);
 }
 
@@ -63,7 +63,7 @@ static void run_capture(void) {
   fflush(stdout);
   char tmpl[] = "/tmp/kasld_dti_capXXXXXX";
   int fd = mkstemp(tmpl);
-  assert(fd >= 0);
+  TH_CHECK(fd >= 0);
   int saved = dup(1);
   dup2(fd, 1);
   fflush(stderr);
@@ -95,7 +95,7 @@ static void test_end_property_is_exclusive(void) {
   write_prop("linux,initrd-start", 0x30000000ull, 1);
   write_prop("linux,initrd-end", 0x30001000ull, 1);
   run_capture();
-  assert(
+  TH_CHECK(
       strstr(cap, "initrd pos=base conf=parsed lo=0x30000000 hi=0x30000fff") !=
       NULL);
 }
@@ -110,8 +110,8 @@ static void test_two_cell_properties(void) {
     printf("      (skipped: 64-bit properties exceed this build's word)\n");
     return;
   }
-  assert(strstr(cap, "initrd pos=base conf=parsed lo=0x840000000 "
-                     "hi=0x8401fffff") != NULL);
+  TH_CHECK(strstr(cap, "initrd pos=base conf=parsed lo=0x840000000 "
+                       "hi=0x8401fffff") != NULL);
 }
 
 /* No end property: the start is a located address but the region has no known
@@ -120,8 +120,8 @@ static void test_missing_end_yields_base_only(void) {
   write_prop("linux,initrd-start", 0x30000000ull, 1);
   rm_prop("linux,initrd-end");
   run_capture();
-  assert(strstr(cap, "initrd pos=base conf=parsed lo=0x30000000\n") != NULL);
-  assert(strstr(cap, "hi=") == NULL);
+  TH_CHECK(strstr(cap, "initrd pos=base conf=parsed lo=0x30000000\n") != NULL);
+  TH_CHECK(strstr(cap, "hi=") == NULL);
 }
 
 /* An end at or below the start describes no region; publishing it as an extent
@@ -130,15 +130,15 @@ static void test_degenerate_end_yields_base_only(void) {
   write_prop("linux,initrd-start", 0x30000000ull, 1);
   write_prop("linux,initrd-end", 0x30000000ull, 1);
   run_capture();
-  assert(strstr(cap, "initrd pos=base conf=parsed lo=0x30000000\n") != NULL);
-  assert(strstr(cap, "hi=") == NULL);
+  TH_CHECK(strstr(cap, "initrd pos=base conf=parsed lo=0x30000000\n") != NULL);
+  TH_CHECK(strstr(cap, "hi=") == NULL);
 }
 
 int main(void) {
   th_sysroot_init("sysfs_devicetree_initrd");
   th_sysroot_stage_path("/sys/firmware/devicetree/base/chosen", g_chosen,
                         sizeof(g_chosen));
-  assert(mkdir(g_chosen, 0755) == 0 || errno == EEXIST);
+  TH_CHECK(mkdir(g_chosen, 0755) == 0 || errno == EEXIST);
 
   TEST_SUITE("test_sysfs_devicetree_initrd");
   BEGIN_CATEGORY("device-tree initrd extent");
