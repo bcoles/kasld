@@ -2,14 +2,17 @@
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
 # Apply a KASLR slide to kernel symbols, derive the slide and text base
-# from a known runtime symbol address, or translate physical <-> virtual
-# addresses through the direct map. Works against System.map,
+# from a known runtime symbol address, translate physical <-> virtual
+# addresses through the direct map, or translate physical <-> `struct page`
+# through the vmemmap array. Works against System.map,
 # `/proc/kallsyms` snapshots, and vmlinux ELF (debug-symbols enabled).
 #
 # Synopsis:
 #   ksymoff [-b BASE | --from NAME=ADDR] -s SOURCE [--slide] [SYMBOL ...]
-#   ksymoff --page-offset BASE { --phys2virt ADDR | --virt2phys ADDR }
-#   ksymoff --vmemmap BASE [--page-size N] [--page-shift N] --phys2page ADDR
+#   ksymoff --page-offset BASE [--phys-offset ADDR]
+#           { --phys2virt ADDR | --virt2phys ADDR }
+#   ksymoff --vmemmap BASE [--vmemmap-offset ADDR] [--struct-page-size N]
+#           [--page-shift N] { --phys2page ADDR | --page2phys ADDR }
 #
 # Modes
 # -----
@@ -25,12 +28,14 @@
 #   --slide    Print only the KASLR slide (signed hex). Combines with
 #              either mode.
 #
-#   Physical   Translate physical <-> virtual through the direct map, for
+#   Physical   Translate physical <-> virtual through the direct map, and
+#              physical <-> `struct page` through the vmemmap array, for
 #              data-only pivots (Dirty Pagetable, cross-cache) that work in
-#              physical addresses. Needs a base, not a symbol source:
-#                --phys2virt ADDR   virt = phys + page_offset_base
-#                --virt2phys ADDR   phys = virt − page_offset_base
-#                --phys2page ADDR   struct page = vmemmap_base + pfn * page-size
+#              physical addresses. Needs bases, not a symbol source:
+#                --phys2virt ADDR   phys -> direct-map virtual
+#                --virt2phys ADDR   direct-map virtual -> phys
+#                --phys2page ADDR   phys -> struct page *
+#                --page2phys ADDR   struct page * -> phys
 #
 # Supply the runtime text base one of two mutually exclusive ways, or let it
 # fall back to stdin:
@@ -65,12 +70,54 @@
 #   ksymoff --page-offset 0xffff9e8000000000 --virt2phys 0xffff9e8034600000
 #   kasld -1 | ksymoff --phys2virt 0x34600000        # reads the `dmap=` field
 #
-#   # Physical address -> its struct page (page-table attacks)
+#   # Physical <-> struct page (page-table attacks, cross-cache)
 #   ksymoff --vmemmap 0xffffea0000000000 --phys2page 0x34600000
+#   ksymoff --vmemmap 0xffffea0000000000 --page2phys 0xffffea0000d18000
+#   kasld -1 | ksymoff --phys2page 0x34600000        # reads the `vmemmap=` field
 #
-# Physical translation assumes 4 KiB pages and a 64-byte struct page; override
-# with --page-shift / --page-size (KASLD's `page_size` and `btf_facts`
+#   # A board whose RAM starts at 0x80000000 (riscv, arm32, ppc32)
+#   kasld -1 | ksymoff --phys-offset 0x80000000 --phys2virt 0x80200000
+#   kasld -1 | ksymoff --vmemmap-offset 0x80000000 --phys2page 0x80200000
+#
+# The linear-map anchor
+# ---------------------
+# The kernel maps physical address `phys_offset` at the direct-map base, so the
+# translation is
+#
+#   virt = (phys − phys_offset) + page_offset
+#
+# and the familiar `phys + page_offset` is the special case phys_offset == 0.
+# That case holds on the architectures which map physical 0 at the linear-map
+# base — x86, mips, ppc64, loongarch64, s390 — and not on those which take the
+# anchor from the base of DRAM (arm32, ppc32, riscv32/64, commonly 0x80000000
+# on riscv) or from a runtime value (arm64's memstart_addr). Assuming zero
+# where it does not hold misplaces every result by the anchor, silently.
+#
+# --phys-offset supplies it. The vmemmap array is indexed from an anchor of its
+# own: the `struct page` for a physical address is found at index
+# (phys − vmemmap_offset) >> page-shift, not at the raw PFN.
+#
+# The two are usually the same number, and --vmemmap-offset defaults to
+# --phys-offset accordingly. x86 uses 0 for both; arm64 rounds the base of DRAM
+# down once and uses that value for the linear map and the array alike. riscv
+# rounds twice and to different granularities -- the linear map from the DRAM
+# base at PMD granularity, the array from that value rounded down again to the
+# memory-section size (128 MiB) -- so on a board whose DRAM does not begin on a
+# section boundary the two differ, and --vmemmap-offset states the array's.
+# A board whose RAM starts at 0x80000000 is already section-aligned.
+#
+# Where a base is taken from a piped `kasld -1` line, the `arch=` field beside
+# it decides the default: zero for a machine known to anchor there, and
+# otherwise a refusal rather than a wrong address. Naming the bases on the
+# command line states the layout by hand, consults no `arch=`, and leaves the
+# anchor at zero.
+#
+# Page geometry defaults to 4 KiB pages and a 64-byte `struct page`; override
+# with --page-shift and --struct-page-size (KASLD's `page_size` and `btf_facts`
 # facts report both for the target).
+#
+# Output: a virtual address prints as 16 zero-padded hex digits with no prefix
+# (`ffff9e8034600000`); a physical address prints `0x`-prefixed (`0x34600000`).
 #
 # Caveat: assumes a SINGLE KASLR slide — i.e. canonical (source/link-order)
 # function layout, where every symbol sits at a fixed offset from the text base.
@@ -92,12 +139,19 @@
 #   --slide               Print only the slide.
 #   --page-offset BASE    Direct-map base (page_offset_base) for --phys2virt /
 #                         --virt2phys; or piped from `kasld -1` (`dmap=` field).
+#   --phys-offset ADDR    Physical address mapped at the direct-map base (the
+#                         linear-map anchor). Default 0; see above.
+#   --vmemmap-offset ADDR Physical address the vmemmap array indexes from.
+#                         Defaults to --phys-offset.
 #   --phys2virt ADDR      Print the direct-map virtual address of a phys addr.
 #   --virt2phys ADDR      Print the physical address of a direct-map virt addr.
-#   --vmemmap BASE        vmemmap base (struct page array); for --phys2page.
-#   --page-size N         sizeof(struct page) (default 64).
-#   --page-shift N        Page shift, log2(page size) (default 12 = 4 KiB).
+#   --vmemmap BASE        vmemmap base (struct page array) for --phys2page /
+#                         --page2phys; or piped from `kasld -1` (`vmemmap=`).
+#   --struct-page-size N  sizeof(struct page) (default 64).
+#   --page-size N         Alias for --struct-page-size.
+#   --page-shift N        Page shift, log2(memory page size) (default 12 = 4 KiB).
 #   --phys2page ADDR      Print the `struct page *` for a physical address.
+#   --page2phys ADDR      Print the physical address of a `struct page *`.
 #   -h, --help            Show this help and exit.
 #
 # Symbol file
@@ -141,6 +195,24 @@ hex_ult() {  # a b (hex, no 0x) -> true if a < b unsigned
   return 1
 }
 
+# Read one address-valued field out of a `kasld -1` line.
+#
+# That line states a quantity three ways: `key=0xHEX` when the engine resolved
+# it, `key=[0xLO..0xHI]` when it only bounded it, and `key=na` when it knows
+# nothing. Only the bare-address form is a value to compute with, so the pattern
+# requires `=0x` and the other two simply do not match -- a window's floor is an
+# EDGE, and translating an address through it is wrong rather than approximate.
+#
+# The key is anchored to start-of-line or whitespace so a lookup for `text`
+# cannot match inside `ptext` (the physical base, and a different slide).
+#
+# Prints the hex digits without the 0x prefix; returns 1 when the field is
+# absent or holds no single value.
+oneline_hex() {  # key line -> hex (no 0x)
+  [[ "$2" =~ (^|[[:space:]])"$1"=0x([0-9a-fA-F]+)([[:space:]]|$) ]] || return 1
+  printf '%s' "${BASH_REMATCH[2]}"
+}
+
 # SECURITY: any value interpolated into `$(( 0x$x ))` must be pure hex/decimal.
 # bash arithmetic evaluates embedded command substitutions and array subscripts,
 # so a value like `a[$(cmd)]` from an untrusted symbol source would execute as a
@@ -163,8 +235,9 @@ is_dec() { case "$1" in ''|*[!0-9]*)       return 1 ;; *) return 0 ;; esac; }
 base="" symfile="" slide_only=0
 from_sym="" from_addr=""
 symbols=()
-page_offset="" vmemmap="" page_size=64 page_shift=12
-phys2virt="" virt2phys="" phys2page=""
+page_offset="" vmemmap="" struct_page_bytes=64 page_shift=12
+phys_offset="" vmemmap_offset=""
+phys2virt="" virt2phys="" phys2page="" page2phys=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -193,9 +266,18 @@ while [[ $# -gt 0 ]]; do
     --vmemmap)
       [[ $# -ge 2 ]] || die "$1 requires BASE"
       vmemmap="$2"; shift 2 ;;
-    --page-size)
+    --phys-offset)
+      [[ $# -ge 2 ]] || die "$1 requires ADDR"
+      phys_offset="$2"; shift 2 ;;
+    --vmemmap-offset)
+      [[ $# -ge 2 ]] || die "$1 requires ADDR"
+      vmemmap_offset="$2"; shift 2 ;;
+    # One knob, two spellings: --page-shift is log2 of the MEMORY page size
+    # while this is sizeof(struct page), so the unqualified name invites
+    # `--page-size 4096` -- accepted, and wrong by a factor of 64.
+    --struct-page-size|--page-size)
       [[ $# -ge 2 ]] || die "$1 requires N"
-      page_size="$2"; shift 2 ;;
+      struct_page_bytes="$2"; shift 2 ;;
     --page-shift)
       [[ $# -ge 2 ]] || die "$1 requires N"
       page_shift="$2"; shift 2 ;;
@@ -208,6 +290,9 @@ while [[ $# -gt 0 ]]; do
     --phys2page)
       [[ $# -ge 2 ]] || die "$1 requires ADDR"
       phys2page="$2"; shift 2 ;;
+    --page2phys)
+      [[ $# -ge 2 ]] || die "$1 requires ADDR"
+      page2phys="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,/^[^#]/{ /^#/s/^# \?//p; }' "$0"
       exit 0 ;;
@@ -222,61 +307,192 @@ while [[ $# -gt 0 ]]; do
 done
 
 # -- Physical-address translation (data-only pivots) ----------------------
-# Independent of the symbol modes: needs a base, not a symbol source. For
+# Independent of the symbol modes: needs bases, not a symbol source. For
 # data-only exploits that work in physical addresses (Dirty Pagetable,
-# cross-cache):
-#   virt        = phys + page_offset_base            (--phys2virt)
-#   phys        = virt − page_offset_base            (--virt2phys)
-#   struct page = vmemmap_base + pfn * page-size     (--phys2page)
+# cross-cache).
+#
+# All four translations turn on one quantity -- the offset into the linear map:
+#
+#   delta       = phys − phys_offset
+#   virt        = delta + page_offset               (--phys2virt / --virt2phys)
+#   struct page = vmemmap + (delta >> page-shift) * struct-page-size
+#                                                   (--phys2page / --page2phys)
+#
+# phys_offset is the physical address the kernel maps at the direct-map base.
+# It is 0 on the architectures that map physical 0 there, and the base of DRAM
+# (or arm64's memstart_addr) on those that do not; the anchor guard below is
+# what keeps the zero default from reaching an architecture it is wrong for.
 n_phys=0
-for v in "$phys2virt" "$virt2phys" "$phys2page"; do
+for v in "$phys2virt" "$virt2phys" "$phys2page" "$page2phys"; do
   [[ -n "$v" ]] && n_phys=$((n_phys + 1))
 done
 if (( n_phys > 0 )); then
-  (( n_phys == 1 )) || die "use one of --phys2virt / --virt2phys / --phys2page"
+  (( n_phys == 1 )) \
+    || die "use one of --phys2virt / --virt2phys / --phys2page / --page2phys"
   [[ -z "$symfile" ]] || die "physical translation takes no symbol source (-s)"
   [[ -z "$base" && -z "$from_sym" ]] \
     || die "physical translation does not combine with -b/--from"
 
-  # struct page needs only the vmemmap base and the page geometry.
-  if [[ -n "$phys2page" ]]; then
-    [[ -n "$vmemmap" ]] || die "--phys2page needs --vmemmap BASE (struct page array base)"
-    vm=${vmemmap#0[xX]}
-    is_hex "$vm" || die "bad --vmemmap: $vmemmap"
-    { is_dec "$page_size" && (( page_size  > 0 )); } || die "bad --page-size: $page_size"
-    { is_dec "$page_shift" && (( page_shift > 0 )); } || die "bad --page-shift: $page_shift"
-    pa=${phys2page#0[xX]}
-    is_hex "$pa" || die "bad --phys2page address: $phys2page"
-    pfn=$(( 0x$pa >> page_shift ))
-    printf '%016x\n' $(( 0x$vm + pfn * page_size ))
-    exit 0
+  # Which bases the requested translation needs.
+  need_po=0 need_vm=0
+  if [[ -n "$phys2virt" || -n "$virt2phys" ]]; then need_po=1; fi
+  if [[ -n "$phys2page" || -n "$page2phys" ]]; then need_vm=1; fi
+
+  # A piped `kasld -1` line supplies a base the command line did not, and the
+  # `arch=` beside it then settles the anchor too. Read at most once, and only
+  # when a base is actually still missing: stdin may be a pipe that never
+  # produces a line, so reading it speculatively -- to learn `arch=` for an
+  # invocation that already names its bases -- would block a call that has
+  # everything it needs.
+  want_stdin=0
+  if (( need_po )) && [[ -z "$page_offset" ]]; then want_stdin=1; fi
+  if (( need_vm )) && [[ -z "$vmemmap" ]];     then want_stdin=1; fi
+  line=""
+  if (( want_stdin )) && [[ ! -t 0 ]]; then
+    IFS= read -r line || line=""
   fi
 
-  # phys<->virt need the direct-map base: --page-offset, else stdin `dmap=`.
+  # Direct-map base: --page-offset, else the line's `dmap=`.
   po=""
-  if [[ -n "$page_offset" ]]; then
-    po=${page_offset#0[xX]}
-    is_hex "$po" || die "bad --page-offset: $page_offset"
-  elif [[ ! -t 0 ]]; then
-    IFS= read -r line || die "stdin: no input (expected \`kasld -1\`)"
-    if [[ "$line" =~ [[:space:]]dmap=0x([0-9a-fA-F]+) ]]; then
-      po="${BASH_REMATCH[1]}"
+  if (( need_po )); then
+    if [[ -n "$page_offset" ]]; then
+      po=${page_offset#0[xX]}
+      is_hex "$po" || die "bad --page-offset: $page_offset"
     else
-      die "no \`dmap=0x...\` field in stdin (direct-map base unresolved? \`dmap=na\`)"
+      po=$(oneline_hex dmap "$line") \
+        || die "no direct-map base — use --page-offset BASE, or pipe a \`kasld -1\` line whose \`dmap=\` names one"
     fi
-  else
-    die "no direct-map base — use --page-offset BASE or pipe \`kasld -1\`"
   fi
+
+  # vmemmap base: --vmemmap, else the line's `vmemmap=`.
+  vm=""
+  if (( need_vm )); then
+    if [[ -n "$vmemmap" ]]; then
+      vm=${vmemmap#0[xX]}
+      is_hex "$vm" || die "bad --vmemmap: $vmemmap"
+    else
+      vm=$(oneline_hex vmemmap "$line") \
+        || die "no vmemmap base — use --vmemmap BASE, or pipe a \`kasld -1\` line whose \`vmemmap=\` names one"
+    fi
+  fi
+
+  # Page geometry. Checked whether or not the requested translation consults it,
+  # so a malformed value is reported rather than ignored for naming the wrong
+  # mode. Both are bounded above so an absurd value cannot reach the arithmetic:
+  # a shift at or past the 64-bit width is undefined, and a struct-page size far
+  # past the tens of bytes every configuration uses would overflow the multiply
+  # and print a wrapped address rather than fail.
+  { is_dec "$struct_page_bytes" && (( struct_page_bytes > 0 )) \
+      && (( struct_page_bytes <= 4096 )); } \
+    || die "bad --struct-page-size: $struct_page_bytes"
+  { is_dec "$page_shift" && (( page_shift > 0 && page_shift < 64 )); } \
+    || die "bad --page-shift: $page_shift"
+
+  # Two anchors, one per region, because two architectures disagree about
+  # whether they are the same number.
+  #
+  #   --phys-offset    the physical address mapped at the direct-map base
+  #   --vmemmap-offset the physical address the vmemmap array indexes from
+  #
+  # x86 uses 0 for both, and arm64 rounds the base of DRAM down once and uses
+  # that one value for the linear map and the array alike. riscv rounds twice
+  # and to different granularities -- the linear map from the DRAM base at PMD
+  # granularity, the array from that value rounded down again to the memory
+  # section size -- so on a board whose DRAM does not begin on a section
+  # boundary the two differ, and indexing the array by the linear-map anchor
+  # puts the `struct page` at the wrong entry.
+  #
+  # --vmemmap-offset therefore defaults to --phys-offset, which is exact
+  # wherever the kernel uses one number, and is stated separately where it does
+  # not. Each option names exactly one quantity in every case.
+  vf=""
+  if (( need_vm )) && [[ -n "$vmemmap_offset" ]]; then
+    vf=${vmemmap_offset#0[xX]}
+    is_hex "$vf" || die "bad --vmemmap-offset: $vmemmap_offset"
+  fi
+
+  # The linear-map anchor, needed by the direct-map translations and as the
+  # fallback for the array's. Defaulting it to zero is right only where the
+  # kernel maps physical 0 at the direct-map base; assuming it anywhere else
+  # misplaces every result by the anchor, without an error. So the default is
+  # taken only for a machine known to anchor there, and the list names the
+  # machines that are safe rather than the ones that are not -- an `arch=` this
+  # list has never heard of refuses too, which is the direction a new port
+  # should fail in.
+  #
+  # The check reaches as far as the evidence does: `arch=` is known only on the
+  # line read above, which is the invocation that took a base from `kasld -1`.
+  # Naming the bases by hand states the layout by hand, and the anchor is then
+  # the operator's to state as well.
+  pf=""
+  if [[ -n "$vf" ]]; then
+    # The array anchor was named outright, so nothing here consults the linear
+    # map's and no default has to be defended for it.
+    :
+  elif [[ -n "$phys_offset" ]]; then
+    pf=${phys_offset#0[xX]}
+    is_hex "$pf" || die "bad --phys-offset: $phys_offset"
+  else
+    # The WHOLE token, not a leading run of name characters: a prefix match
+    # would let `arch=x86_64-nonesuch` be served by the `x86_64` entry below,
+    # and the allowlist may only ever fail in the refusing direction. Control
+    # characters are stripped so a hostile line cannot drive the terminal
+    # through the refusal message.
+    arch=""
+    if [[ "$line" =~ (^|[[:space:]])arch=([^[:space:]]+) ]]; then
+      arch="${BASH_REMATCH[2]//[[:cntrl:]]/}"
+    fi
+    case "$arch" in
+      # No `arch=` was read: the bases came from the command line, which is the
+      # operator stating the layout. Zero is the documented assumption.
+      '') pf=0 ;;
+      x86_64|amd64|i[3-6]86|mips|mipsel|mips64|mips64el|ppc64|ppc64le|\
+      powerpc64|powerpc64le|loongarch64|loong64|s390x)
+          pf=0 ;;
+      # "not known to" rather than "does not": this arm is reached both by a
+      # machine known to anchor elsewhere and by one the list cannot place,
+      # `arch=unknown` included. Neither may take the zero default.
+      # Name the option the requested translation actually wants: a page mode
+      # is served by either anchor, a direct-map mode only by the linear one.
+      *)  hint="--phys-offset ADDR, the physical address mapped there (the base of DRAM on arm32/ppc32/riscv, memstart_addr on arm64)"
+          if (( need_vm )); then
+            hint="--vmemmap-offset ADDR, the physical address the vmemmap array indexes from, or --phys-offset where the kernel anchors both alike"
+          fi
+          die "arch=$arch is not known to map physical 0 at the direct-map base — pass $hint" ;;
+    esac
+  fi
+  [[ -n "$vf" ]] || vf=$pf
 
   if [[ -n "$phys2virt" ]]; then
     pa=${phys2virt#0[xX]}
     is_hex "$pa" || die "bad --phys2virt address: $phys2virt"
-    printf '%016x\n' $(( 0x$pa + 0x$po ))
-  else
+    hex_ult "$pa" "$pf" \
+      && die "physical address is below the linear-map anchor (--phys-offset)"
+    printf '%016x\n' $(( (0x$pa - 0x$pf) + 0x$po ))
+  elif [[ -n "$virt2phys" ]]; then
     va=${virt2phys#0[xX]}
     is_hex "$va" || die "bad --virt2phys address: $virt2phys"
     hex_ult "$va" "$po" && die "virtual address is below the direct-map base"
-    printf '0x%x\n' $(( 0x$va - 0x$po ))
+    printf '0x%x\n' $(( (0x$va - 0x$po) + 0x$pf ))
+  elif [[ -n "$phys2page" ]]; then
+    pa=${phys2page#0[xX]}
+    is_hex "$pa" || die "bad --phys2page address: $phys2page"
+    hex_ult "$pa" "$vf" \
+      && die "physical address is below the vmemmap anchor (--vmemmap-offset / --phys-offset)"
+    printf '%016x\n' \
+      $(( 0x$vm + ((0x$pa - 0x$vf) >> page_shift) * struct_page_bytes ))
+  else
+    pg=${page2phys#0[xX]}
+    is_hex "$pg" || die "bad --page2phys address: $page2phys"
+    hex_ult "$pg" "$vm" && die "struct page address is below the vmemmap base"
+    off=$(( 0x$pg - 0x$vm ))
+    # A `struct page *` lands on an entry boundary. One that does not is a
+    # pointer into the middle of an entry, a wrong --struct-page-size, or a
+    # vmemmap base that is not the array's -- each of which yields a plausible
+    # physical address from a premise that is already false.
+    (( off % struct_page_bytes == 0 )) \
+      || die "not a struct page base: 0x$pg is $(( off % struct_page_bytes )) bytes into a ${struct_page_bytes}-byte entry"
+    printf '0x%x\n' $(( ((off / struct_page_bytes) << page_shift) + 0x$vf ))
   fi
   exit 0
 fi
@@ -337,13 +553,12 @@ else
     if ! IFS= read -r line; then
       die "stdin: no input (expected \`kasld -1\` output)"
     fi
-    # Anchor on whitespace so we match the virtual `text=` field and not
-    # the substring inside `ptext=` (the physical base — wrong slide).
-    if [[ "$line" =~ [[:space:]]text=0x([0-9a-fA-F]+) ]]; then
-      base="0x${BASH_REMATCH[1]}"
-    else
-      die "no virtual \`text=0x...\` field in stdin (ptext alone cannot derive the virt slide)"
-    fi
+    # `text`, not the `ptext=` it is a substring of: that is the PHYSICAL base,
+    # and a different slide. oneline_hex anchors the key, so the two cannot be
+    # confused.
+    base=$(oneline_hex text "$line") \
+      || die "no virtual \`text=0x...\` field in stdin (ptext alone cannot derive the virt slide)"
+    base="0x$base"
   fi
   base_hex="${base#0[xX]}"
   is_hex "$base_hex" || die "bad runtime base: $base"

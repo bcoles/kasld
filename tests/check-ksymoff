@@ -94,6 +94,7 @@ eq 'inverse + forward chaining'   'ffffffff82480000 T prepare_kernel_cred' \
 
 # ---- physical translation (page_offset_base = 0xffff9e8000000000) ----
 PO=0xffff9e8000000000
+VM=0xffffea0000000000
 eq 'phys2virt'                    'ffff9e8034600000' \
    "$("$KSYMOFF" --page-offset "$PO" --phys2virt 0x34600000 2>/dev/null)"
 eq 'virt2phys'                    '0x34600000' \
@@ -104,9 +105,71 @@ eq 'phys2virt: stdin dmap= field' 'ffff9e8034600000' \
    "$(printf 'arch=x86_64 text=na dmap=%s dram=na\n' "$PO" | "$KSYMOFF" --phys2virt 0x34600000 2>/dev/null)"
 # struct page = vmemmap + (pfn * sizeof(struct page)); pfn = phys >> page-shift
 eq 'phys2page: 4KiB / 64B'        'ffffea0000d18000' \
-   "$("$KSYMOFF" --vmemmap 0xffffea0000000000 --phys2page 0x34600000 2>/dev/null)"
+   "$("$KSYMOFF" --vmemmap "$VM" --phys2page 0x34600000 2>/dev/null)"
 eq 'phys2page: 64KiB / 56B'       'ffffea00000b7500' \
-   "$("$KSYMOFF" --vmemmap 0xffffea0000000000 --page-shift 16 --page-size 56 --phys2page 0x34600000 2>/dev/null)"
+   "$("$KSYMOFF" --vmemmap "$VM" --page-shift 16 --page-size 56 --phys2page 0x34600000 2>/dev/null)"
+eq 'phys2page: stdin vmemmap='    'ffffea0000d18000' \
+   "$(printf 'arch=x86_64 text=na vmemmap=%s dram=na\n' "$VM" | "$KSYMOFF" --phys2page 0x34600000 2>/dev/null)"
+
+# ---- page2phys is the exact inverse of phys2page ----
+eq 'page2phys: 4KiB / 64B'        '0x34600000' \
+   "$("$KSYMOFF" --vmemmap "$VM" --page2phys 0xffffea0000d18000 2>/dev/null)"
+eq 'page2phys: 64KiB / 56B'       '0x34600000' \
+   "$("$KSYMOFF" --vmemmap "$VM" --page-shift 16 --struct-page-size 56 --page2phys 0xffffea00000b7500 2>/dev/null)"
+eq 'page2phys: at vmemmap -> 0x0' '0x0' \
+   "$("$KSYMOFF" --vmemmap "$VM" --page2phys "$VM" 2>/dev/null)"
+eq 'struct-page-size == page-size' \
+   "$("$KSYMOFF" --vmemmap "$VM" --page-size 56 --phys2page 0x34600000 2>/dev/null)" \
+   "$("$KSYMOFF" --vmemmap "$VM" --struct-page-size 56 --phys2page 0x34600000 2>/dev/null)"
+
+# ---- the linear-map anchor ----
+# virt = (phys - phys_offset) + page_offset. The anchor is 0 only where the
+# kernel maps physical 0 at the direct-map base; a board whose RAM starts at
+# 0x80000000 is misplaced by 2 GiB if it is assumed anyway.
+RPO=0xff60000000000000
+eq 'phys2virt: anchored at 0x80000000' 'ff60000000200000' \
+   "$("$KSYMOFF" --page-offset "$RPO" --phys-offset 0x80000000 --phys2virt 0x80200000 2>/dev/null)"
+eq 'virt2phys: anchored round trip'    '0x80200000' \
+   "$("$KSYMOFF" --page-offset "$RPO" --phys-offset 0x80000000 --virt2phys 0xff60000000200000 2>/dev/null)"
+eq 'phys2page: anchor indexes vmemmap' 'ffffea0000008000' \
+   "$("$KSYMOFF" --vmemmap "$VM" --phys-offset 0x80000000 --phys2page 0x80200000 2>/dev/null)"
+eq 'page2phys: anchored round trip'    '0x80200000' \
+   "$("$KSYMOFF" --vmemmap "$VM" --phys-offset 0x80000000 --page2phys 0xffffea0000008000 2>/dev/null)"
+# An explicit zero anchor is the x86 case, and must not change any answer.
+eq 'phys-offset 0 is the x86 default'  'ffff9e8034600000' \
+   "$("$KSYMOFF" --page-offset "$PO" --phys-offset 0 --phys2virt 0x34600000 2>/dev/null)"
+# --vmemmap-offset defaults to --phys-offset, so the two name the same anchor
+# wherever the kernel uses one number (x86, arm64, an aligned riscv board).
+eq 'vmemmap-offset defaults to phys-offset' \
+   "$("$KSYMOFF" --vmemmap "$VM" --phys-offset 0x80000000 --phys2page 0x80200000 2>/dev/null)" \
+   "$("$KSYMOFF" --vmemmap "$VM" --vmemmap-offset 0x80000000 --phys2page 0x80200000 2>/dev/null)"
+# riscv rounds the array's anchor down to the section size while the linear map
+# keeps the DRAM base, so a board starting at 0x80200000 indexes the array from
+# 0x80000000. Stating the array's anchor separately is what gets the entry right.
+eq 'vmemmap anchor distinct from linear'  'ffffea0000010000' \
+   "$("$KSYMOFF" --vmemmap "$VM" --vmemmap-offset 0x80000000 --phys2page 0x80400000 2>/dev/null)"
+eq 'page2phys inverts the array anchor'   '0x80400000' \
+   "$("$KSYMOFF" --vmemmap "$VM" --vmemmap-offset 0x80000000 --page2phys 0xffffea0000010000 2>/dev/null)"
+# A page mode is satisfied by the array's anchor alone -- it never consults the
+# linear map's, so no default has to be defended for it.
+eq 'vmemmap-offset alone answers on riscv' 'ffffea0000008000' \
+   "$(printf 'arch=riscv64 vmemmap=%s\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0x80000000 --phys2page 0x80200000 2>/dev/null)"
+
+# A machine that does not anchor at 0 must refuse, not answer.
+errs 'riscv64 refuses without an anchor' \
+   sh -c "printf 'arch=riscv64 dmap=$RPO\n' | '$KSYMOFF' --phys2virt 0x80200000"
+errs 'unrecognised arch refuses' \
+   sh -c "printf 'arch=futurearch dmap=$RPO\n' | '$KSYMOFF' --phys2virt 0x80200000"
+errs 'page2phys off an entry boundary' \
+   "$KSYMOFF" --vmemmap "$VM" --page2phys 0xffffea0000d18020
+errs 'riscv64 page mode refuses unanchored' \
+   sh -c "printf 'arch=riscv64 vmemmap=$VM\n' | '$KSYMOFF' --phys2page 0x80200000"
+errs 'struct-page-size absurd value' \
+   "$KSYMOFF" --vmemmap "$VM" --struct-page-size 999999 --phys2page 0x1000
+# An arch= the list does not recognise must not be reached by a prefix of one
+# it does: the allowlist may only fail in the refusing direction.
+errs 'arch prefix does not satisfy the list' \
+   sh -c "printf 'arch=x86_64-nonesuch dmap=$PO\n' | '$KSYMOFF' --phys2virt 0x1000"
 
 # ---- regression / error guards ----
 # The signed-64 bug: a below-base virtual address must ERROR, not print a bogus

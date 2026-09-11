@@ -27,7 +27,7 @@ page indexes them and shows how they combine into workflows. (`kasld` itself is 
 | [`check-results`](check-results) | Live per-leak validator — compares a `kasld` run against `/proc/kallsyms` · `/proc/iomem` · `/proc/kcore` ground truth | **yes** | [testing.md](../docs/testing.md#validating-captured-bundles) |
 | [`posture-diff`](posture-diff) | Compare two `kasld -j` snapshots; exit non-zero if the KASLR **posture** regressed | no | [usage.md](../docs/usage.md#regression-gate-extraposture-diff) |
 | [`posture-summary`](posture-summary) | Roll up many `kasld -j` snapshots into one table (text / markdown / csv / json), one row per host | no | [usage.md](../docs/usage.md#fleet-summary-extraposture-summary) |
-| [`ksymoff`](ksymoff) | Apply the KASLR slide to kernel symbols; translate physical ↔ virtual and physical → `struct page` | no | [exploitation.md](../docs/exploitation.md#from-a-base-to-runtime-addresses) |
+| [`ksymoff`](ksymoff) | Apply the KASLR slide to kernel symbols; translate physical ↔ virtual and physical ↔ `struct page` | no | [exploitation.md](../docs/exploitation.md#from-a-base-to-runtime-addresses) |
 | [`weaken-kernel-hardening`](weaken-kernel-hardening) | Temporarily relax the hardening sysctls for testing; restores the originals on exit | **yes** | below |
 | [`sudo-proc-kallsyms`](sudo-proc-kallsyms) | Briefly lower `kptr_restrict`, read the base symbols from `/proc/kallsyms`, restore | sudo | below |
 | [`check-hardware-vulnerabilities`](check-hardware-vulnerabilities) | Report the CPU hardware vulnerabilities (Meltdown / MDS / …) that can disclose kernel memory to an unprivileged process | no | [bypass-techniques.md](../docs/bypass-techniques.md#side-channels) |

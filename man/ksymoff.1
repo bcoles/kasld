@@ -12,21 +12,28 @@ ksymoff \- apply a KASLR slide to kernel symbols and translate addresses
 .br
 .B ksymoff
 .BI \-\-page\-offset " BASE"
+.RB [ \-\-phys\-offset
+.IR ADDR ]
 .RB { \-\-phys2virt
 .IR ADDR " | " \-\-virt2phys
 .IR ADDR }
 .br
 .B ksymoff
 .BI \-\-vmemmap " BASE"
-.RB [ \-\-page\-size
+.RB [ \-\-vmemmap\-offset
+.IR ADDR "] [" \-\-struct\-page\-size
 .IR N "] [" \-\-page\-shift
 .IR N ]
-.BI \-\-phys2page " ADDR"
+.RB { \-\-phys2page
+.IR ADDR " | " \-\-page2phys
+.IR ADDR }
 .SH DESCRIPTION
 .B ksymoff
 applies a KASLR slide to kernel symbols, derives the slide and text base from a
-known runtime symbol address, or translates physical and virtual addresses
-through the direct map.
+known runtime symbol address, translates physical and virtual addresses through
+the direct map, or translates a physical address and its
+.I struct page
+through the vmemmap array.
 It works against
 .IR System.map ,
 .I /proc/kallsyms
@@ -52,9 +59,11 @@ With
 print only the KASLR slide (signed hex). Combines with either mode above.
 .TP
 .B Physical
-Translate physical and virtual addresses through the direct map, for data-only
-pivots that operate on physical addresses. These need a base rather than a
-symbol source.
+Translate physical and virtual addresses through the direct map, and physical
+addresses and
+.IR "struct page" " pointers"
+through the vmemmap array, for data-only pivots that operate on physical
+addresses. These need bases rather than a symbol source.
 .PP
 The runtime text base is supplied by one of two mutually exclusive options \(em
 .B \-\-from
@@ -111,14 +120,33 @@ Print the direct-map virtual address of a physical address.
 .BI \-\-virt2phys " ADDR"
 Print the physical address of a direct-map virtual address.
 .TP
+.BI \-\-phys\-offset " ADDR"
+The physical address mapped at the direct-map base \(em the linear-map anchor.
+Defaults to 0; see
+.B "THE LINEAR-MAP ANCHOR"
+below.
+.TP
+.BI \-\-vmemmap\-offset " ADDR"
+The physical address the vmemmap array indexes from. Defaults to
+.BR \-\-phys\-offset .
+.TP
 .BI \-\-vmemmap " BASE"
 The vmemmap base (the
 .I struct page
 array), for
-.BR \-\-phys2page .
+.BR \-\-phys2page " and " \-\-page2phys ,
+or piped from
+.B "kasld \-1"
+(the
+.I vmemmap=
+field).
+.TP
+.BI \-\-struct\-page\-size " N"
+.IR sizeof(struct\ page) " (default: 64)."
 .TP
 .BI \-\-page\-size " N"
-.IR sizeof(struct\ page) " (default: 64)."
+Alias for
+.BR \-\-struct\-page\-size .
 .TP
 .BI \-\-page\-shift " N"
 Page shift,
@@ -130,8 +158,67 @@ Print the
 .I struct page *
 for a physical address.
 .TP
+.BI \-\-page2phys " ADDR"
+Print the physical address of a
+.IR "struct page *" .
+An address that is not on an entry boundary is an error rather than a
+plausible-looking result.
+.TP
 .BR \-h ", " \-\-help
 Show the full help and exit.
+.SH THE LINEAR-MAP ANCHOR
+The kernel maps physical address
+.I phys_offset
+at the direct-map base, so the translation is
+.PP
+.RS
+.I "virt = (phys \- phys_offset) + page_offset"
+.RE
+.PP
+and the familiar
+.I "phys + page_offset"
+is the special case where
+.I phys_offset
+is zero. That case holds on the architectures which map physical 0 at the
+linear-map base \(em x86, MIPS, PPC64, LoongArch64, s390 \(em and not on those
+which take the anchor from the base of DRAM (ARM32, PPC32, RISC-V 32/64,
+commonly 0x80000000 on RISC-V) or from a runtime value (AArch64's
+.IR memstart_addr ).
+Assuming zero where it does not hold misplaces every result by the anchor,
+without an error.
+.PP
+.B \-\-phys\-offset
+supplies it. The vmemmap array is indexed from an anchor of its own: the
+.I struct page
+for a physical address sits at index
+.IR "(phys \- vmemmap_offset) >> page-shift" ,
+not at the raw PFN.
+.PP
+The two are usually the same number, and
+.B \-\-vmemmap\-offset
+defaults to
+.B \-\-phys\-offset
+accordingly. x86 uses 0 for both, and AArch64 rounds the base of DRAM down once
+and uses that value for the linear map and the array alike. RISC-V rounds twice
+and to different granularities \(em the linear map from the DRAM base at PMD
+granularity, the array from that value rounded down again to the memory-section
+size (128 MiB) \(em so on a board whose DRAM does not begin on a section
+boundary the two differ, and
+.B \-\-vmemmap\-offset
+states the array's. A board whose RAM starts at 0x80000000 is already
+section-aligned.
+.PP
+Where a base is taken from a piped
+.B "kasld \-1"
+line, the
+.I arch=
+field beside it decides the default: zero for a machine known to anchor there,
+and otherwise a refusal rather than a wrong address. An
+.I arch=
+the list does not recognise refuses too. Naming the bases on the command line
+states the layout by hand, consults no
+.IR arch= ,
+and leaves the anchor at zero.
 .SH REORDERED-TEXT KERNELS
 .B ksymoff
 assumes a single KASLR slide \(em a canonical, source/link-order function
@@ -174,13 +261,36 @@ ksymoff \-\-from commit_creds=0xffffffff82345678 \-s vmlinux \e
 .EE
 .RE
 .PP
-Translate physical to direct-map virtual, and a physical address to its
+Translate physical to direct-map virtual, and between a physical address and
+its
 .IR "struct page" :
 .PP
 .RS
 .EX
 ksymoff \-\-page\-offset 0xffff9e8000000000 \-\-phys2virt 0x34600000
 ksymoff \-\-vmemmap 0xffffea0000000000 \-\-phys2page 0x34600000
+ksymoff \-\-vmemmap 0xffffea0000000000 \-\-page2phys 0xffffea0000d18000
+.EE
+.RE
+.PP
+Take both bases from a piped
+.B "kasld \-1"
+line:
+.PP
+.RS
+.EX
+kasld \-1 | ksymoff \-\-phys2virt 0x34600000
+kasld \-1 | ksymoff \-\-phys2page 0x34600000
+.EE
+.RE
+.PP
+On a board whose RAM starts at 0x80000000 (RISC-V, ARM32, PPC32), name the
+anchor:
+.PP
+.RS
+.EX
+kasld \-1 | ksymoff \-\-phys\-offset 0x80000000 \-\-phys2virt 0x80200000
+kasld \-1 | ksymoff \-\-vmemmap\-offset 0x80000000 \-\-phys2page 0x80200000
 .EE
 .RE
 .SH NOTES
