@@ -9,10 +9,17 @@
 // express bounds — observations (evidence) and constraints (conclusions)
 // are different types in different stores.
 //
-// Invariant (enforced at emission, asserted in debug builds): a derived
-// constraint's confidence is <= min of its lineage's confidences — a claim
-// cannot be more certain than its least-certain input. The sole sanctioned
-// exception is the independent-corroboration fusion rule.
+// Obligation on an emitting rule: where a constraint's VALUE is computed from
+// its lineage, its confidence is <= the least confident of those inputs — a
+// claim cannot be more certain than what it rests on. A lineage entry recorded
+// as a witness or a gate, whose value the constraint does not carry, does not
+// cap it; the field does not distinguish the two roles, so this is a rule's
+// obligation and not a property the store enforces.
+//
+// It governs trust REPORTING and resolver priority, not the soundness of the
+// floored window: a below-floor observation is invalidated before any rule
+// runs (see resolve_evidence in engine.c), so an over-confident label cannot
+// carry sub-floor evidence into the guaranteed result.
 // ---
 // <bcoles@gmail.com>
 
