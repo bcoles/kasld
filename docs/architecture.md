@@ -255,19 +255,29 @@ resolved. Because estimates only narrow, re-emission can never undo progress.
 
 Three properties make that fixpoint well-defined and the result trustworthy:
 
-- **Monotonicity.** An estimate is the *meet* (intersection) of an append-only
-  set of constraints, so adding a constraint can only ever narrow it — never
-  widen it, and never depend on the order constraints arrive in. That is why rule
-  order is irrelevant.
-- **Termination.** A value that only shrinks, fed by a constraint set that only
-  grows, cannot oscillate; the resolver re-runs all rules until a pass changes
-  nothing, with a hard pass cap (`ENGINE_MAX_PASSES`) as a backstop. Termination
-  is *structural* — it does not depend on any rule being well-behaved.
+- **Monotonicity.** Each constraint meets (intersects) into the estimate, so
+  applying one can only ever narrow it — never widen it, and never depend on the
+  order constraints arrive in. That is why rule order is irrelevant. The
+  qualifier is the resolver's conflict handling: it accepts constraints
+  strongest-first and skips any that would empty the estimate, so where the
+  evidence contradicts itself, *which* constraints end up applied depends on
+  what else is present. While every rule holds to its obligation below, no
+  contradiction can arise and the resolved estimate is the meet of the whole
+  set.
+- **Termination.** The resolver re-runs all rules until a pass changes nothing,
+  with a hard pass cap (`ENGINE_MAX_PASSES`) as a backstop. It terminates
+  because resolution is a pure function of the constraint set, and that set is
+  append-only with duplicate claims dropped on arrival: a pass that adds no new
+  constraint reproduces the previous estimate exactly and exits, so every
+  further pass must grow a store of fixed capacity. Termination is therefore
+  *structural* — it rests on the shape of the loop rather than on the estimates
+  descending, and so does not depend on any rule being well-behaved.
 - **Soundness.** The single invariant is that the true value must never leave the
   estimate. Because each rule is a pure function (no I/O, no shared state), this
   is checkable in isolation: a rule is sound iff every constraint it emits holds
   under *every* still-possible configuration (paging level, endianness,
-  unresolved Kconfig). An unsound rule can only over-narrow — risking exclusion
+  unresolved Kconfig), read against *any* already-narrowed estimate that still
+  contains the truth. An unsound rule can only over-narrow — risking exclusion
   of the truth — it can never make the fixpoint oscillate or hang. Rule
   soundness is exercised by the engine test suite and the replay corpus, with a
   guard that rejects unreviewed self-referential constraints.
@@ -275,6 +285,12 @@ Three properties make that fixpoint well-defined and the result trustworthy:
 So "soundness is provable in isolation" above means exactly this: termination and
 monotonicity are guaranteed by the engine's structure, leaving each rule with a
 single, locally-checkable obligation — *do not exclude the truth*.
+
+[soundness.md](soundness.md) states the three as formal properties: the
+concretisation each lattice denotes, the obligation carried by the meet, the
+bottom test, an observation and a rule, and the theorems those compose into —
+truth containment, the floor separation behind the two windows, and the
+termination bound.
 
 ### Estimate narrowing and the store-vs-read seam
 

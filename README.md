@@ -169,6 +169,7 @@ inference rule). The table below indexes the docs by topic.
 | Footprint & detection | [docs/footprint.md](docs/footprint.md) — what a run looks like on a monitored host: the behavioural signature to detect it, and the operator's OPSEC cost; loud by design |
 | Utilities | [extra/README.md](extra/README.md) — the `extra/` helper scripts (capture/replay, soundness validation, posture-diff, `ksymoff`) and how they combine |
 | Architecture & internals | [docs/architecture.md](docs/architecture.md) — the inference engine, data-flow seams, tagged-line protocol, cross-region derivation |
+| Soundness | [docs/soundness.md](docs/soundness.md) — what the reported window guarantees, as formal properties: the lattice each quantity denotes, the obligation on a rule, truth containment, the confidence floor, the termination bound |
 | Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) — writing a component or rule, emitter API, exit codes, metadata |
 | Testing & CI | [docs/testing.md](docs/testing.md) — host tests, replay fixtures, cross-arch under qemu-user, coverage |
 | Reproducibility | [docs/reproducibility.md](docs/reproducibility.md) — independent verification: on the local kernel, live across architectures, or over the captured corpus |

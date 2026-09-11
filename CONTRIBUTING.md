@@ -756,6 +756,14 @@ assert the estimate's ceiling lands exactly on the sample (truth retained) while
 the floor is untouched. A complete test also adds an adversarial observation and
 shows it cannot push the estimate past the truth.
 
+What that test must establish is stated formally as obligation S in
+[docs/soundness.md](docs/soundness.md#obligation-s-a-rule-never-excludes-the-truth),
+and the quantifiers are the part worth reading before writing the test. Two of
+them are easy to lose: the constraint must hold under every configuration the
+architecture still admits, not just the common one, and it must hold when `est`
+has *already* been narrowed by other rules — which is why a rule that reads its
+own quantity's estimate is treated as a special case.
+
 The engine model and the existing rule catalogue are described in
 [docs/architecture.md → The inference engine](docs/architecture.md#the-inference-engine)
 and [Cross-region derivation](docs/architecture.md#cross-region-derivation).
