@@ -1305,10 +1305,11 @@ static int print_placement_bar(const struct kasld_report_quantity *it, int aw) {
    * whether a baseline exists and whether ceil(log2) rounded, and a second
    * composition of it is a second chance to assert one by accident. */
   unsigned long top = kasld_entropy_top(it);
-  char eb[48];
-  printf("  %s%s%s  %lu", c(C_BOLD), it->label, c(C_RESET), g->candidates);
+  char eb[48], nb[KASLD_DECIMAL_MAX];
+  printf("  %s%s%s  %s", c(C_BOLD), it->label, c(C_RESET),
+         kasld_decimal(g->candidates, nb, sizeof(nb)));
   if (top && g->candidates <= top)
-    printf(" of %lu", top);
+    printf(" of %s", kasld_decimal(top, nb, sizeof(nb)));
   printf(" candidate%s", g->candidates == 1 ? "" : "s");
   if (g->bits)
     printf(" %s %s", dot,
@@ -1318,7 +1319,8 @@ static int print_placement_bar(const struct kasld_report_quantity *it, int aw) {
     printf(" %s %s%s grain", dot, kasld_grain(it->align_min, gb, sizeof(gb)),
            it->align_exact ? "" : " min");
   if (lk_a >= 0 && it->likely.candidates)
-    printf(" %s %s %lu", dot, GRADE_LIKELY, it->likely.candidates);
+    printf(" %s %s %s", dot, GRADE_LIKELY,
+           kasld_decimal(it->likely.candidates, nb, sizeof(nb)));
   printf("\n");
 
   printf("    %s %s", readout_addr(g->lo, aw, a1, sizeof(a1)),

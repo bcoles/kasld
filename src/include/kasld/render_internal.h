@@ -303,6 +303,18 @@ const char *kasld_grain(unsigned long align, char *buf, size_t sz);
  * difference a reader reads as meaning. */
 int readout_hex_digits(unsigned long v);
 
+/* A decimal with thousands separators, for human-facing formats only. One
+ * rendering of a number, so the same figure does not appear grouped in one
+ * block and undivided in another a few lines below it.
+ *
+ * Callers size their buffer with KASLD_DECIMAL_MAX rather than a literal: the
+ * renderer falls back to ungrouped digits where it is handed less, and
+ * truncates where even those do not fit, so an under-sized buffer states a
+ * WRONG count in a column whose whole worth is exactness. Naming the size here
+ * is what keeps the right one the easiest to write. */
+#define KASLD_DECIMAL_MAX 28 /* 20 digits + 6 separators + NUL */
+const char *kasld_decimal(unsigned long v, char *buf, size_t sz);
+
 /* Report-model types used by the prototypes below; the full definitions live in
  * kasld/report.h, which the renderers include directly. */
 struct kasld_report;

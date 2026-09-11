@@ -139,7 +139,7 @@ The Layout table carries one row per quantity and basis:
 | `Quantity` | what is being located — always a *base*, a single address, not a region |
 | `Certainty` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
 | `Window` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
-| `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem. `N of M` whenever that set is modelled, **including `N of N`**, which says the set is known and evidence excluded nothing from it. A bare `N` means the opposite: no set is modelled for this quantity, so there is nothing to state the count against — as on the memory-KASLR regions outside x86_64, and on any row whose modelled set is smaller than the count and therefore cannot serve as its denominator. `-` means no window is modelled at all, and `- of N` means the window has an unstated edge, so it is unbounded and what remains cannot be counted — `N` is still the set the row narrows |
+| `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count printed directly above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem. A `guaranteed` row states that set as `N of M`; a `likely` row states the count alone, because its set is the line above and the two are read vertically. `N of M` appears whenever the set is modelled, **including `N of N`**, which says the set is known and evidence excluded nothing from it. A bare `N` means the opposite: no set is modelled for this quantity, so there is nothing to state the count against — as on the memory-KASLR regions outside x86_64, and on any row whose modelled set is smaller than the count and therefore cannot serve as its denominator. `-` means no window is modelled at all, and `- of N` means the window has an unstated edge, so it is unbounded and what remains cannot be counted — `N` is still the set the row narrows |
 | `Grain` | the spacing the candidates sit on, which is what reconciles the count with the window. Prefixed `>=` where it is only a lower bound, so a coarser true spacing means fewer real candidates than stated and the count beside it is a ceiling. Unprefixed where the spacing is the pitch itself and the count is exact — either because the architecture fixes it, as the memory-randomization grid does, or because the run resolved it: an image base's slot granularity is a build option (`CONFIG_PHYSICAL_ALIGN` on x86), so a run that read it reports an exact grain and one that did not reports the architectural minimum as a floor. Whether this column is prefixed is therefore a property of the run, not only of the target |
 
 A key naming a quantity reports one of exactly three things: `0xADDR` where the
@@ -211,18 +211,18 @@ Running 117 of 120 components (3 experimental skipped; use -x to enable)...
 [####################] 100%  117/117  40.9s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
-  Quantity             Certainty   Window                                   Candidates      Grain
-  -------------------  ----------  ---------------------------------------  --------------  -----
-  Virtual Image Base   guaranteed  0xffffffff81000000 - 0xffffffffbd400000      483 of 505  2 MiB
-  Virtual Image Base   likely      0xffffffff93400000 slide +0x12400000           1 of 483  2 MiB
-  Physical Image Base  guaranteed           0x1000000 -         0x3d400000     474 of 8185  2 MiB
-  Physical Image Base  likely               0x1000000 -         0x3c29d000      474 of 474  2 MiB
-  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000           37547  1 GiB
-  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79191 of 79191  1 GiB
-  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000           85504  1 GiB
-  Module Region Base   guaranteed  0xffffffffa0000000 - 0xffffffffff000000          389121  4 KiB
-  Module Region Base   likely      0xffffffffc0000000 - 0xffffffffc0400000  1025 of 389121  4 KiB
-  Paging Level         guaranteed  48                                               1 of 2  -
+  Quantity             Certainty   Window                                   Candidates        Grain
+  -------------------  ----------  ---------------------------------------  ----------------  -----
+  Virtual Image Base   guaranteed  0xffffffff81000000 - 0xffffffffbd400000        483 of 505  2 MiB
+  Virtual Image Base   likely      0xffffffff93400000 slide +0x12400000                    1  2 MiB
+  Physical Image Base  guaranteed           0x1000000 -         0x3d400000      474 of 8,185  2 MiB
+  Physical Image Base  likely               0x1000000 -         0x3c29d000               474  2 MiB
+  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000            37,547  1 GiB
+  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79,191 of 79,191  1 GiB
+  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000            85,504  1 GiB
+  Module Region Base   guaranteed  0xffffffffa0000000 - 0xffffffffff000000           389,121  4 KiB
+  Module Region Base   likely      0xffffffffc0000000 - 0xffffffffc0400000             1,025  4 KiB
+  Paging Level         guaranteed  48                                                 1 of 2  -
 
   Note: physical and virtual text randomize independently
 
@@ -388,15 +388,15 @@ diagrams:
 <!-- replay: tests/fixtures/x86_64/mainline-7.0.0 -v -->
 ```
 KASLR analysis:
-  Quantity             Certainty   Window                                   Candidates      Grain
-  -------------------  ----------  ---------------------------------------  --------------  -----
-  Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000            1 of 505  2 MiB
-  Physical Image Base  guaranteed          0x19600000 slide +0x18600000          1 of 8185  2 MiB
-  Direct Map Base      guaranteed  0xffff880000000000 - 0xffffa4aa80000000           29355  1 GiB
-  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79191 of 79191  1 GiB
-  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000           85504  1 GiB
-  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000            1025  4 KiB
-  Paging Level         guaranteed  48                                               1 of 2  -
+  Quantity             Certainty   Window                                   Candidates        Grain
+  -------------------  ----------  ---------------------------------------  ----------------  -----
+  Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000              1 of 505  2 MiB
+  Physical Image Base  guaranteed          0x19600000 slide +0x18600000           1 of 8,185  2 MiB
+  Direct Map Base      guaranteed  0xffff880000000000 - 0xffffa4aa80000000            29,355  1 GiB
+  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79,191 of 79,191  1 GiB
+  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000            85,504  1 GiB
+  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000    1,025 of 1,025  4 KiB
+  Paging Level         guaranteed  48                                                 1 of 2  -
 
   Compile-time default: 0xffffffff81000000
   Virtual entropy:      ~0 of 9 bits
@@ -406,10 +406,10 @@ KASLR analysis:
 ----------------------------------------
 Candidates within each resolved window (to scale):
 
-  Direct Map Base  29355 candidates · ~15 of 15 bits · 1 GiB grain
+  Direct Map Base  29,355 candidates · ~15 of 15 bits · 1 GiB grain
     0xffff880000000000 │████████████████████████████████████████████████│ 0xffffa4aa80000000
 
-  Module Region Base  1025 candidates · ~11 bits · 4 KiB grain
+  Module Region Base  1,025 of 1,025 candidates · ~11 of 11 bits · 4 KiB grain
     0xffffffffc0000000 │████████████████████████████████████████████████│ 0xffffffffc0400000
 
 Virtual address space (decoupled, not to scale):

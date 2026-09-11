@@ -408,8 +408,10 @@ static void render_derived_text(const struct summary *s) {
     if (HAS_LO(r) && HAS_HI(r)) {
       unsigned long slots =
           layout.image_align ? (r->hi - r->lo) / layout.image_align : 0;
-      printf("  %-24s0x%016lx - 0x%016lx  (~%lu slots, %s)%s\n", label, r->lo,
-             r->hi, slots, result_method(r), in_bounds(r) ? "" : " [stale]");
+      char nb[KASLD_DECIMAL_MAX];
+      printf("  %-24s0x%016lx - 0x%016lx  (~%s slots, %s)%s\n", label, r->lo,
+             r->hi, kasld_decimal(slots, nb, sizeof(nb)), result_method(r),
+             in_bounds(r) ? "" : " [stale]");
     } else {
       unsigned long a = anchor_addr(r);
       printf("  %-24s0x%016lx%s  (%s)%s\n", label, a, pos_note(r),

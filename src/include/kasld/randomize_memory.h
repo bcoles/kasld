@@ -19,6 +19,23 @@
 // own `remain` (it drops the vmemmap size, >= 0, and uses the SMALLEST
 // possible direct-map size), so the upper edge is never too low.
 //
+// The SECOND region, vmalloc_base, is bounded too, but the direct-map size
+// enters with the opposite sign -- a larger map pushes the region up while
+// leaving less budget to push it with, and the sum rises -- so its ceiling
+// takes dm_max where the page_offset ceiling above takes dm_min. See the
+// computation below, which withholds the edge rather than clamping it where it
+// would land outside the region group.
+//
+// The THIRD, vmemmap_base, gets no window, which is why this model carries no
+// field for it. Its position turns on how much of the shared budget the first
+// two draws actually consumed, and those were two random gaps that nothing
+// observable reveals; a ceiling built without them says no more than the
+// architectural extent of the region group, which the quantity's own top
+// already states. A denominator counted from that would be a ratio against the
+// whole address range rather than against a set the kernel drew from, so the
+// residual is reported with none -- the absence is the honest answer, not a
+// gap waiting to be filled.
+//
 // Two consumers need the same window and must not model it separately:
 //
 //   - the engine rule (x86_64_randomize_memory_budget), which turns the upper

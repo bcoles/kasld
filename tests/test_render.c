@@ -824,7 +824,13 @@ static void test_render_windowed_base_likely_order(void) {
   /* A graded residual, not a binary verdict: both windows are narrowings, so
    * "not derandomized" would contradict them. The residual is the candidate
    * count in the row's own Candidates cell. */
-  assert(strstr(render_cap, "1391") != NULL);
+  {
+    /* Composed through the renderer's own formatter rather than written out:
+     * a count is grouped for display, so a literal here asserts the digits and
+     * the grouping at once and breaks on a change to either. */
+    char want[KASLD_DECIMAL_MAX];
+    assert(strstr(render_cap, kasld_decimal(1391, want, sizeof(want))) != NULL);
+  }
   assert(strstr(render_cap, "not derandomized") == NULL);
   {
     const char *lk = strstr(render_cap, GRADE_LIKELY);
@@ -894,7 +900,10 @@ static void test_render_directmap_entropy_denominator(void) {
     assert(len < sizeof(line));
     memcpy(line, row, len);
     line[len] = '\0';
-    assert(strstr(line, "16 of 16384") != NULL);
+    char want[64], nb[KASLD_DECIMAL_MAX];
+    snprintf(want, sizeof(want), "16 of %s",
+             kasld_decimal(16384, nb, sizeof(nb)));
+    assert(strstr(line, want) != NULL);
   }
 
   /* No sound baseline: the residual stands alone rather than being presented
@@ -1552,7 +1561,7 @@ static void test_render_baseline_equal_to_count_is_stated(void) {
   verbose = 0;
   assert(strstr(render_cap, "505 of 505") != NULL);
 
-  /* Same count, no baseline: bare, which is now the only thing bare says. */
+  /* Same count, no baseline: bare, which is the only thing bare says. */
   reset_results();
   reset_comp_logs();
   stage_likely_reset();

@@ -286,7 +286,10 @@ HEAD = re.compile(r"^  (?P<label>[A-Za-z][A-Za-z0-9 ]*[A-Za-z])  +"
 # bound, which is most rows on most architectures. Omitting it from this pattern
 # did not loosen the comparison -- it silently DROPPED every such row, so the
 # guard reported passing runs while checking a fraction of what it appeared to.
-TAIL = re.compile(r"(?:^|\s)(?P<cell>-(?: of \d+)?|\d+(?: of \d+)?)"
+# Counts carry thousands separators in the human formats, so the digit runs are
+# `[\d,]+` rather than `\d+`; the separators are stripped before the value is
+# compared against json, which states the same figure undivided.
+TAIL = re.compile(r"(?:^|\s)(?P<cell>-(?: of [\d,]+)?|[\d,]+(?: of [\d,]+)?)"
                   r"\s+(?:-|(?:>= )?[\d.]+\s[A-Za-z]+)\s*$")
 
 bad, checked, parsed = [], 0, 0
@@ -308,7 +311,7 @@ for line in text.splitlines():
     cell = t.group("cell")
     if cell.startswith("-"):
         continue                      # no count stated; nothing to compare
-    m = re.match(r"(\d+)(?: of (\d+))?", cell)
+    m = re.match(r"([\d,]+)(?: of ([\d,]+))?", cell)
     key = (h.group("label"), h.group("grade"))
     paths = WHERE.get(key)
     if paths is None:
@@ -319,7 +322,7 @@ for line in text.splitlines():
         if got is None:
             continue
         checked += 1
-        want = int(m.group(1))
+        want = int(m.group(1).replace(",", ""))
         if got != want:
             bad.append("%s [%s]: readout says %d, json says %d"
                        % (key[0], key[1], want, got))
@@ -337,7 +340,7 @@ for line in text.splitlines():
     if bpaths is None:
         bad.append("%s [%s] states a baseline with no json mapping" % key)
         continue
-    want_base = int(m.group(2))
+    want_base = int(m.group(2).replace(",", ""))
     seen = False
     for path in bpaths:
         got = dig(*path)

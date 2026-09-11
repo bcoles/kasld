@@ -162,6 +162,43 @@ const char *kasld_grain(unsigned long align, char *buf, size_t sz) {
   return buf;
 }
 
+/* A decimal count with thousands separators, for the figures a reader is meant
+ * to weigh rather than parse: candidate counts run to fifteen digits on an
+ * architecture that narrows nothing, and an undivided run of digits that long
+ * is read by counting them.
+ *
+ * The separator is fixed rather than taken from the locale. Only LC_CTYPE is
+ * set, and deliberately -- it selects the glyph set and nothing else -- so
+ * LC_NUMERIC stays "C" and printf's grouping flag would do nothing. Widening
+ * the locale instead would make the same run render differently on two hosts,
+ * which the byte-exact output comparisons cannot admit; a fixed comma is one
+ * rendering everywhere.
+ *
+ * Machine formats never call this. JSON numbers cannot carry separators and
+ * the one-line schema is parsed positionally, so both emit the raw value. */
+const char *kasld_decimal(unsigned long v, char *buf, size_t sz) {
+  char d[KASLD_DECIMAL_MAX];
+  int n = snprintf(d, sizeof(d), "%lu", v);
+  int groups = (n - 1) / 3; /* separators to insert */
+  size_t need = (size_t)n + (size_t)groups + 1;
+  int out = 0;
+
+  if (sz == 0)
+    return buf;
+  /* No room to group. The plain digits are the closest true thing that fits. */
+  if (need > sz) {
+    snprintf(buf, sz, "%s", d);
+    return buf;
+  }
+  for (int i = 0; i < n; i++) {
+    if (i && (n - i) % 3 == 0)
+      buf[out++] = ',';
+    buf[out++] = d[i];
+  }
+  buf[out] = '\0';
+  return buf;
+}
+
 /* Hex digits an address occupies, so a column can be sized to its contents. */
 int readout_hex_digits(unsigned long v) {
   int n = 0;
@@ -335,10 +372,20 @@ int n_layout_rows;
 const char *const layout_hdr[LAYOUT_COLS] = {"Quantity", "Certainty", "Window",
                                              "Candidates", "Grain"};
 
-/* The candidate count, against the set the row narrows: a guaranteed row
- * narrows the window the kernel randomized over, a likely row narrows the
- * guaranteed set above it. One rule for the whole column, so a reader need not
- * work out why some rows carry a denominator and others do not.
+/* The candidate count, against the set the row narrows. A GUARANTEED row states
+ * its denominator: the window the kernel randomized over is a figure that
+ * appears nowhere else on screen, and the ratio is how much of it the evidence
+ * took away. A LIKELY row states none, because the set it narrows is the
+ * guaranteed count printed directly above it in this column -- a likely row is
+ * only ever emitted after its guaranteed one, so the comparison is a line of
+ * sight rather than a repetition. Restating it cost seventeen columns on the
+ * widest line the tool draws.
+ *
+ * Every guaranteed row therefore says "of" something -- a figure, or the
+ * column's own token for one that is not known. A bare count belongs to likely
+ * rows alone, which is what keeps the two apart: dropping the denominator
+ * where none exists would render a quantity with no model identically to a row
+ * whose model is simply stated one line up.
  *
  * The column reports the size of the set still to be searched, whether or not
  * evidence shrank it. A row that narrowed nothing still has a size worth
@@ -350,14 +397,23 @@ const char *const layout_hdr[LAYOUT_COLS] = {"Quantity", "Certainty", "Window",
  * observation rather than fixed by the architecture. "Nothing was learned" is
  * carried by the Window column reading `not narrowed`, not by a blank here.
  *
+ * An omitted denominator asserts nothing. It arises three ways -- no set is
+ * modelled for the quantity, a set is modelled but sits below the count and so
+ * cannot divide it, or the row is a likely one whose set is the line above --
+ * and the column does not distinguish them, because a token saying "no set
+ * exists" would be false in two of the three. What a bare figure says is that
+ * nothing was counted against, which is true in all of them.
+ *
  * `top` is a raw count: 2^bits would over-state it, since ilog2 rounds up. It
  * is dropped as a denominator when it does not exceed the row's own count,
  * since a window that narrowed nothing has no fraction to report. Where the
- * estimate carries no bounds at all, `top` alone is the answer. A likely row is
- * a subset of the guaranteed one by construction, so N > M here would be a
- * visible contract violation. */
+ * estimate carries no bounds at all, `top` alone is the answer. A count above
+ * its baseline is not a contradiction: the engine is willing to search wider
+ * than the kernel picks from, so the figure withheld there is the ratio, not
+ * the count. */
 static void layout_fmt_space(char *buf, size_t sz, unsigned long slots,
                              unsigned long top) {
+  char sb[KASLD_DECIMAL_MAX], tb[KASLD_DECIMAL_MAX];
   if (!slots && !top)
     snprintf(buf, sz, "-");
   else if (!slots)
@@ -370,7 +426,7 @@ static void layout_fmt_space(char *buf, size_t sz, unsigned long slots,
      * nothing was counted. A run that narrowed nothing still shows a bare
      * total, because there the count and the denominator are one figure and
      * `slots` carries it. */
-    snprintf(buf, sz, "- of %lu", top);
+    snprintf(buf, sz, "- of %s", kasld_decimal(top, tb, sizeof(tb)));
   else if (top >= slots)
     /* Stated whenever a baseline exists, including where it equals the count.
      * "N of N" says the set the row narrows is known and evidence excluded
@@ -378,13 +434,18 @@ static void layout_fmt_space(char *buf, size_t sz, unsigned long slots,
      * quantity at all. Collapsing those two onto a bare count made them
      * indistinguishable, and the documented reading -- "nothing narrowed" --
      * was the wrong one for whichever quantity had no model. */
-    snprintf(buf, sz, "%lu of %lu", slots, top);
+    snprintf(buf, sz, "%s of %s", kasld_decimal(slots, sb, sizeof(sb)),
+             kasld_decimal(top, tb, sizeof(tb)));
   else
     /* A baseline below the count is not a baseline this row can stand on: the
      * count would exceed the set it is counted against. Withheld rather than
      * printed as an incoherent ratio, which puts the row in the same state as
-     * having no model -- which is what it amounts to. */
-    snprintf(buf, sz, "%lu", slots);
+     * having no model -- which is what it amounts to.
+     *
+     * Withheld, and not replaced by a token saying no set exists: whether one
+     * exists is a question about the kernel, and this column states only what
+     * was counted. An absent denominator says nothing either way. */
+    snprintf(buf, sz, "%s", kasld_decimal(slots, sb, sizeof(sb)));
 }
 
 /* Addresses are never zero-padded here, matching the rest of the readout: a
@@ -471,7 +532,11 @@ unsigned long kasld_entropy_top(const struct kasld_report_quantity *it) {
 static unsigned long layout_row_top(const struct kasld_report_quantity *it,
                                     const char *basis) {
   if (strcmp(basis, GRADE_GUARANTEED) != 0)
-    return it->guaranteed.candidates;
+    /* Omitted, not stated: the set a likely row narrows is the guaranteed
+     * count printed directly above it in this column, and a likely row is only
+     * ever emitted after its guaranteed one. Restating it spent seventeen
+     * columns on the widest line the tool draws to repeat the line above. */
+    return 0;
   return kasld_entropy_top(it);
 }
 

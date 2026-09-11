@@ -36,13 +36,21 @@ else
   RESET=
 fi
 
-# 110, not 100: the Candidates column reports a size whether or not evidence
+# 119, not 100: the Candidates column reports a size whether or not evidence
 # narrowed it, so a run with NO evidence — the structural baseline, and the
-# widest the table can get — carries the physical addressing limit in full
-# ("2147483641 of 2147483648", 24 columns). Real runs narrow that and land at
-# 95-96. The budget is set by the worst case rather than the common one so the
-# table never reflows between runs.
-MAX_COLS=110
+# widest the table can get — carries the physical addressing limit in full, and
+# carries it grouped ("2,147,483,641 of 2,147,483,648", 30 columns). Real runs
+# narrow that and land well inside. The budget is set by the worst case rather
+# than the common one so the table never reflows between runs.
+#
+# It does NOT cover every target. ppc64 and ppc64le state a virtual window of
+# 2^48+1 candidates at 16 KiB granularity — the whole addressable range, since
+# neither declares a randomization window — twice in one cell, reaching 129
+# columns on the no-evidence baseline. That figure is the absence of a model
+# rather than a measurement, and the fix belongs there and not in the budget:
+# widening to admit it would set the ceiling for every architecture from the
+# one row nobody can use. Those two overflow knowingly.
+MAX_COLS=119
 QEMU_DIR=${QEMU_DIR:-}
 fail=0
 

@@ -753,6 +753,15 @@ void render_json(const struct summary *s) {
                "      \"slots_upper_bound\": %s",
                it->guaranteed.candidates, it->guaranteed.bits,
                it->align_exact ? "false" : "true");
+      /* And the set that count is measured against, where the architecture
+       * declares one: the allocator draws this base from a span of its own.
+       * Omitted where none is declared, as on every other quantity -- a format
+       * that carried the readout's denominator and left it out of json would
+       * have the two describing one run differently. */
+      if (it->entropy_top)
+        printf(",\n      \"slots_initial\": %lu,\n"
+               "      \"entropy_bits_initial\": %d",
+               it->entropy_top, it->top_bits);
       if (kasld_report_likely_is_tighter(it)) {
         printf(",\n      \"likely\": { \"min\": \"0x%016lx\", "
                "\"max\": \"0x%016lx\"",

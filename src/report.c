@@ -223,7 +223,41 @@ static unsigned long q_entropy_top(enum kasld_quantity q, unsigned long grain) {
     lo = (unsigned long)KASLR_PHYS_MIN;
     hi = (unsigned long)KASLR_PHYS_MAX;
     break;
-  default:
+#if defined(MODULES_BASE_RANDOMIZED) && defined(MODULES_BASE_RANDOM_SPAN)
+  case Q_MODULE_BASE:
+    /* The allocator draws the module base from a span above a fixed point,
+     * independently of the text slide, and both edges are admissible. Declared
+     * by the architecture like the image windows above, so it is read the same
+     * way: the rule that confines the quantity to this window gates on WHERE
+     * the window sits, which does not change how wide it is. */
+    lo = (unsigned long)MODULES_BASE_RANDOMIZED;
+    hi = (unsigned long)MODULES_BASE_RANDOMIZED +
+         (unsigned long)MODULES_BASE_RANDOM_SPAN;
+    break;
+#else
+  case Q_MODULE_BASE:
+    /* The architecture declares no module randomization window: the band is
+     * fixed, rides the text slide, or brackets the image, and in none of those
+     * is there a set of its own for the base to have been drawn from. */
+    return 0;
+#endif
+  case Q_PAGE_OFFSET:
+  case Q_VMALLOC_BASE:
+    /* Bounded by a budget derived from observed RAM rather than by a constant,
+     * so the denominator is resolved rather than declared and reaches the item
+     * through the caller's points[]. Zero here is what lets that through. */
+    return 0;
+  case Q_VMEMMAP_BASE:
+    /* The third region drawn from that budget. Its position turns on how much
+     * of the shared allowance the first two consumed, which nothing observable
+     * reveals, so no window is modelled -- see randomize_memory.h. */
+    return 0;
+  case Q_VIRT_KASLR_ALIGN:
+  case Q_PHYS_KASLR_ALIGN:
+  case Q_VA_BITS:
+  case Q__COUNT:
+    /* Not items, or not a location: an alignment is a parameter of the search
+     * and a finite set is its own denominator. */
     return 0;
   }
   return (grain && hi > lo) ? (hi - lo) / grain + 1 : 0;
