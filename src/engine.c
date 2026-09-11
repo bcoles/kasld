@@ -163,6 +163,18 @@ static void curate_to_fixpoint(struct engine *e, enum kasld_confidence floor,
 void engine_run_full_floored(struct engine *e, enum kasld_confidence floor,
                              const rule_fn *rules, int n_rules,
                              const verdict_fn *vrules, int n_vrules) {
+  /* Discard any standing curation before the evidence is resolved. A verdict
+   * is a conclusion a rule drew from the evidence that was in scope when it
+   * ran, exactly as a constraint is, and it is retained in the evidence set
+   * rather than in the per-run constraint store — so on a re-driven engine it
+   * is the one conclusion that would outlive the run that reached it. The
+   * damage is one-directional: a run at a higher floor re-derives its own
+   * verdicts from its own in-scope evidence, but an inherited one was reached
+   * from evidence this run excludes, and invalidating an in-scope observation
+   * is enough to widen the resolved window. Clearing here makes each run's
+   * curation a function of that run's floor, rather than of what the caller
+   * remembered to reset. */
+  e->ev.n_verdicts = 0;
   resolve_evidence(e, floor);
   e->n_constraints = 0;
   /* Reset diagnostic state. engine_init() also clears these, but callers may

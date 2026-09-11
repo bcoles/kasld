@@ -2626,11 +2626,11 @@ static void engine_resolve(struct engine *e) {
   memcpy(g_likely.conflicts, e->conflicts, sizeof(g_likely.conflicts));
   g_have_likely = 1;
 
-  /* Guaranteed window (primary): re-resolve at the sound floor. Clear the
-   * likely run's curation first so each run curates only from its own in-scope
-   * evidence. Leaves e (= g_auth_engine) holding the guaranteed resolution that
-   * engine_sync_authoritative() and compute_kaslr_info() read. */
-  e->ev.n_verdicts = 0;
+  /* Guaranteed window (primary): re-resolve at the sound floor. The run
+   * discards the likely run's curation itself, so each curates only from its
+   * own in-scope evidence. Leaves e (= g_auth_engine) holding the guaranteed
+   * resolution that engine_sync_authoritative() and compute_kaslr_info()
+   * read. */
   engine_run_full_floored(e, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
                           n_vrules);
 

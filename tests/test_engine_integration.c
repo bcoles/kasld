@@ -955,6 +955,95 @@ static void test_full_engine_floor_invariant(void) {
 #endif
 }
 
+/* A run's curation is its own: a verdict standing when the run begins does not
+ * survive into it.
+ *
+ * Verdicts are conclusions drawn from whatever evidence was in scope when the
+ * verdict rule ran, but unlike constraints they live in the evidence set rather
+ * than the per-run constraint store — so on a re-driven engine they are the one
+ * conclusion that could outlive the run that reached it. That direction is the
+ * dangerous one: the orchestrator resolves the all-signals window first and the
+ * sound window second, so an inherited verdict would be one derived from
+ * evidence the sound run excludes, invalidating an in-scope observation and
+ * widening the guaranteed window on the strength of a signal that window is not
+ * allowed to see.
+ *
+ * Arch-agnostic: the planted address is the architecture's own KASLR-off
+ * default image base, projected to _stext by the head gap, so it is a layout
+ * the architecture really has rather than a point picked out of a window. An
+ * address computed from the quantity's honest top will NOT do: that top is a
+ * union over kernel-version layouts and its interior contains addresses no
+ * single layout hosts — on arm64 the span between the pre-v5.4 low image and
+ * the modern text band — which the regional validators correctly rule
+ * misclassified. The assertions are relative to a baseline run rather than to
+ * any absolute address. The third run is a positive control: it drops the
+ * observation entirely and requires the resolved vector to differ, which is
+ * what makes "the verdict changed nothing" a statement about the verdict
+ * rather than about an observation that was doing nothing anyway. */
+static void test_full_engine_verdict_isolation(void) {
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  /* _stext = _text + the head gap; REGION_KERNEL_TEXT POS_BASE names _stext. */
+  const unsigned long base =
+      (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + (unsigned long)STEXT_OFFSET;
+
+  if (!base) {
+    printf("    SKIP: no default text base on this architecture\n");
+    return;
+  }
+
+  /* Baseline: a fresh engine, floored run, nothing standing. */
+  struct estimate g0[Q__COUNT];
+  uint32_t obs_id;
+  {
+    struct engine e;
+    engine_init(&e);
+    obs_id =
+        add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, base, 0, "_stext");
+    engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+    memcpy(g0, e.est, sizeof(g0));
+    TH_CHECK(e.ev.obs[0].id == obs_id && e.ev.obs[0].valid);
+  }
+
+  /* Positive control: the same run without the observation must resolve
+   * differently, so the observation is demonstrably load-bearing. */
+  {
+    struct engine e;
+    engine_init(&e);
+    engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+    int differs = 0;
+    for (int q = 0; q < Q__COUNT; q++)
+      if (e.est[q].lo != g0[q].lo || e.est[q].hi != g0[q].hi)
+        differs = 1;
+    TH_CHECK(differs);
+  }
+
+  /* A verdict already standing when the run starts, as an earlier run at a
+   * lower floor would have left: discarded, so the observation stays in scope
+   * and the resolved vector is the baseline's. */
+  {
+    struct engine e;
+    struct verdict v;
+    engine_init(&e);
+    obs_id =
+        add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, base, 0, "_stext");
+    memset(&v, 0, sizeof(v));
+    v.kind = V_INVALID;
+    v.observation_id = obs_id;
+    snprintf(v.origin, ORIGIN_LEN, "earlier_run");
+    TH_CHECK(evidence_add_verdict(&e.ev, &v));
+    engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+    TH_CHECK(e.ev.obs[0].valid); /* the stale ruling did not apply */
+    for (int q = 0; q < Q__COUNT; q++) {
+      TH_CHECK(e.est[q].lo == g0[q].lo);
+      TH_CHECK(e.est[q].hi == g0[q].hi);
+      TH_CHECK(e.est[q].stride == g0[q].stride);
+      TH_CHECK(e.est[q].stride_offset == g0[q].stride_offset);
+    }
+  }
+}
+
 /* A hardened ppc64le system with KASLR disabled and no /proc/iomem leak:
  * the only phys observation is `P initrd pos=base lo=0x2c90000` (from
  * devicetree). The kernel sits at phys 0 (well below the initrd) —
@@ -3303,6 +3392,7 @@ int main(void) {
   RUN(test_full_engine_two_window);
   RUN(test_full_engine_constraint_bracket_and_corroborate);
   RUN(test_full_engine_floor_invariant);
+  RUN(test_full_engine_verdict_isolation);
   RUN(test_full_engine_property_x86_64);
   RUN(test_full_engine_property_x86_64_floor);
   RUN(test_full_engine_property_arm64_floor);
