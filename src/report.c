@@ -229,6 +229,65 @@ static unsigned long q_entropy_top(enum kasld_quantity q, unsigned long grain) {
   return (grain && hi > lo) ? (hi - lo) / grain + 1 : 0;
 }
 
+/* Whether two inclusive ranges overlap or abut, and so describe one hole.
+ *
+ * Adjacency counts: two exclusions that meet end-to-end carve a single
+ * contiguous range, and keeping them apart reports two holes where a reader
+ * can see one. Written as a gap test on the larger-minus-smaller difference so
+ * no `+1` runs off the end of the address space -- a hole reaching
+ * ULONG_MAX is ordinary on the physical axis. */
+static int holes_touch(unsigned long alo, unsigned long ahi, unsigned long blo,
+                       unsigned long bhi) {
+  if (ahi < blo)
+    return blo - ahi <= 1;
+  if (bhi < alo)
+    return alo - bhi <= 1;
+  return 1; /* they overlap */
+}
+
+/* Merge one clipped exclusion into the window's retained set, which is kept
+ * sorted by `lo` and disjoint. Returns 1 when the range is now represented,
+ * 0 when it is disjoint from everything retained and there was no room.
+ *
+ * Absorption frees at least one slot whenever it happens, so a range that
+ * touches anything can always be inserted; the no-room case is therefore
+ * tested before anything is modified, and a failed insert leaves the set
+ * untouched rather than half-merged. */
+static int holes_insert(struct kasld_report_window *w, unsigned long a,
+                        unsigned long b) {
+  int touched = 0, keep = 0, pos;
+
+  for (int i = 0; i < w->excluded_listed; i++)
+    if (holes_touch(a, b, w->excluded[i].lo, w->excluded[i].hi)) {
+      touched = 1;
+      break;
+    }
+  if (!touched && w->excluded_listed >= KASLD_REPORT_MAX_EXCLUDED)
+    return 0;
+
+  /* Absorb every entry the range touches, widening it to their union, and
+   * compact the rest down. */
+  for (int i = 0; i < w->excluded_listed; i++) {
+    struct kasld_report_hole *h = &w->excluded[i];
+    if (holes_touch(a, b, h->lo, h->hi)) {
+      if (h->lo < a)
+        a = h->lo;
+      if (h->hi > b)
+        b = h->hi;
+    } else {
+      w->excluded[keep++] = *h;
+    }
+  }
+  w->excluded_listed = keep;
+
+  for (pos = keep; pos > 0 && w->excluded[pos - 1].lo > a; pos--)
+    w->excluded[pos] = w->excluded[pos - 1];
+  w->excluded[pos].lo = a;
+  w->excluded[pos].hi = b;
+  w->excluded_listed++;
+  return 1;
+}
+
 /* Collect the excluded sub-ranges the engine carved out of this window's hull.
  *
  * The holes are NOT stored in the estimate -- it keeps only the convex hull --
@@ -237,11 +296,26 @@ static unsigned long q_entropy_top(enum kasld_quantity q, unsigned long grain) {
  * why they are lifted into the model here rather than left for a format to
  * rediscover.
  *
+ * Reported as HOLES, not as constraints. The two differ by a lot: each
+ * forbidden region produces its own `C_EXCLUDE` over the bases whose image
+ * would overlap it, and neighbouring regions produce heavily overlapping
+ * bands -- a live x86_64 run raises 34 of them describing 2 disjoint holes.
+ * Left unmerged, the count answers a question nobody asked (how many
+ * constraints were raised), the listed ranges overlap each other on sight, and
+ * a consumer that measures them double-counts the overlaps. Merging here means
+ * each consumer sees the carved set itself.
+ *
+ * Merging before the cap rather than after is what keeps the set complete:
+ * the raw records routinely outnumber the array, while the holes they describe
+ * fit inside it with room to spare.
+ *
  * The floor gate matches the resolver's: a sub-floor exclusion never reached
  * this window's edges, so it must not be presented as carving its interior. */
 static void collect_holes(struct kasld_report_window *w, enum kasld_quantity q,
                           enum kasld_confidence floor,
                           const struct constraint *cs, int n_cs) {
+  int dropped = 0;
+
   w->n_excluded = 0;
   w->excluded_listed = 0;
   if (!cs || !w->present)
@@ -258,13 +332,15 @@ static void collect_holes(struct kasld_report_window *w, enum kasld_quantity q,
       a = w->lo;
     if (b > w->hi)
       b = w->hi;
-    w->n_excluded++;
-    if (w->excluded_listed < KASLD_REPORT_MAX_EXCLUDED) {
-      w->excluded[w->excluded_listed].lo = a;
-      w->excluded[w->excluded_listed].hi = b;
-      w->excluded_listed++;
-    }
+    if (!holes_insert(w, a, b))
+      dropped++;
   }
+  /* Every hole the set holds, plus the ones it had no room for. A dropped
+   * range was disjoint from everything retained when it arrived, so it is a
+   * hole of its own; two dropped ranges that would have merged with each other
+   * are counted twice, which overstates the total in the one direction that
+   * costs a reader nothing -- the listed ranges remain exact. */
+  w->n_excluded = w->excluded_listed + dropped;
 }
 
 /* Whether an estimate states an edge at all.

@@ -24,10 +24,14 @@
 #include "estimate.h"
 #include "quantity.h"
 
-/* How many excluded sub-ranges an item retains for display. The engine may
- * carve more (bounded by ESTIMATE_MAX_WORK); `n_excluded` counts them all, so a
- * format can always say how many exist even when it cannot list them. Sized for
- * the realistic case: a live x86_64 run carves 7 physical reservations. */
+/* How many excluded sub-ranges an item retains for display. `n_excluded` counts
+ * every hole, so a format can always say how many exist even when it cannot
+ * list them. Sized for the realistic case, which is the count of HOLES rather
+ * than of the constraints describing them: the builder merges overlapping and
+ * abutting exclusions before filling the array, and a live x86_64 run whose 34
+ * exclusion constraints describe 2 disjoint physical holes therefore needs two
+ * entries. Without that merge the same run would overflow any array of a
+ * reasonable size. */
 #define KASLD_REPORT_MAX_EXCLUDED 16
 
 /* What kind of set a resolved window describes.
@@ -84,8 +88,11 @@ struct kasld_report_window {
   unsigned long values[KASLD_FINSET_MAX_CANDIDATES];
   int n_values;
 
+  /* Disjoint and ascending: overlapping and abutting exclusions are merged
+   * into the holes they describe, so a consumer may measure or sum them
+   * without double-counting. */
   struct kasld_report_hole excluded[KASLD_REPORT_MAX_EXCLUDED];
-  int n_excluded;      /* total carved, including any past the array */
+  int n_excluded;      /* holes carved, including any past the array */
   int excluded_listed; /* how many of them the array holds */
 
   /* Candidates remaining, holes carved and stride applied. Taken from the

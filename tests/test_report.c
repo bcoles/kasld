@@ -212,6 +212,70 @@ int main(void) {
     }
   }
 
+  /* 3b. Overlapping and abutting exclusions describe ONE hole, and are
+   *     reported as one. Each forbidden region raises its own C_EXCLUDE over
+   *     the bases whose image would overlap it, and neighbouring regions raise
+   *     heavily overlapping bands -- so the count of constraints is not the
+   *     count of holes, and a consumer that measured the raw bands would
+   *     double-count every overlap. Three inputs are staged: two that overlap,
+   *     one that merely abuts the second, and one clearly apart.
+   */
+  tops(gest);
+  {
+    struct constraint cs[4];
+    struct estimate *g = &gest[Q_VIRT_IMAGE_BASE];
+    unsigned long span = g->hi - g->lo;
+    unsigned long a = g->lo + span / 8;
+    unsigned long b = g->lo + span / 4;
+    unsigned long far_lo = g->lo + 5 * (span / 8);
+    int seen = 0;
+
+    memset(cs, 0, sizeof(cs));
+    for (int k = 0; k < 4; k++) {
+      cs[k].q = Q_VIRT_IMAGE_BASE;
+      cs[k].op = C_EXCLUDE;
+      cs[k].conf = CONF_PARSED;
+    }
+    cs[0].value = a;
+    cs[0].value2 = b;
+    /* Overlaps cs[0] and extends past it. */
+    cs[1].value = a + (b - a) / 2;
+    cs[1].value2 = b + (b - a);
+    /* Abuts cs[1]'s new top exactly: one contiguous hole, not two. */
+    cs[2].value = b + (b - a) + 1;
+    cs[2].value2 = b + 2 * (b - a);
+    /* Apart from all of them. */
+    cs[3].value = far_lo;
+    cs[3].value2 = far_lo + span / 16;
+
+    gv.est = gest;
+    gv.cs = cs;
+    gv.n_cs = 4;
+    gv.floor = CONF_INFERRED;
+    lv.est = NULL;
+    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+
+    for (int i = 0; i < r.n_quantities; i++) {
+      const struct kasld_report_quantity *it = &r.quantities[i];
+      const struct kasld_report_window *w = &it->guaranteed;
+      if (it->q != Q_VIRT_IMAGE_BASE)
+        continue;
+      seen = 1;
+      /* Four constraints, two holes. */
+      CHECK(w->n_excluded == 2);
+      CHECK(w->excluded_listed == 2);
+      /* Ascending and disjoint, so a consumer may sum them. */
+      CHECK(w->excluded[0].lo < w->excluded[1].lo);
+      CHECK(w->excluded[0].hi < w->excluded[1].lo);
+      /* The merged first hole spans the union of the three that touch, not
+       * any one of their extents. */
+      CHECK(w->excluded[0].lo == a);
+      CHECK(w->excluded[0].hi == b + 2 * (b - a));
+      CHECK(w->excluded[1].lo == far_lo);
+    }
+    CHECK(seen);
+  }
+
   /* 4. A sub-floor exclusion must not carve a window resolved above it: it
    *    never reached that window's edges, and presenting it as carving the
    *    interior could drop the true value from a sound window. */
