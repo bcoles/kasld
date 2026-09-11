@@ -276,6 +276,66 @@ int main(void) {
     CHECK(seen);
   }
 
+  /* 3c. More disjoint holes than the array retains. `excluded_listed` stops at
+   *     the cap while `n_excluded` keeps counting, so a consumer can always
+   *     tell a partial list from a complete one -- which is the whole reason
+   *     two figures are carried rather than one.
+   *
+   *     Merging makes this hard to reach on a real target, and that is the
+   *     point of staging it: nothing in the corpus fragments a window this far,
+   *     so the path would otherwise ship unexercised. The overcount the model
+   *     documents -- two DROPPED ranges that would have merged with each other
+   *     counting twice -- is deliberately not pinned here: it is a caveat, not
+   *     a behaviour to hold still.
+   */
+  tops(gest);
+  {
+    enum { N_HOLES = KASLD_REPORT_MAX_EXCLUDED + 4 };
+    struct constraint cs[N_HOLES];
+    struct estimate *g = &gest[Q_VIRT_IMAGE_BASE];
+    unsigned long span = g->hi - g->lo;
+    unsigned long step = span / (N_HOLES * 4);
+    int seen = 0;
+
+    if (step < 4)
+      return 0; /* window too narrow to hold this many separated holes */
+
+    memset(cs, 0, sizeof(cs));
+    for (int k = 0; k < N_HOLES; k++) {
+      cs[k].q = Q_VIRT_IMAGE_BASE;
+      cs[k].op = C_EXCLUDE;
+      cs[k].conf = CONF_PARSED;
+      /* Two steps apart, one step wide: separated by a whole step, so no two
+       * touch and the merge cannot collapse them. */
+      cs[k].value = g->lo + step * (unsigned long)(2 * k + 1);
+      cs[k].value2 = cs[k].value + step - 2;
+    }
+
+    gv.est = gest;
+    gv.cs = cs;
+    gv.n_cs = N_HOLES;
+    gv.floor = CONF_INFERRED;
+    lv.est = NULL;
+    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+
+    for (int i = 0; i < r.n_quantities; i++) {
+      const struct kasld_report_quantity *it = &r.quantities[i];
+      const struct kasld_report_window *w = &it->guaranteed;
+      if (it->q != Q_VIRT_IMAGE_BASE)
+        continue;
+      seen = 1;
+      CHECK(w->excluded_listed == KASLD_REPORT_MAX_EXCLUDED);
+      CHECK(w->n_excluded == N_HOLES);
+      CHECK(w->excluded_listed <
+            w->n_excluded); /* a partial list, and says so */
+      /* What is retained is still sorted and disjoint -- the cap drops holes,
+       * it does not corrupt the ones kept. */
+      for (int k = 1; k < w->excluded_listed; k++)
+        CHECK(w->excluded[k - 1].hi < w->excluded[k].lo);
+    }
+    CHECK(seen);
+  }
+
   /* 4. A sub-floor exclusion must not carve a window resolved above it: it
    *    never reached that window's edges, and presenting it as carving the
    *    interior could drop the true value from a sound window. */

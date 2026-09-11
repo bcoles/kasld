@@ -210,7 +210,16 @@ const char *kasld_entropy_phrase(int bits, int bits_top,
    * "N bits" means no baseline is modelled -- the same rule the Layout table's
    * Candidates cell follows. `bits_top > 0` is what separates "no baseline"
    * from one that happens to be zero. A baseline below the residual is not one
-   * this line can stand on, and is withheld rather than inverted. */
+   * this line can stand on, and is withheld rather than inverted.
+   *
+   * The comparison is the Candidates cell's, applied AFTER ceil(log2) rather
+   * than before, so the two can disagree on one run: the engine searches wider
+   * than the kernel picks, and 512 candidates against a top of 505 suppresses
+   * the count's ratio while both round to 9 bits and keep this one. That is
+   * the rule degrading correctly, not two policies -- push the count far
+   * enough past the top and the bit forms separate too, and this falls back to
+   * a bare residual. Both statements are true either way, so a caller wanting
+   * them adjacent needs no extra gate. */
   if (bits_top > 0 && bits_top >= bits) {
     /* Both figures are shown, so the mark is dropped only when neither rounded.
      */

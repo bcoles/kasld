@@ -678,6 +678,59 @@ static void print_virtual_layout(void) {
   printf("\n");
 }
 
+/* One address the physical column draws, and one band it draws it in. Both are
+ * file scope so the membership test below can be written once: which entries a
+ * band shows was decided at five sites in this file, and a change to what an
+ * entry is had to land in all five to stay consistent.
+ * ------------------------------------------------------------------------- */
+struct phys_point {
+  unsigned long addr;
+  char label[128];
+  enum kasld_region region; /* for collapsing repetitive same-region entries */
+  /* 1 iff this leak is a kernel-image region (text/data/bss/image). The
+   * phys-text-base window box only renders entries with is_text=1; other
+   * leaks whose address happens to land in the window are dropped from
+   * the visualization, matching the virt layout's per-region semantics. */
+  int is_text;
+  /* 1 iff this entry is a DRAM boundary marker (ram_base / ram_top). These
+   * are promoted to bucket EDGES in the bucket construction below — the
+   * address prints between boxes (as a footer/header), not as a line
+   * inside a box — so they are skipped in the per-bucket leak listing. */
+  int is_dram_edge;
+};
+
+struct phys_bucket {
+  const char *header;
+  unsigned long lo, hi;
+  unsigned long footer_addr;
+  int text_only;
+  /* As on a virtual band: 1 where the span is proven to be what it is
+   * named -- DRAM whose edges something leaked, or a text window narrowed to
+   * one address -- 0 where it is a partition of the column rather than an
+   * observed region. Stated positionally at every construction. */
+  int occupied;
+};
+
+/* An entry the column lists INSIDE a band, as opposed to one promoted to a
+ * band edge. A DRAM boundary prints between bands, as a footer or header, so
+ * it is never also listed within one. */
+static int ppt_is_interior(const struct phys_point *p) {
+  return !p->is_dram_edge;
+}
+
+/* Whether a band shows this entry: interior, within the band's span, and --
+ * where the band is the text window -- a kernel-image region. A leak whose
+ * address merely lands in that window is not evidence about the image, and
+ * showing it there would read as though it were. */
+static int ppt_in_bucket(const struct phys_point *p,
+                         const struct phys_bucket *bk) {
+  if (!ppt_is_interior(p))
+    return 0;
+  if (p->addr < bk->lo || p->addr > bk->hi)
+    return 0;
+  return !bk->text_only || p->is_text;
+}
+
 /* Render the physical half of the memory map: DRAM buckets, the phys text-base
  * window split, and any above/below-DRAM buckets. */
 static void print_physical_layout(void) {
@@ -685,22 +738,7 @@ static void print_physical_layout(void) {
   unsigned long ptext =
       section_consensus(KASLD_TYPE_PHYS, "text", REGION_UNKNOWN);
 
-  struct {
-    unsigned long addr;
-    char label[128];
-    enum kasld_region
-        region; /* for collapsing repetitive same-region entries */
-    /* 1 iff this leak is a kernel-image region (text/data/bss/image). The
-     * phys-text-base window box only renders entries with is_text=1; other
-     * leaks whose address happens to land in the window are dropped from
-     * the visualization, matching the virt layout's per-region semantics. */
-    int is_text;
-    /* 1 iff this entry is a DRAM boundary marker (ram_base / ram_top). These
-     * are promoted to bucket EDGES in the bucket construction below — the
-     * address prints between boxes (as a footer/header), not as a line
-     * inside a box — so they are skipped in the per-bucket leak listing. */
-    int is_dram_edge;
-  } ppts[MAX_RESULTS];
+  struct phys_point ppts[MAX_RESULTS];
   int nppts = 0;
 
   if (ptext && nppts < MAX_RESULTS) {
@@ -958,17 +996,7 @@ static void print_physical_layout(void) {
    * per-region semantics). Bucket capacity covers the maximal layout:
    * above-DRAM + in-DRAM-above-window + window + in-DRAM-below-window +
    * below-DRAM. */
-  struct phys_bucket {
-    const char *header;
-    unsigned long lo, hi;
-    unsigned long footer_addr;
-    int text_only;
-    /* As on a virtual band: 1 where the span is proven to be what it is
-     * named -- DRAM whose edges something leaked, or a text window narrowed to
-     * one address -- 0 where it is a partition of the column rather than an
-     * observed region. Stated positionally at every construction. */
-    int occupied;
-  } buckets[5];
+  struct phys_bucket buckets[5];
   int nbuckets = 0;
 
   /* Above-DRAM bucket: leaks whose address > ram_top (typically high MMIO).
@@ -976,7 +1004,7 @@ static void print_physical_layout(void) {
   int any_above_dram = 0;
   if (have_ram_top) {
     for (int i = 0; i < nppts; i++) {
-      if (ppts[i].is_dram_edge)
+      if (!ppt_is_interior(&ppts[i]))
         continue;
       if (ppts[i].addr > ram_top) {
         any_above_dram = 1;
@@ -1034,7 +1062,7 @@ static void print_physical_layout(void) {
   int any_below_dram = 0;
   if (have_ram_base && ram_base > (unsigned long)PHYS_OFFSET) {
     for (int i = 0; i < nppts; i++) {
-      if (ppts[i].is_dram_edge)
+      if (!ppt_is_interior(&ppts[i]))
         continue;
       if (ppts[i].addr < ram_base) {
         any_below_dram = 1;
@@ -1092,11 +1120,7 @@ static void print_physical_layout(void) {
     const struct phys_bucket *bk = &buckets[b];
     int any = 0;
     for (int i = 0; i < nppts; i++) {
-      if (ppts[i].is_dram_edge)
-        continue; /* edges print between buckets, not inside */
-      if (ppts[i].addr < bk->lo || ppts[i].addr > bk->hi)
-        continue;
-      if (bk->text_only && !ppts[i].is_text)
+      if (!ppt_in_bucket(&ppts[i], bk))
         continue;
       any = 1;
       break;
@@ -1113,20 +1137,12 @@ static void print_physical_layout(void) {
       int total[REGION__COUNT] = {0};
       int shown[REGION__COUNT] = {0};
       for (int i = 0; i < nppts; i++) {
-        if (ppts[i].is_dram_edge)
-          continue;
-        if (ppts[i].addr < bk->lo || ppts[i].addr > bk->hi)
-          continue;
-        if (bk->text_only && !ppts[i].is_text)
+        if (!ppt_in_bucket(&ppts[i], bk))
           continue;
         total[ppts[i].region]++;
       }
       for (int i = 0; i < nppts; i++) {
-        if (ppts[i].is_dram_edge)
-          continue;
-        if (ppts[i].addr < bk->lo || ppts[i].addr > bk->hi)
-          continue;
-        if (bk->text_only && !ppts[i].is_text)
+        if (!ppt_in_bucket(&ppts[i], bk))
           continue;
         enum kasld_region rg = ppts[i].region;
         if (total[rg] > PHYS_MAP_REGION_CAP && shown[rg] >= PHYS_MAP_REGION_CAP)
