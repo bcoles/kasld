@@ -112,9 +112,23 @@
 # command line states the layout by hand, consults no `arch=`, and leaves the
 # anchor at zero.
 #
-# Page geometry defaults to 4 KiB pages and a 64-byte `struct page`; override
-# with --page-shift and --struct-page-size (KASLD's `page_size` and `btf_facts`
-# facts report both for the target).
+# Page geometry
+# -------------
+# The `struct page` modes also need the page size and sizeof(struct page), and
+# the two are known to different degrees.
+#
+# The page size follows from the machine on every architecture that admits only
+# one -- x86, arm32, riscv and s390 are 4 KiB and nothing else -- so --page-shift
+# defaults to 12 there. arm64, powerpc, mips and loongarch each build with a
+# choice of several, and a shift four out puts the entry sixteen times too far
+# along the array, so a piped line naming one of those refuses until
+# --page-shift states it. `getconf PAGESIZE` on the target reports it.
+#
+# sizeof(struct page) follows from nothing outside the kernel's own BTF, so it
+# cannot be gated the same way -- a check that can never pass would remove the
+# mode rather than make it honest. --struct-page-size defaults to 64, which is
+# the value on essentially every 64-bit configuration; KASLD's `btf_facts`
+# component reports the target's exactly where BTF is present.
 #
 # Output: a virtual address prints as 16 zero-padded hex digits with no prefix
 # (`ffff9e8034600000`); a physical address prints `0x`-prefixed (`0x34600000`).
@@ -231,13 +245,37 @@ is_hex() { case "$1" in ''|*[!0-9A-Fa-f]*) return 1 ;; *) return 0 ;; esac; }
 # @arith-validator
 is_dec() { case "$1" in ''|*[!0-9]*)       return 1 ;; *) return 0 ;; esac; }
 
+# Strip an optional 0x prefix and require what remains to be pure hex, then
+# assign it. Every address that reaches `$(( 0x$x ))` from the command line or
+# from a piped line arrives through here, so the strip and the check cannot
+# drift apart the way ten hand-written copies of the pair can.
+#
+# It assigns rather than prints because `die` must reach the real shell: inside
+# `$( )` the exit would end only the subshell, the caller would carry on with an
+# empty value, and a rejected address would read as an absent one.
+hexset() {  # varname label value
+  local v=${3#0[xX]}
+  is_hex "$v" || die "bad $2: $3"
+  printf -v "$1" '%s' "$v"
+}
+
 # -- Argument parsing -----------------------------------------------------
 base="" symfile="" slide_only=0
 from_sym="" from_addr=""
 symbols=()
-page_offset="" vmemmap="" struct_page_bytes=64 page_shift=12
+page_offset="" vmemmap="" struct_page_bytes=64 page_shift=""
 phys_offset="" vmemmap_offset=""
-phys2virt="" virt2phys="" phys2page="" page2phys=""
+# The requested translation is ONE axis with one value, not four variables that
+# happen to be empty. Four made the mode and its operand the same string, so the
+# set had to be counted to reject a second one, re-tested to decide which bases
+# it needed, and tested a third time to dispatch -- with the last mode reached by
+# elimination, which a fifth would have silently become.
+phys_mode="" phys_addr=""
+PHYS_MODES="--phys2virt / --virt2phys / --phys2page / --page2phys"
+set_phys_mode() {  # mode addr
+  [[ -z "$phys_mode" ]] || die "use one of $PHYS_MODES"
+  phys_mode=$1 phys_addr=$2
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -281,18 +319,9 @@ while [[ $# -gt 0 ]]; do
     --page-shift)
       [[ $# -ge 2 ]] || die "$1 requires N"
       page_shift="$2"; shift 2 ;;
-    --phys2virt)
+    --phys2virt|--virt2phys|--phys2page|--page2phys)
       [[ $# -ge 2 ]] || die "$1 requires ADDR"
-      phys2virt="$2"; shift 2 ;;
-    --virt2phys)
-      [[ $# -ge 2 ]] || die "$1 requires ADDR"
-      virt2phys="$2"; shift 2 ;;
-    --phys2page)
-      [[ $# -ge 2 ]] || die "$1 requires ADDR"
-      phys2page="$2"; shift 2 ;;
-    --page2phys)
-      [[ $# -ge 2 ]] || die "$1 requires ADDR"
-      page2phys="$2"; shift 2 ;;
+      set_phys_mode "${1#--}" "$2"; shift 2 ;;
     -h|--help)
       sed -n '2,/^[^#]/{ /^#/s/^# \?//p; }' "$0"
       exit 0 ;;
@@ -322,21 +351,21 @@ done
 # It is 0 on the architectures that map physical 0 there, and the base of DRAM
 # (or arm64's memstart_addr) on those that do not; the anchor guard below is
 # what keeps the zero default from reaching an architecture it is wrong for.
-n_phys=0
-for v in "$phys2virt" "$virt2phys" "$phys2page" "$page2phys"; do
-  [[ -n "$v" ]] && n_phys=$((n_phys + 1))
-done
-if (( n_phys > 0 )); then
-  (( n_phys == 1 )) \
-    || die "use one of --phys2virt / --virt2phys / --phys2page / --page2phys"
+if [[ -n "$phys_mode" ]]; then
   [[ -z "$symfile" ]] || die "physical translation takes no symbol source (-s)"
   [[ -z "$base" && -z "$from_sym" ]] \
     || die "physical translation does not combine with -b/--from"
 
-  # Which bases the requested translation needs.
+  # Which base the mode needs, read off the axis rather than re-derived from
+  # the operands. Every mode names exactly one region, so this is total: a new
+  # one that matched neither arm would fail to build its bases and be caught
+  # here rather than reaching the arithmetic with an empty base.
   need_po=0 need_vm=0
-  if [[ -n "$phys2virt" || -n "$virt2phys" ]]; then need_po=1; fi
-  if [[ -n "$phys2page" || -n "$page2phys" ]]; then need_vm=1; fi
+  case "$phys_mode" in
+    phys2virt|virt2phys) need_po=1 ;;
+    phys2page|page2phys) need_vm=1 ;;
+    *) die "internal: no region for mode $phys_mode" ;;
+  esac
 
   # A piped `kasld -1` line supplies a base the command line did not, and the
   # `arch=` beside it then settles the anchor too. Read at most once, and only
@@ -352,12 +381,28 @@ if (( n_phys > 0 )); then
     IFS= read -r line || line=""
   fi
 
+  # The machine the line names, read once: the anchor gate and the page-shift
+  # gate below each consult it, and each has its own idea of which machines are
+  # safe. The WHOLE token, not a leading run of name characters: a prefix match
+  # would let `arch=x86_64-nonesuch` be served by the `x86_64` entry, and an
+  # allowlist may only ever fail in the refusing direction. Control characters
+  # are stripped so a hostile line cannot drive the terminal through a refusal.
+  arch=""
+  if [[ "$line" =~ (^|[[:space:]])arch=([^[:space:]]+) ]]; then
+    # Truncated before the control-character strip so the work stays bounded by
+    # this constant rather than by the line. A machine name is a dozen or so
+    # characters; anything longer is not one, and the 64-character prefix it
+    # becomes will not match the lists below -- so the bound errs towards
+    # refusing, never towards taking a default.
+    arch="${BASH_REMATCH[2]:0:64}"
+    arch="${arch//[[:cntrl:]]/}"
+  fi
+
   # Direct-map base: --page-offset, else the line's `dmap=`.
   po=""
   if (( need_po )); then
     if [[ -n "$page_offset" ]]; then
-      po=${page_offset#0[xX]}
-      is_hex "$po" || die "bad --page-offset: $page_offset"
+      hexset po --page-offset "$page_offset"
     else
       po=$(oneline_hex dmap "$line") \
         || die "no direct-map base — use --page-offset BASE, or pipe a \`kasld -1\` line whose \`dmap=\` names one"
@@ -368,25 +413,45 @@ if (( n_phys > 0 )); then
   vm=""
   if (( need_vm )); then
     if [[ -n "$vmemmap" ]]; then
-      vm=${vmemmap#0[xX]}
-      is_hex "$vm" || die "bad --vmemmap: $vmemmap"
+      hexset vm --vmemmap "$vmemmap"
     else
       vm=$(oneline_hex vmemmap "$line") \
         || die "no vmemmap base — use --vmemmap BASE, or pipe a \`kasld -1\` line whose \`vmemmap=\` names one"
     fi
   fi
 
-  # Page geometry. Checked whether or not the requested translation consults it,
-  # so a malformed value is reported rather than ignored for naming the wrong
-  # mode. Both are bounded above so an absurd value cannot reach the arithmetic:
+  # Page geometry. Bounded above so an absurd value cannot reach the arithmetic:
   # a shift at or past the 64-bit width is undefined, and a struct-page size far
   # past the tens of bytes every configuration uses would overflow the multiply
   # and print a wrapped address rather than fail.
   { is_dec "$struct_page_bytes" && (( struct_page_bytes > 0 )) \
       && (( struct_page_bytes <= 4096 )); } \
     || die "bad --struct-page-size: $struct_page_bytes"
-  { is_dec "$page_shift" && (( page_shift > 0 && page_shift < 64 )); } \
-    || die "bad --page-shift: $page_shift"
+
+  # The page shift, on the same terms as the anchor: 4 KiB is the default only
+  # for a machine known to admit one base page size. arm64, powerpc, mips and
+  # loongarch each build with several, and a shift four out puts the entry
+  # sixteen times too far along the array -- so those refuse rather than assume.
+  #
+  # This list is NOT the anchor's, and the difference is the point: the two axes
+  # cross. mips, ppc64 and loongarch64 map physical 0 at the direct-map base yet
+  # admit several page sizes, while arm32 and riscv anchor the map elsewhere yet
+  # have only one. One combined "safe machine" list would be wrong both ways.
+  #
+  # sizeof(struct page) gets no such gate. Nothing outside the kernel's own BTF
+  # derives it, so a gate on it could never pass and would remove the mode
+  # rather than make it honest; 64 stands as a stated default instead.
+  if [[ -n "$page_shift" ]]; then
+    { is_dec "$page_shift" && (( page_shift > 0 && page_shift < 64 )); } \
+      || die "bad --page-shift: $page_shift"
+  elif (( need_vm )); then
+    case "$arch" in
+      ''|x86_64|amd64|i[3-6]86|arm|armv*|riscv32|riscv64|s390x) page_shift=12 ;;
+      *)  die "arch=$arch builds with more than one page size — pass --page-shift N (log2 of the target's page size: 12 for 4 KiB, 14 for 16 KiB, 16 for 64 KiB; \`getconf PAGESIZE\` on the target reports it)" ;;
+    esac
+  else
+    page_shift=12
+  fi
 
   # Two anchors, one per region, because two architectures disagree about
   # whether they are the same number.
@@ -407,8 +472,7 @@ if (( n_phys > 0 )); then
   # not. Each option names exactly one quantity in every case.
   vf=""
   if (( need_vm )) && [[ -n "$vmemmap_offset" ]]; then
-    vf=${vmemmap_offset#0[xX]}
-    is_hex "$vf" || die "bad --vmemmap-offset: $vmemmap_offset"
+    hexset vf --vmemmap-offset "$vmemmap_offset"
   fi
 
   # The linear-map anchor, needed by the direct-map translations and as the
@@ -430,18 +494,8 @@ if (( n_phys > 0 )); then
     # map's and no default has to be defended for it.
     :
   elif [[ -n "$phys_offset" ]]; then
-    pf=${phys_offset#0[xX]}
-    is_hex "$pf" || die "bad --phys-offset: $phys_offset"
+    hexset pf --phys-offset "$phys_offset"
   else
-    # The WHOLE token, not a leading run of name characters: a prefix match
-    # would let `arch=x86_64-nonesuch` be served by the `x86_64` entry below,
-    # and the allowlist may only ever fail in the refusing direction. Control
-    # characters are stripped so a hostile line cannot drive the terminal
-    # through the refusal message.
-    arch=""
-    if [[ "$line" =~ (^|[[:space:]])arch=([^[:space:]]+) ]]; then
-      arch="${BASH_REMATCH[2]//[[:cntrl:]]/}"
-    fi
     case "$arch" in
       # No `arch=` was read: the bases came from the command line, which is the
       # operator stating the layout. Zero is the documented assumption.
@@ -463,37 +517,34 @@ if (( n_phys > 0 )); then
   fi
   [[ -n "$vf" ]] || vf=$pf
 
-  if [[ -n "$phys2virt" ]]; then
-    pa=${phys2virt#0[xX]}
-    is_hex "$pa" || die "bad --phys2virt address: $phys2virt"
-    hex_ult "$pa" "$pf" \
-      && die "physical address is below the linear-map anchor (--phys-offset)"
-    printf '%016x\n' $(( (0x$pa - 0x$pf) + 0x$po ))
-  elif [[ -n "$virt2phys" ]]; then
-    va=${virt2phys#0[xX]}
-    is_hex "$va" || die "bad --virt2phys address: $virt2phys"
-    hex_ult "$va" "$po" && die "virtual address is below the direct-map base"
-    printf '0x%x\n' $(( (0x$va - 0x$po) + 0x$pf ))
-  elif [[ -n "$phys2page" ]]; then
-    pa=${phys2page#0[xX]}
-    is_hex "$pa" || die "bad --phys2page address: $phys2page"
-    hex_ult "$pa" "$vf" \
-      && die "physical address is below the vmemmap anchor (--vmemmap-offset / --phys-offset)"
-    printf '%016x\n' \
-      $(( 0x$vm + ((0x$pa - 0x$vf) >> page_shift) * struct_page_bytes ))
-  else
-    pg=${page2phys#0[xX]}
-    is_hex "$pg" || die "bad --page2phys address: $page2phys"
-    hex_ult "$pg" "$vm" && die "struct page address is below the vmemmap base"
-    off=$(( 0x$pg - 0x$vm ))
-    # A `struct page *` lands on an entry boundary. One that does not is a
-    # pointer into the middle of an entry, a wrong --struct-page-size, or a
-    # vmemmap base that is not the array's -- each of which yields a plausible
-    # physical address from a premise that is already false.
-    (( off % struct_page_bytes == 0 )) \
-      || die "not a struct page base: 0x$pg is $(( off % struct_page_bytes )) bytes into a ${struct_page_bytes}-byte entry"
-    printf '0x%x\n' $(( ((off / struct_page_bytes) << page_shift) + 0x$vf ))
-  fi
+  # The operand, validated once for every mode. A virtual result prints as 16
+  # zero-padded hex digits with no prefix, a physical one 0x-prefixed.
+  hexset a "--$phys_mode address" "$phys_addr"
+  case "$phys_mode" in
+    phys2virt)
+      hex_ult "$a" "$pf" \
+        && die "physical address is below the linear-map anchor (--phys-offset)"
+      printf '%016x\n' $(( (0x$a - 0x$pf) + 0x$po )) ;;
+    virt2phys)
+      hex_ult "$a" "$po" && die "virtual address is below the direct-map base"
+      printf '0x%x\n' $(( (0x$a - 0x$po) + 0x$pf )) ;;
+    phys2page)
+      hex_ult "$a" "$vf" \
+        && die "physical address is below the vmemmap anchor (--vmemmap-offset / --phys-offset)"
+      printf '%016x\n' \
+        $(( 0x$vm + ((0x$a - 0x$vf) >> page_shift) * struct_page_bytes )) ;;
+    page2phys)
+      hex_ult "$a" "$vm" && die "struct page address is below the vmemmap base"
+      off=$(( 0x$a - 0x$vm ))
+      # A `struct page *` lands on an entry boundary. One that does not is a
+      # pointer into the middle of an entry, a wrong --struct-page-size, or a
+      # vmemmap base that is not the array's -- each of which yields a plausible
+      # physical address from a premise that is already false.
+      (( off % struct_page_bytes == 0 )) \
+        || die "not a struct page base: 0x$a is $(( off % struct_page_bytes )) bytes into a ${struct_page_bytes}-byte entry"
+      printf '0x%x\n' $(( ((off / struct_page_bytes) << page_shift) + 0x$vf )) ;;
+    *) die "internal: no translation for mode $phys_mode" ;;
+  esac
   exit 0
 fi
 

@@ -150,8 +150,13 @@ Alias for
 .TP
 .BI \-\-page\-shift " N"
 Page shift,
-.IR log2 (memory\ page\ size)
-(default: 12, i.e. 4 KiB).
+.IR log2 (memory\ page\ size).
+Defaults to 12 (4 KiB) on the architectures that admit only that page size; on
+arm64, PowerPC, MIPS and LoongArch, which build with a choice of several, the
+.I struct page
+modes refuse until this states it. See
+.B "PAGE GEOMETRY"
+below.
 .TP
 .BI \-\-phys2page " ADDR"
 Print the
@@ -219,6 +224,32 @@ the list does not recognise refuses too. Naming the bases on the command line
 states the layout by hand, consults no
 .IR arch= ,
 and leaves the anchor at zero.
+.SH PAGE GEOMETRY
+The
+.I struct page
+modes also need the page size and
+.IR sizeof(struct\ page) ,
+and the two are known to different degrees.
+.PP
+The page size follows from the machine on every architecture admitting only one
+\(em x86, ARM32, RISC-V and s390 are 4 KiB and nothing else \(em so
+.B \-\-page\-shift
+defaults to 12 there. arm64, PowerPC, MIPS and LoongArch each build with a
+choice of several, and a shift four out puts the entry sixteen times too far
+along the array, so a piped line naming one of those refuses until
+.B \-\-page\-shift
+states it.
+.BR getconf (1)
+.I PAGESIZE
+on the target reports it.
+.PP
+.I sizeof(struct page)
+follows from nothing outside the kernel's own BTF, so it cannot be gated the
+same way \(em a check that can never pass would remove the mode rather than
+make it honest.
+.B \-\-struct\-page\-size
+defaults to 64, the value on essentially every 64-bit configuration.
+.PP
 .SH REORDERED-TEXT KERNELS
 .B ksymoff
 assumes a single KASLR slide \(em a canonical, source/link-order function

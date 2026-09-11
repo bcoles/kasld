@@ -155,6 +155,28 @@ eq 'page2phys inverts the array anchor'   '0x80400000' \
 eq 'vmemmap-offset alone answers on riscv' 'ffffea0000008000' \
    "$(printf 'arch=riscv64 vmemmap=%s\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0x80000000 --phys2page 0x80200000 2>/dev/null)"
 
+# The page shift is gated on its OWN arch list, because the two axes cross:
+# mips/ppc64/loongarch64 anchor at physical 0 yet build with several page sizes,
+# while arm32/riscv anchor elsewhere yet have only 4 KiB. A single list would be
+# wrong both ways, so each machine is checked against the axis that applies.
+eq 'riscv64 takes the 4 KiB default'   'ffffea0000d18000' \
+   "$(printf 'arch=riscv64 vmemmap=%s\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --phys2page 0x34600000 2>/dev/null)"
+eq 's390x takes the 4 KiB default'     'ffffea0000d18000' \
+   "$(printf 'arch=s390x vmemmap=%s\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --phys2page 0x34600000 2>/dev/null)"
+eq 'ppc64le answers once shift stated' 'ffffea00000d1800' \
+   "$(printf 'arch=ppc64le vmemmap=%s\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --page-shift 16 --phys2page 0x34600000 2>/dev/null)"
+# A page size the machine does not pin must refuse, not assume 4 KiB.
+errs 'aarch64 page mode needs a shift' \
+   sh -c "printf 'arch=aarch64 vmemmap=$VM\n' | '$KSYMOFF' --vmemmap-offset 0 --phys2page 0x1000"
+errs 'ppc64le page mode needs a shift' \
+   sh -c "printf 'arch=ppc64le vmemmap=$VM\n' | '$KSYMOFF' --vmemmap-offset 0 --phys2page 0x1000"
+errs 'loongarch64 page mode needs a shift' \
+   sh -c "printf 'arch=loongarch64 vmemmap=$VM\n' | '$KSYMOFF' --vmemmap-offset 0 --page2phys $VM"
+# The page size never enters a direct-map translation, so that stays answerable
+# on a machine whose page size is unstated.
+eq 'ppc64le phys2virt needs no shift'  'c000000034600000' \
+   "$(printf 'arch=ppc64le dmap=0xc000000000000000\n' | "$KSYMOFF" --phys2virt 0x34600000 2>/dev/null)"
+
 # A machine that does not anchor at 0 must refuse, not answer.
 errs 'riscv64 refuses without an anchor' \
    sh -c "printf 'arch=riscv64 dmap=$RPO\n' | '$KSYMOFF' --phys2virt 0x80200000"
@@ -186,6 +208,23 @@ errs 'symbol mode needs source'    "$KSYMOFF" -b 0xffffffff82200000 commit_creds
 # guard for the arithmetic-eval injection class (all three source-derived
 # addresses: _text, the --from lookup, and a specific-symbol lookup).
 PAY="0+a[\$(:>$MARK)]"   # bash arithmetic injection payload; no spaces
+# The physical modes take numbers from the command line and from a piped
+# `kasld -1` line, and every one of them reaches `$(( ... ))`. Each must be
+# refused by a validator first; an unvalidated one would execute the payload.
+noexec 'no exec: --phys-offset'      "$KSYMOFF" --page-offset "$PO" --phys-offset "$PAY" --phys2virt 0x1000
+noexec 'no exec: --vmemmap-offset'   "$KSYMOFF" --vmemmap "$VM" --vmemmap-offset "$PAY" --phys2page 0x1000
+noexec 'no exec: --vmemmap'          "$KSYMOFF" --vmemmap "$PAY" --phys2page 0x1000
+noexec 'no exec: --page2phys'        "$KSYMOFF" --vmemmap "$VM" --page2phys "$PAY"
+noexec 'no exec: --phys2page'        "$KSYMOFF" --vmemmap "$VM" --phys2page "$PAY"
+noexec 'no exec: --struct-page-size' "$KSYMOFF" --vmemmap "$VM" --struct-page-size "$PAY" --phys2page 0x1000
+noexec 'no exec: --page-shift'       "$KSYMOFF" --vmemmap "$VM" --page-shift "$PAY" --phys2page 0x1000
+noexec 'no exec: hostile dmap= field' \
+  sh -c "printf 'arch=x86_64 dmap=0x$PAY\n' | '$KSYMOFF' --phys2virt 0x1000"
+noexec 'no exec: hostile vmemmap= field' \
+  sh -c "printf 'arch=x86_64 vmemmap=0x$PAY\n' | '$KSYMOFF' --phys2page 0x1000"
+# A hostile `arch=` reaches a refusal message; a terminal escape in it must not.
+noesc 'no escape: arch= in a refusal' \
+  "$(printf 'arch=%sevil dmap=%s\n' "${ESC}[2J" "$PO" | "$KSYMOFF" --phys2virt 0x1000 2>&1)"
 printf '%s\n' "$PAY T _text" 'ffffffff81276cb0 T commit_creds' > "$EVIL"
 noexec 'no exec: hostile _text address'  "$KSYMOFF" -b 0xffffffff82200000 -s "$EVIL" --slide
 printf '%s\n' 'ffffffff81000000 T _text' "$PAY T commit_creds" > "$EVIL"
