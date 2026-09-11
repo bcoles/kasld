@@ -9,17 +9,25 @@
 // express bounds — observations (evidence) and constraints (conclusions)
 // are different types in different stores.
 //
-// Obligation on an emitting rule: where a constraint's VALUE is computed from
-// its lineage, its confidence is <= the least confident of those inputs — a
-// claim cannot be more certain than what it rests on. A lineage entry recorded
-// as a witness or a gate, whose value the constraint does not carry, does not
-// cap it; the field does not distinguish the two roles, so this is a rule's
-// obligation and not a property the store enforces.
+// Invariant: a constraint's confidence is <= the least confident entry in its
+// lineage — a claim cannot be more certain than what it rests on. Lineage is
+// what the claim rests on rather than what the rule happened to read, so an
+// emission carrying an architectural value alone records none and is not
+// capped.
+//
+// The engine holds it where constraints are received (cap_conf_to_lineage in
+// engine.c) rather than each rule holding it alone. A rule grades what it
+// emits by the provenance it reasoned about, and cannot see the other factor:
+// which observations can arrive weakly is a fact about the component set, so a
+// new technique reporting an existing region would otherwise promote the output
+// of rules that were correct before it landed. A rule that caps earlier states
+// a tighter ceiling of its own and is unaffected.
 //
 // It governs trust REPORTING and resolver priority, not the soundness of the
-// floored window: a below-floor observation is invalidated before any rule
-// runs (see resolve_evidence in engine.c), so an over-confident label cannot
-// carry sub-floor evidence into the guaranteed result.
+// floored window. A below-floor observation is invalidated before any rule runs
+// (see resolve_evidence in engine.c), so every lineage a floored run can name
+// is already at or above the floor and the cap cannot change what that window
+// admits.
 // ---
 // <bcoles@gmail.com>
 

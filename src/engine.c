@@ -160,6 +160,76 @@ static void curate_to_fixpoint(struct engine *e, enum kasld_confidence floor,
   e->saturation |= ENGINE_SAT_CURATION_UNSETTLED;
 }
 
+/* Confidence of one lineage entry, or CONF_UNKNOWN when the id names nothing
+ * this run holds. Lineage ids are drawn from two spaces (see constraint.h), so
+ * the store to search is read off the id itself rather than guessed. */
+static enum kasld_confidence lineage_entry_conf(const struct engine *e,
+                                                uint32_t id) {
+  if (id == 0)
+    return CONF_UNKNOWN;
+  if (kasld_id_is_constraint(id)) {
+    for (int i = 0; i < e->n_constraints; i++)
+      if (e->constraints[i].id == id)
+        return e->constraints[i].conf;
+    return CONF_UNKNOWN;
+  }
+  for (int i = 0; i < e->ev.n_obs; i++)
+    if (e->ev.obs[i].id == id)
+      return e->ev.obs[i].conf;
+  for (int i = 0; i < e->ev.n_coverings; i++)
+    if (e->ev.coverings[i].id == id)
+      return e->ev.coverings[i].conf;
+  return CONF_UNKNOWN;
+}
+
+/* Hold a constraint to the trust of what it rests on: its confidence is capped
+ * at the least confident entry in its lineage.
+ *
+ * A rule grades what it emits by the provenance it reasoned about -- which
+ * region tag a witness carried, which signal licensed a pin -- and that grading
+ * is the rule's own judgement, kept. What a rule cannot state from where it
+ * stands is the trust of the particular witness it happened to read: the same
+ * REGION_DIRECTMAP tag arrives from a parsed map and from a timing probe, and a
+ * bound derived from the second is worth what the second is worth. The two
+ * factors are both real, so the emitted confidence is the lesser of them.
+ *
+ * Applied here rather than in each rule because reachability is not a property
+ * a rule can see. Which observations can arrive weakly is a fact about the
+ * component set, so a new timing technique reporting an existing region would
+ * silently promote the output of rules that were correct the day before.
+ *
+ * The cap only ever lowers, which only ever removes constraints from a fold --
+ * away from over-narrowing, never toward it. It cannot change what a floored
+ * run admits: every observation a rule can read there is already at or above
+ * the floor, so the minimum over any lineage is too. Where it does bite is a
+ * rule that read an out-of-scope observation anyway; the claim then falls to
+ * that observation's confidence and leaves the floored fold, which is the
+ * repair a forgotten `valid` guard needs.
+ *
+ * Lineage is what the claim rests on, not merely what the rule looked at: an
+ * emission carrying an architectural value alone records none (lineage_count
+ * 0) and is not capped.
+ *
+ * An entry naming nothing this run holds is skipped rather than treated as
+ * worthless, since capping to CONF_UNKNOWN would discard a claim over a stale
+ * id. That is the permissive direction, so it is worth knowing what reaches it:
+ * every lineage entry is an observation or covering id, both of which are in
+ * the set before any rule runs, and no rule records a CONSTRAINT id. A rule
+ * that began to do so could name one emitted later in the same pass, which is
+ * not yet stored and so would not cap until the following pass -- by which time
+ * the uncapped claim is already in an append-only store. Such a rule needs the
+ * ordering settled here first. */
+static void cap_conf_to_lineage(const struct engine *e, struct constraint *c) {
+  enum kasld_confidence worst = c->conf;
+
+  for (int i = 0; i < c->lineage_count && i < MAX_LINEAGE; i++) {
+    enum kasld_confidence lc = lineage_entry_conf(e, c->derived_from[i]);
+    if (lc != CONF_UNKNOWN && (int)lc < (int)worst)
+      worst = lc;
+  }
+  c->conf = worst;
+}
+
 void engine_run_full_floored(struct engine *e, enum kasld_confidence floor,
                              const rule_fn *rules, int n_rules,
                              const verdict_fn *vrules, int n_vrules) {
@@ -215,6 +285,10 @@ void engine_run_full_floored(struct engine *e, enum kasld_confidence floor,
           e->saturation |= ENGINE_SAT_CONSTRAINTS_FULL;
           break; /* safety cap, far above realistic deduped counts */
         }
+        /* Cap before the dedup test, not after: `same_claim` compares
+         * confidence, so a claim stored capped and re-emitted uncapped would
+         * read as new on every pass and grow the store. */
+        cap_conf_to_lineage(e, &tmp[i]);
         if (already_have(e, &tmp[i]))
           continue; /* dedup keeps the store from growing across passes */
         tmp[i].id = KASLD_CONSTRAINT_ID(next_id++);

@@ -34,6 +34,7 @@ To report a security vulnerability in this project, use the private process in
 - [Writing a rule](#writing-a-rule)
   - [A minimal rule](#a-minimal-rule)
   - [Constraint operations](#constraint-operations)
+  - [Choosing a constraint's confidence](#choosing-a-constraints-confidence)
   - [Proving soundness](#proving-soundness)
 - [Adding an architecture](#adding-an-architecture)
   - [Why the axes are separate questions](#why-the-axes-are-separate-questions)
@@ -746,6 +747,62 @@ ops), and a confidence. Pick the op for what the evidence actually proves:
 `value` alone. Interior `C_EXCLUDE` holes are carved at read time, not stored —
 see
 [Estimate narrowing and the store-vs-read seam](docs/architecture.md#estimate-narrowing-and-the-store-vs-read-seam).
+
+### Choosing a constraint's confidence
+
+A component's confidence answers "how was this address obtained". A rule's
+answers a different question, because a rule obtains nothing: **how much doubt
+does this rule's own reasoning add, over and above its inputs?**
+
+The trust of the inputs is not the rule's to carry. A constraint is capped at
+the least confident entry in its lineage where the engine receives it, so a
+bound drawn from a timing witness cannot be reported, or prioritised against a
+rival, as though it had been parsed — whatever the rule wrote. Which
+observations can arrive weakly is a fact about the component set rather than
+anything a rule can see from where it stands, which is why the cap lives at the
+seam and not in each rule.
+
+That leaves one question for the rule, and `CONF_INFERRED` is the answer for
+most of them:
+
+| Value | When a rule emits it |
+|---|---|
+| `CONF_PARSED` | A pass-through: the value is one the target itself stated, and the arithmetic between input and output is identity |
+| `CONF_DERIVED` | A computed certainty — an architectural invariant, or independent sources agreeing — below `CONF_PARSED` so a direct reading outranks it |
+| `CONF_INFERRED` | The default. Sound reasoning over admitted evidence, adding no doubt of its own |
+| `CONF_HEURISTIC` or lower | The reasoning is itself a guess, however good the input |
+
+`CONF_INFERRED` is the default because it is the weakest grade that still
+reaches the guaranteed window (the sound floor is exactly `CONF_INFERRED`), and
+sound reasoning over admitted evidence belongs in the sound answer. It is a
+ceiling rather than a claim: a poor witness pulls the emitted value down on its
+own.
+
+Lower it when the rule's reasoning is a guess *even given a perfect witness* —
+a convention, an assumed default layout, a classification that rests on a
+window test rather than on structural provenance. The cap cannot do this for a
+rule: an exact address plus guessy reasoning is still a guess.
+`directmap_page_offset_bounds` is the worked example. The same witness quality
+yields `CONF_INFERRED` for an established `REGION_DIRECTMAP` tag and
+`CONF_HEURISTIC` for a range-classified one, because the second inference is a
+guess about what the address implies even when the address is exact.
+
+Grade per path, not per rule, wherever the paths differ.
+`kernel_image_phys_bound` states its raw-witness ceiling at `CONF_INFERRED` —
+sound whatever the alignment turns out to be — and the tighter,
+alignment-assuming ceiling at `CONF_HEURISTIC` in the same function.
+`randomize_memory_page_offset` pins at `CONF_INFERRED` from a same-origin
+matched pair and at `CONF_HEURISTIC` from a cross-origin reconstruction that a
+mispairing could place wrongly.
+
+A pin is where this matters most. A `C_EQUALS` at or above the floor collapses
+a quantity to one value inside the guaranteed window, which is sound only where
+the pinned value is derived from evidence or a structural fact; a default or a
+convention pinned there excludes the truth on a legitimate non-default kernel.
+`tests/check-confidence-floor` will ask about any new pin — it flags every
+collapsing constraint whatever confidence the rule writes, and requires each to
+be listed with the review that admits it, rather than trying to read the
+confidence out of the source and exempt the ones that look safe.
 
 ### Proving soundness
 

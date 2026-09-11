@@ -53,7 +53,7 @@ static uint32_t add_addr(struct engine *e, enum kasld_addr_type type,
  * conflict resolution (a parsed source must beat an inferred one regardless of
  * which is captured first). Used only by arch-gated tests, so unused on hosts
  * whose arch compiles none of them out. */
-__attribute__((unused)) static void
+__attribute__((unused)) static uint32_t
 add_addr_conf(struct engine *e, enum kasld_addr_type type,
               enum kasld_region region, unsigned long lo, unsigned long hi,
               enum kasld_confidence conf, const char *name) {
@@ -73,7 +73,7 @@ add_addr_conf(struct engine *e, enum kasld_addr_type type,
   o.conf = conf;
   if (name)
     snprintf(o.name, NAME_LEN, "%s", name);
-  evidence_add(&e->ev, &o);
+  return evidence_add(&e->ev, &o);
 }
 
 /* Top-edge twin of add_addr: emits an observation with pos=top and only the
@@ -1042,6 +1042,58 @@ static void test_full_engine_verdict_isolation(void) {
       TH_CHECK(e.est[q].stride_offset == g0[q].stride_offset);
     }
   }
+}
+
+/* A constraint never outranks what it rests on.
+ *
+ * A rule grades what it emits by the provenance it reasoned about, which cannot
+ * account for the trust of the particular witness it read: the same region tag
+ * arrives from a parsed source and from a timing probe. The engine caps the
+ * emitted confidence at the least confident entry in the constraint's lineage,
+ * so the registry as a whole holds the property whether or not an individual
+ * rule remembered to.
+ *
+ * The witness is a linear-map address at CONF_TIMING, which is what a cache- or
+ * prefetch-timing component reports: the region tag is the same one a parsed
+ * map carries, and the bound a rule derives from it is worth what a timing
+ * probe is worth. Uncapped, directmap_page_offset_bounds grades that bound by
+ * the witness's region class alone and states it at CONF_INFERRED -- inside the
+ * sound floor, on the strength of a timing measurement.
+ *
+ * Asserted over every constraint the run produced rather than over that one
+ * rule's output, so a rule added later is covered without editing this.
+ *
+ * Run unfloored: at the sound floor a CONF_TIMING observation is switched off
+ * before any rule sees it, so the cap would have nothing to bite on and the
+ * assertion would hold vacuously. The witness count guards the same way from
+ * the other side, and reports rather than asserts -- an architecture whose
+ * rules draw nothing from a linear-map address has no case to answer here. */
+static void test_full_engine_conf_capped_to_lineage(void) {
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  struct engine e;
+  uint32_t obs_id;
+  int derived = 0;
+
+  engine_init(&e);
+  obs_id = add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_DIRECTMAP,
+                         (unsigned long)PAGE_OFFSET + 0x10000000ul, 0,
+                         CONF_TIMING, NULL);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    for (int k = 0; k < c->lineage_count && k < MAX_LINEAGE; k++) {
+      if (c->derived_from[k] != obs_id)
+        continue;
+      derived++;
+      /* Rests on a CONF_TIMING witness, so it may claim no more. */
+      TH_CHECK((int)c->conf <= (int)CONF_TIMING);
+    }
+  }
+  if (!derived)
+    printf("    SKIP: no rule draws a constraint from a linear-map witness\n");
 }
 
 /* A hardened ppc64le system with KASLR disabled and no /proc/iomem leak:
@@ -3393,6 +3445,7 @@ int main(void) {
   RUN(test_full_engine_constraint_bracket_and_corroborate);
   RUN(test_full_engine_floor_invariant);
   RUN(test_full_engine_verdict_isolation);
+  RUN(test_full_engine_conf_capped_to_lineage);
   RUN(test_full_engine_property_x86_64);
   RUN(test_full_engine_property_x86_64_floor);
   RUN(test_full_engine_property_arm64_floor);

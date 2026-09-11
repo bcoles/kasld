@@ -371,12 +371,26 @@ its hypothesis altogether.
 clamped into the sound one at the report boundary by
 `kasld_clamp_likely_window()`, rather than being trusted to come out nested.
 
-A rule's own confidence labelling is a separate obligation with separate
-consequences. A constraint whose value is computed from its lineage should carry
-no more confidence than the least confident of those inputs, or reported trust
-and resolver priority overstate what the claim rests on. It is not what keeps
-sub-floor evidence out of the guaranteed window — T3 does that at the input,
-independently of every rule's diligence.
+A constraint's own confidence is a separate question with separate
+consequences, and the engine settles it rather than leaving it to each rule. A
+constraint is capped at the least confident entry in its lineage as it is
+received, so a claim never outranks what it rests on: a bound derived from a
+timing witness cannot be reported, or prioritised against a rival, as though it
+had been parsed. A rule still grades what it emits by the provenance it
+reasoned about — which region tag a witness carried, which signal licensed a
+pin — and the emitted value is the lesser of the two, because both factors are
+real and neither subsumes the other.
+
+The cap is placed there rather than in each rule because reachability is not
+something a rule can see: which observations can arrive weakly is a fact about
+the component set, so a new timing technique reporting an existing region would
+otherwise promote the output of rules that were correct before it landed.
+
+It cannot change what the guaranteed window admits, and the reason is T3
+itself: every observation a rule can read in a floored run is already at or
+above the floor, so the minimum over any lineage is too, and a capped
+constraint stays in scope. What it changes is reported trust and conflict
+ordering, which is where an overstatement does its damage.
 
 ## Theorem T4: termination
 
@@ -436,6 +450,7 @@ their own saturation bits rather than sharing one.
 | W — observations state something true | the components and their tests, and the orchestrator-filled `origin`. Not checkable inside the engine; a violation that reaches the result is caught, if at all, end-to-end by the corpus below |
 | S — a rule never excludes the truth | one dedicated test per rule, with `tests/check-rule-registry` refusing a rule that has none; `tests/check-self-edges` for the self-referential case; `tests/check-confidence-floor` for collapsing constraints that would reach the guaranteed window |
 | T1 — truth containment | `test_full_engine_property_<arch>` per architecture: over randomly drawn legal layouts and random subsets of faithful leaks, the resolved guaranteed window still contains the truth. `tests/check-property-arches` requires every supported architecture to have one and to run it; `make test-cross` settles it by exit status. On real captures rather than generated ones, `extra/validate-bundle` asserts the same containment against ground truth extracted from the capture, and `tests/validate-fixtures` runs it over every truth-bearing fixture |
+| a constraint never outranks its lineage | the cap applied where constraints are received (`cap_conf_to_lineage` in `src/engine.c`); `test_full_engine_conf_capped_to_lineage` plants a linear-map witness at `CONF_TIMING` and holds every constraint drawn from it to that ceiling |
 | T3 — the floor separates the windows | `test_full_engine_property_<arch>_floor` per architecture, and `test_full_engine_floor_invariant`, which injects an adversarial pin at every sub-floor confidence and requires the whole guaranteed vector to be unchanged, with a positive control proving the injection is live. `test_full_engine_verdict_isolation` covers the inherited-verdict path, where a stale ruling would widen the window instead |
 
 Two of those are worth reading as a pair. `check-rule-registry` proves a test
@@ -457,12 +472,10 @@ believed it — and asserts the truth survives.
 - **Component truthfulness.** Obligation W is assumed, not proven. A component
   that misreports an address can move the guaranteed window, which is why the
   wire seam, per-component tests and the replay corpus sit where they do.
-- **Confidence labelling.** A rule that labels a constraint above the trust of
-  the inputs its value came from overstates reported provenance and can win a
-  conflict it should have lost. Nothing in the store enforces the ordering: the
-  lineage field records what a constraint was derived from without recording
-  whether an entry supplied the value or merely gated the rule, and the two do
-  not cap the result alike.
+- **Corroboration.** Confidence is capped at a constraint's lineage, but
+  `lineage_count` counts derivation inputs rather than agreeing sources, so a
+  claim assembled from several premises outranks a directly measured one at
+  equal confidence. Independence is not counted at this layer.
 - **Interior holes in the stored estimate.** They live at the read seam only.
   Code that reads the stored interval directly, rather than through
   `quantity_ranges()`, sees the holes filled back in.
