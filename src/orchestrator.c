@@ -29,7 +29,6 @@
 #include "include/kasld/randomize_memory.h"
 #include "include/kasld/render_internal.h"
 #include "include/kasld/report.h"
-#include "include/kasld/target_model.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -43,6 +42,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/personality.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
@@ -3693,82 +3693,38 @@ int main(int argc, char *argv[]) {
     render_system_config(kasld_fact_source() == KASLD_FACTS_CAPTURE);
   }
 
-  /* A build that does not model the target kernel cannot analyse it. The arch
-   * header is selected by THIS binary's architecture, so every window resolved
-   * from here would describe an address space the kernel does not have — and on
-   * a coupled architecture correctly-read physical bounds would be projected
-   * through the wrong linear map into a virtual window that cannot contain the
-   * base. The parse layer already refuses individual addresses it cannot
-   * represent; this refuses the analysis. */
-  {
-    struct kasld_model_check w = kasld_check_target_model(kasld_fact_source());
-    if (w.verdict == KASLD_MODEL_MISMATCH) {
-      const int width = kasld_model_signal_is_width(w.signal);
-      char detail[192];
-      const char *summary =
-          width ? "target kernel does not use this build's address width"
-                : "capture is from an architecture this build does not model";
-      const char *action =
-          width ? "run the build matching the kernel's word size"
-                : "run the build matching the capture's architecture";
+  /* The layout model comes from THIS binary's architecture, so if the facts
+   * describe another machine every window resolved from them describes an
+   * address space that does not exist. One machine name answers both halves of
+   * that — a foreign architecture and a foreign address width — because a name
+   * states both.
+   *
+   * It warns rather than declining. A wrong answer here would otherwise
+   * disable the tool on a machine it models, with no way past it, and that is
+   * a worse failure than the wrong window it prevents. */
+  if (kasld_fact_source() == KASLD_FACTS_LIVE) {
+    /* PER_LINUX32 makes uname answer with the architecture's COMPAT_UTS_MACHINE
+     * rather than the kernel's own — i686 on x86_64, armv8l on arm64, mips on
+     * mips64 — and it is the TASK's personality that decides, not the binary's
+     * width, so a 64-bit run under setarch(8) or inside a linux32 chroot is
+     * told a 32-bit name. Nothing distinguishes the two there: a genuine
+     * 32-bit kernel defines no COMPAT_UTS_MACHINE, so it reports that same
+     * name for itself, and the field describes a persona rather than a kernel.
+     * The run is left alone rather than warned about wrongly, and the width
+     * this otherwise catches goes unchecked with it. Querying costs nothing and
+     * changes nothing: the kernel returns the current value for 0xffffffff and
+     * sets none. */
+    int persona = personality(0xffffffffUL);
+    struct utsname u;
 
-      if (w.signal == KASLD_MODEL_SIGNAL_TASK_SIZE)
-        snprintf(detail, sizeof(detail),
-                 "%s: %#lx, above this architecture's highest split (%#lx)",
-                 kasld_model_signal_name(w.signal), w.task_size,
-                 (unsigned long)PAGE_OFFSET_MAX);
-      else if (w.signal == KASLD_MODEL_SIGNAL_KALLSYMS)
-        snprintf(detail, sizeof(detail),
-                 "%s: %d hex digits, a %d-bit kernel pointer; this build "
-                 "models %d-bit",
-                 kasld_model_signal_name(w.signal), w.kallsyms_hex_digits,
-                 w.kallsyms_hex_digits * 4, (int)(sizeof(kasld_addr_t) * 8));
-      else
-        snprintf(detail, sizeof(detail), "%s names %s; this build models %s",
-                 kasld_model_signal_name(w.signal), w.declared_arch,
-                 KASLD_ARCH_NAME);
-
-      fprintf(stderr, "[-] %s\n", summary);
-      fprintf(stderr, "[-]   %s\n", detail);
-      fprintf(stderr, "[-] %s\n", action);
-
-      /* What the machine formats emit here is decided per format, because the
-       * right answer differs:
-       *
-       * json      an object carrying ONLY the refusal. It has no `kaslr` or
-       *           `layout` key, because a document describing this build's
-       *           address space would describe one the kernel does not have,
-       *           which is the whole reason for declining. A consumer reaching
-       *           for a layout field finds nothing, exactly as before, but one
-       *           that logs the document now learns why. The `code` separates
-       *           the two refusals, which call for different corrective action.
-       * markdown  a short section, for the same reason a human reading the
-       *           text mode gets the message on stderr.
-       * oneline   nothing at all. Its schema fixes the key set on every line,
-       *           so a partial line would break that contract, and a full
-       *           line of `na` values is indistinguishable from the hardened
-       *           host that yields nothing (exit 1) — the one distinction that
-       *           matters here. Absence plus the exit code stays honest. */
-      if (json_output) {
-        printf("{\n  \"error\": {\n    \"code\": \"%s\",",
-               width ? "target_width_mismatch" : "target_arch_mismatch");
-        printf("\n    \"message\": ");
-        json_print_escaped(summary);
-        printf(",\n    \"detail\": ");
-        json_print_escaped(detail);
-        printf(",\n    \"action\": ");
-        json_print_escaped(action);
-        printf("\n  }\n}\n");
-      } else if (markdown_output) {
-        printf("# KASLD\n\n## Analysis declined\n\n");
-        printf("%s, so no layout is reported: the model comes from this "
-               "binary's architecture and would describe an address space the "
-               "kernel does not have.\n\n",
-               summary);
-        printf("- Observed: %s\n", detail);
-        printf("- Action: %s\n", action);
-      }
-      return 3;
+    if ((persona == -1 || (persona & PER_MASK) != PER_LINUX32) &&
+        uname(&u) == 0 && u.machine[0] && !KASLD_UNAME_IS_OURS(u.machine)) {
+      fprintf(stderr, "[!] this build models %s; this kernel reports %s\n",
+              KASLD_ARCH_NAME, u.machine);
+      fprintf(stderr,
+              "[!] every address below describes the wrong machine; "
+              "run the build for %s\n",
+              u.machine);
     }
   }
 

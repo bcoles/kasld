@@ -552,13 +552,12 @@ presence never depends on how much a particular run learned. `va_bits` follows
 the same rule: it appears only where the architecture admits more than one
 address-space size.
 
-A non-zero exit can replace the report rather than accompany it: on exit 3 the
-document is `{"error": {...}}`, carrying no `layout` or `kaslr` key so that no
-field of it can be mistaken for a measurement. Its `code` is
-`target_width_mismatch` or `target_arch_mismatch` — the two ways this build can
-fail to model the target, which call for different corrective action. Check the
-status before parsing; `kasld(1)` EXIT STATUS gives the codes and what each
-output mode writes.
+Where this build does not model the kernel it is running on, the report is
+still written and a warning is printed on stderr naming both machines. Replaying
+is not checked that way: `uname` describes the host doing the analysis rather
+than the machine a capture came from, so pairing a capture with the build that
+models it is the job of `extra/validate-bundle` and `tests/replay`, which read
+the capture's own record and run the right binary.
 
 The `environment` object is the recon vantage: `container`, `seccomp`, `lsm`,
 `selinux`, `security_context`, `mac_enforcing`, `capabilities`,

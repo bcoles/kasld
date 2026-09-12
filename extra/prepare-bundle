@@ -17,24 +17,17 @@
 #               rather than the hundreds of files under /proc/device-tree that
 #               the DT components read.
 #
-# It also writes one file the mirror never held:
-#
-#   .kasld-capture   the bundle's meta.txt, unchanged, at the root of the
-#               prepared tree. Nothing a kernel exposes names the machine it
-#               runs on, so a sysroot alone cannot say which architecture it
-#               was captured from -- and a build for another one would resolve
-#               windows for an address space that kernel does not have. kasld
-#               reads arch_canonical from here and declines on a disagreement.
-#
 # So "point KASLD_SYSROOT at the bundle" is not the whole recipe, and the part
 # it omits is silent: the run simply reads a short file and resolves one bound
 # fewer. This is that recipe, in one place, so a harness and an operator
 # prepare a bundle the same way.
 #
-# The recipe also has an argument the bundle carries and the sysroot does not:
-# WHICH kasld reads it. That is what .kasld-capture answers for the tool; the
-# architecture is also printed, so an operator can choose the build rather than
-# guess it.
+# The recipe has an argument the bundle carries and the sysroot does not: WHICH
+# kasld reads it. Nothing a kernel exposes names the machine it ran on, so that
+# lives in the bundle's meta.txt beside the sysroot, and a prepared tree stands
+# apart from it. The architecture is printed here so an operator can choose the
+# build rather than guess it; kasld itself notices only when it is reading a
+# capture still sitting in its bundle.
 #
 # Usage:  extra/prepare-bundle <bundle-dir> <dest-dir>
 #         KASLD_SYSROOT=<dest-dir> kasld -v
@@ -122,17 +115,6 @@ if [ -f "$BUNDLE/sizes.txt" ]; then
     mkdir -p "$DEST$(dirname "$path")" 2>/dev/null
     truncate -s "$sz" "$DEST$path" 2>/dev/null
   done < "$BUNDLE/sizes.txt"
-fi
-
-# Carry the bundle's own record into the tree, as the one thing the sysroot
-# cannot otherwise state: which machine the capture came from. No procfs or
-# sysfs file names it, so without this a build for another architecture reads
-# the tree and resolves windows for an address space that kernel does not have.
-# kasld reads arch_canonical from here and declines on a disagreement. The file
-# is meta.txt unchanged, under a name no kernel has, so the two cannot drift.
-if [ -f "$BUNDLE/meta.txt" ]; then
-  cp "$BUNDLE/meta.txt" "$DEST/.kasld-capture" ||
-    die "recording the capture's provenance failed"
 fi
 
 # Name the architecture the capture came from, so the reader is chosen rather

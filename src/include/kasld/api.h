@@ -306,16 +306,39 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  * them; tests/check-arch-dispatch holds them to this set.
  *
  * The refusal stubs below define no name. Each errors inside its own header
- * before anything could read one. */
+ * before anything could read one.
+ *
+ * KASLD_UNAME_IS_OURS(m) — does uname(2)'s machine field name a kernel THIS
+ * build models? Defined beside the name, in the arm that already knows which
+ * architecture this is, because that is the only architecture the question is
+ * ever asked about: a build never needs to learn what another's spelling means,
+ * only whether the string in front of it is one of its own. It answers the
+ * address width as well, since a family's 64-bit kernel reports a different
+ * string than its 32-bit one.
+ *
+ * The spellings are the ones a kernel reports for itself: the UTS_MACHINE its
+ * Makefile sets, or for arm the name composed at boot in
+ * arch/arm/kernel/setup.c. Both byte orders answer alike, since one arch header
+ * serves both. Where a family's two widths share a prefix the narrower
+ * predicate excludes the wider by hand — "mips64" starts with "mips".
+ *
+ * A refusal stub defines none, and nothing reads one there.
+ *
+ */
 #if defined(__x86_64__) || defined(__amd64__)
 #include "arch/x86_64.h"
 #define KASLD_ARCH_NAME "x86_64"
+#define KASLD_UNAME_IS_OURS(m) (!strcmp((m), "x86_64"))
 #elif defined(__i386__)
 #include "arch/x86_32.h"
 #define KASLD_ARCH_NAME "x86_32"
+#define KASLD_UNAME_IS_OURS(m)                                                 \
+  (!strcmp((m), "i386") || !strcmp((m), "i486") || !strcmp((m), "i586") ||     \
+   !strcmp((m), "i686"))
 #elif defined(__aarch64__)
 #include "arch/arm64.h"
 #define KASLD_ARCH_NAME "arm64"
+#define KASLD_UNAME_IS_OURS(m) (!strncmp((m), "aarch64", 7))
 #elif defined(__arm__) || defined(__ARM_ARCH_6__) ||                           \
     defined(__ARM_ARCH_6J__) || defined(__ARM_ARCH_6K__) ||                    \
     defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__) ||                   \
@@ -324,32 +347,43 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
     defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
 #include "arch/arm32.h"
 #define KASLD_ARCH_NAME "arm32"
+#define KASLD_UNAME_IS_OURS(m) (!strncmp((m), "arm", 3))
 #elif defined(__mips64) || defined(__mips64__)
 #include "arch/mips64.h"
 #define KASLD_ARCH_NAME "mips64"
+#define KASLD_UNAME_IS_OURS(m) (!strncmp((m), "mips64", 6))
 #elif defined(__mips__)
 #include "arch/mips32.h"
 #define KASLD_ARCH_NAME "mips32"
+#define KASLD_UNAME_IS_OURS(m)                                                 \
+  (!strncmp((m), "mips", 4) && strncmp((m), "mips64", 6) != 0)
 #elif defined(__powerpc64__) || defined(__POWERPC64__) ||                      \
     defined(__ppc64__) || defined(__PPC64__)
 #include "arch/ppc64.h"
 #define KASLD_ARCH_NAME "ppc64"
+#define KASLD_UNAME_IS_OURS(m) (!strncmp((m), "ppc64", 5))
 #elif defined(__powerpc__) || defined(__POWERPC__) || defined(__ppc__) ||      \
     defined(__PPC__)
 #include "arch/ppc32.h"
 #define KASLD_ARCH_NAME "ppc32"
+#define KASLD_UNAME_IS_OURS(m)                                                 \
+  (!strncmp((m), "ppc", 3) && strncmp((m), "ppc64", 5) != 0)
 #elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
 #include "arch/riscv64.h"
 #define KASLD_ARCH_NAME "riscv64"
+#define KASLD_UNAME_IS_OURS(m) (!strcmp((m), "riscv64"))
 #elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 32
 #include "arch/riscv32.h"
 #define KASLD_ARCH_NAME "riscv32"
+#define KASLD_UNAME_IS_OURS(m) (!strcmp((m), "riscv32"))
 #elif defined(__loongarch__) && __loongarch_grlen == 64
 #include "arch/loongarch64.h"
 #define KASLD_ARCH_NAME "loongarch64"
+#define KASLD_UNAME_IS_OURS(m) (!strcmp((m), "loongarch64"))
 #elif defined(__s390x__) || defined(__zarch__)
 #include "arch/s390.h" /* experimental */
 #define KASLD_ARCH_NAME "s390"
+#define KASLD_UNAME_IS_OURS(m) (!strcmp((m), "s390x"))
 #elif defined(__sparc__)
 #include "arch/sparc.h"
 #elif defined(__sh__)

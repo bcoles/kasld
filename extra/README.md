@@ -111,15 +111,18 @@ recipe above names one rather than globbing: `build/*/kasld` takes whichever
 sorts first, and an i686 build runs perfectly well on an x86_64 host. The layout
 model — `PAGE_OFFSET`, the KASLR window, the module band, the address width —
 comes from the analysing binary's own architecture, so the wrong build resolves
-a guaranteed window for an address space that kernel does not have. Live this
-cannot happen, since a kernel does not load a binary for another architecture;
-replaying is where it can, because the whole point is to read the capture
-elsewhere. `kasld` refuses that run with exit 3 rather than reporting it:
-`prepare-bundle` carries the bundle's own record into the prepared tree as
-`.kasld-capture`, and `kasld` compares it against the architecture it was built
-for. `prepare-bundle`
-also prints the architecture, so the right build can be chosen rather than
-guessed. `validate-bundle` resolves it from the bundle and needs no help.
+a guaranteed window for an address space that kernel does not have. Live a
+foreign architecture cannot arise, since a kernel does not load a binary built
+for another one, and `kasld` warns where `uname` names a kernel it does not
+model, which covers the address width too — except under a `linux32`
+personality, where `uname` answers with the architecture's compat name and a
+64-bit kernel is indistinguishable from a 32-bit one, so the run is left alone
+rather than warned about wrongly. Replaying is where the pairing can go
+wrong and where nothing in the tool can catch it: `uname` describes the host
+doing the analysis, and no file a capture holds names the machine it came from.
+So the pairing is made here instead. `prepare-bundle` prints the architecture,
+so the right build can be chosen rather than guessed, and `validate-bundle`
+resolves it from the bundle and needs no help.
 
 `validate-bundle` needs no root — the truth comes from the bundle's captured files,
 not the host's `/proc`. It exits `0` (every quantity PASS or N/A), `1` (a soundness

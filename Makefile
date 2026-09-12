@@ -517,7 +517,7 @@ endif
 build : check-headers prune-components component-manifest $(BIN_FILES) $(KASLD_BIN)
 
 # -I$(SRC_DIR) so the orchestrator can include the component-side fact headers
-# (task_size.h and target_model.h use the same "include/kasld/..." form the
+# (task_size.h uses the same "include/kasld/..." form the
 # components do).
 # These three bake the version in through -DVERSION. make does not track a
 # change of FLAGS, only of files, so a bump left the objects standing and the
@@ -1126,7 +1126,6 @@ lint :
 	    $(TEST_DIR)/check-arch-headers \
 	    $(TEST_DIR)/check-arch-dispatch \
 	    $(TEST_DIR)/check-arch-names \
-	    $(TEST_DIR)/check-target-model \
 	    $(TEST_DIR)/check-macro-claims \
 	    $(TEST_DIR)/check-fail-closed \
 	    $(TEST_DIR)/check-guard-docs \

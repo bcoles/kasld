@@ -113,8 +113,15 @@ while IFS= read -r a; do
   fi
 done <"$TMP/files"
 
-# Every contract header's arm names its architecture. A refusal stub's does not,
-# and must not: the stub errors before anything could read a name.
+# Every contract header's arm names its architecture AND says which machine
+# strings that architecture's kernels report for themselves. A refusal stub's
+# does neither, and must not: the stub errors before anything could read one.
+#
+# The predicate is counted here rather than left to the compiler because the
+# compiler only ever sees one arm. An arm missing it does fail to build -- the
+# call site becomes a call to an undeclared function -- but only for the one
+# architecture that reads it, which for an arch nobody on this project builds is
+# a failure that arrives from a stranger's machine.
 while IFS= read -r a; do
   named=$(grep -c "^#define KASLD_ARCH_NAME \"$a\"\$" "$API")
   if [ "$(arch_header_kind "$ARCH/$a.h")" = stub ]; then
@@ -132,9 +139,28 @@ while IFS= read -r a; do
   fi
 done <"$TMP/files"
 
+# Each contract arm also defines the machine-name predicate, in the same arm.
+# Counted by pairing: the predicate immediately follows the name it belongs to,
+# so a stray definition elsewhere in the file is not mistaken for one.
+npred=$(grep -c "^#define KASLD_UNAME_IS_OURS(m)" "$API")
+if [ "$npred" -ne "$ncontract" ]; then
+  printf '%scheck-arch-dispatch: FAIL%s (%d contract arms, %d define KASLD_UNAME_IS_OURS)\n' \
+    "$RED" "$RESET" "$ncontract" "$npred" >&2
+  fail=1
+fi
+while IFS= read -r a; do
+  [ "$(arch_header_kind "$ARCH/$a.h")" = stub ] && continue
+  if ! grep -A1 "^#define KASLD_ARCH_NAME \"$a\"\$" "$API" |
+    grep -q "^#define KASLD_UNAME_IS_OURS(m)"; then
+    printf '%scheck-arch-dispatch: FAIL%s (arm for arch/%s.h defines no KASLD_UNAME_IS_OURS beside its name)\n' \
+      "$RED" "$RESET" "$a" >&2
+    fail=1
+  fi
+done <"$TMP/files"
+
 [ "$fail" -eq 0 ] || exit 1
 
 guard_scope "check-arch-dispatch" "$((ncontract + nstub))" 10
 
-printf '%scheck-arch-dispatch: OK%s (%d dispatch arms: %d contract headers, %d refusal stubs; %d named)\n' \
-  "$GREEN" "$RESET" "$((ncontract + nstub))" "$ncontract" "$nstub" "$ncontract"
+printf '%scheck-arch-dispatch: OK%s (%d dispatch arms: %d contract headers, %d refusal stubs; %d named, %d name their machines)\n' \
+  "$GREEN" "$RESET" "$((ncontract + nstub))" "$ncontract" "$nstub" "$ncontract" "$npred"
