@@ -63,7 +63,12 @@ TMP_M=$(mktemp) || exit 1
 TMP_RAW=$(mktemp) || exit 1
 TMP_J=$(mktemp) || exit 1
 TMP_E=$(mktemp) || exit 1
-trap 'rm -f "$TMP_T" "$TMP_M" "$TMP_RAW" "$TMP_J" "$TMP_E"' EXIT INT TERM
+# Each format is rendered once per target and read from here. Running kasld
+# again for every question asked of the same output re-ran the whole
+# component set to produce bytes already in hand.
+TMP_TXT=$(mktemp) || exit 1
+TMP_MDR=$(mktemp) || exit 1
+trap 'rm -f "$TMP_T" "$TMP_M" "$TMP_RAW" "$TMP_J" "$TMP_E" "$TMP_TXT" "$TMP_MDR"' EXIT INT TERM
 note() {
   printf '  FAIL: %s\n' "$1"
   fail=1
@@ -376,8 +381,10 @@ compare_one() {
     KASLD_SYSROOT="$sysroot" KASLD_COMPONENT_DIR="$compdir" \
       $q "$bin" -q "$@" 2>/dev/null
   }
-  t=$(run | text_quantities)
-  m=$(run -m | md_quantities)
+  run    >"$TMP_TXT"
+  run -m >"$TMP_MDR"
+  t=$(text_quantities <"$TMP_TXT")
+  m=$(md_quantities <"$TMP_MDR")
   j=$(run -j)
 
   # Text vs markdown: both read the row model, so they must agree exactly.
@@ -389,8 +396,8 @@ compare_one() {
   fi
 
   # Text vs markdown, by content: same quantities, same grades, same values.
-  tr_=$(run | text_rows)
-  mr=$(run -m | md_rows)
+  tr_=$(text_rows <"$TMP_TXT")
+  mr=$(md_rows <"$TMP_MDR")
   if [ "$tr_" != "$mr" ]; then
     note "$label: text and markdown report different rows"
     printf '%s\n' "$tr_" >"$TMP_T"
@@ -401,11 +408,11 @@ compare_one() {
 
   # Evidence, one way: every region the readout evidences must be carried by
   # markdown's table under its section name.
-  me=$(run -m | md_evidence)
+  me=$(md_evidence <"$TMP_MDR")
   # Read from a file, not from a pipe: `cmd | while` runs the loop in a
   # subshell, where note() would set the failure flag and lose it with the
   # subshell -- the guard would print FAIL and still exit 0.
-  run | text_evidence >"$TMP_E"
+  text_evidence <"$TMP_TXT" >"$TMP_E"
   while IFS= read -r lbl; do
     [ -n "$lbl" ] || continue
     want=$(md_section_for "$lbl")
@@ -429,7 +436,7 @@ compare_one() {
       note "$label: quantity \"$disp\" has no entry in json_key_for()"
   done
   # The values themselves, against the engine's own numbers.
-  run >"$TMP_RAW"
+  cp "$TMP_TXT" "$TMP_RAW"
   printf '%s\n' "$j" >"$TMP_J"
   compare_counts "$label" "$TMP_RAW" "$TMP_J"
 
