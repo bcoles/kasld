@@ -70,17 +70,26 @@ for d in "$ROOT"/build/*/components; do
     fi
     nchecked=$((nchecked + 1))
     [ -n "$selected" ] || nfull=$((nfull + 1))
+    # One readelf for both sections: the section table is read once and each
+    # size taken from it, rather than the same table being read per section.
+    #
+    # Section present AND non-zero size; a zero-size section exists and says
+    # nothing, which reads the same as absent at runtime. The "[ 5]" index
+    # readelf prints splits into two fields while "[15]" is one, so the column
+    # positions move with the section count -- strip the index before reading
+    # them rather than counting from the left.
+    sizes=$(readelf -S -W "$f" 2>/dev/null \
+            | sed 's/^ *\[ *[0-9]*\] *//' \
+            | awk '$1 == ".kasld_meta"    { m = $5 }
+                   $1 == ".kasld_explain" { e = $5 }
+                   END { print (m == "" ? "-" : m), (e == "" ? "-" : e) }')
     for sec in .kasld_meta .kasld_explain; do
-      # Section present AND non-zero size; a zero-size section exists and says
-      # nothing, which reads the same as absent at runtime. The "[ 5]" index
-      # readelf prints splits into two fields while "[15]" is one, so the column
-      # positions move with the section count -- strip the index before reading
-      # them rather than counting from the left.
-      sz=$(readelf -S -W "$f" 2>/dev/null \
-           | sed 's/^ *\[ *[0-9]*\] *//' \
-           | awk -v s="$sec" '$1 == s { print $5; exit }')
+      case $sec in
+        .kasld_meta) sz=${sizes%% *} ;;
+        *)           sz=${sizes##* } ;;
+      esac
       case "$sz" in
-        "" ) bad="$bad $triple/$(basename "$f"):$sec:absent" ;;
+        "-" ) bad="$bad $triple/$(basename "$f"):$sec:absent" ;;
         *[!0]* ) ;;
         * ) bad="$bad $triple/$(basename "$f"):$sec:empty" ;;
       esac
