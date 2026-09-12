@@ -46,9 +46,12 @@ LONG=$(awk 'BEGIN { s = "/"; while (length(s) < 4091) s = s "aaaaaaaaaa";
 
 # Facts a run actually read: --verbose echoes each component's wire lines, and
 # every fact a component emits is one of them.
+# -f on the live arm only. That run is a precondition -- the host must expose
+# meaningfully more than an empty sysroot for the comparison to detect anything
+# -- while the assertion is between the two sysroot runs, which stay unbounded.
 facts() { # $1 = KASLD_SYSROOT value, empty for a live run
   if [ -z "$1" ]; then
-    "$BIN" -q -v 2>&1 | grep -c '^[VPSR] '
+    "$BIN" -q -v -f 2>&1 | grep -c '^[VPSR] '
   else
     KASLD_SYSROOT="$1" "$BIN" -q -v 2>&1 | grep -c '^[VPSR] '
   fi
