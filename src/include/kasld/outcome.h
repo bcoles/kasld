@@ -47,6 +47,11 @@ kasld_classify_outcome(int status, int timed_out, int had_tagged) {
     return OUTCOME_ACCESS_DENIED;
   if (rc == KASLD_EXIT_UNAVAILABLE)
     return OUTCOME_UNAVAILABLE;
+  /* The child writes this when the execve fails, so the component produced no
+   * result because it never ran — a different fact from running and finding
+   * nothing, and the one the default case would otherwise absorb. */
+  if (rc == KASLD_EXIT_NOTSTARTED)
+    return OUTCOME_NOT_STARTED;
   return OUTCOME_NO_RESULT;
 }
 

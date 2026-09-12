@@ -417,6 +417,14 @@ enum component_outcome {
    * every output: a component that faulted part-way through has not "found
    * nothing", and the input that killed it may be reproducible. */
   OUTCOME_CRASHED,
+  /* The execve never succeeded, so the technique did not run at all. Separate
+   * from OUTCOME_NO_RESULT for the same reason OUTCOME_CRASHED is — a component
+   * that never started has not "found nothing" — and separate from
+   * OUTCOME_CRASHED because the two send a reader to different places: a fault
+   * is a defect in the component, while a failed exec is a property of the
+   * host. A failed exec takes every component identically, so reporting it as a
+   * fault names a whole directory of bugs that do not exist. */
+  OUTCOME_NOT_STARTED,
 };
 
 /* What a component declares about itself, read from the ELF sections it
@@ -520,6 +528,7 @@ struct component_stats {
   int access_denied;
   int timed_out;
   int crashed;
+  int not_started; /* the execve failed; nothing ran */
 };
 
 /* =========================================================================

@@ -1990,6 +1990,7 @@ void compute_component_stats(struct summary *s) {
   s->stats.access_denied = 0;
   s->stats.timed_out = 0;
   s->stats.crashed = 0;
+  s->stats.not_started = 0;
 
   /* comp_logs[] is indexed by discovery slot and sparse: a filtered component,
    * or one whose phase did not run, leaves its slot untouched. */
@@ -2015,6 +2016,9 @@ void compute_component_stats(struct summary *s) {
       break;
     case OUTCOME_CRASHED:
       s->stats.crashed++;
+      break;
+    case OUTCOME_NOT_STARTED:
+      s->stats.not_started++;
       break;
     }
   }
@@ -3429,7 +3433,8 @@ static int apply_opt(const struct opt *o, int *i, int argc, char *argv[]) {
 #define OUTCOME_NAMES_SHOWN 3
 
 /* Collect the names of components that reached `want`, up to `max` of them.
- * Returns the total, which may exceed what was stored. */
+ * Returns the total, which may exceed what was stored. A caller wanting only
+ * the total passes a `max` of 0, and `names` is then never written. */
 static int collect_outcome_names(enum component_outcome want,
                                  const char **names, int max, int *shown) {
   int n = 0;
@@ -3482,6 +3487,29 @@ static int report_crashed_components(void) {
 
   printf("%s%d component%s died on a signal (", c(C_DIM), n, n == 1 ? "" : "s");
   print_outcome_names(names, shown, n);
+  return 1;
+}
+
+/* Components whose execve never succeeded. Counted rather than named: a failed
+ * exec is a property of the host, so it takes every component identically and
+ * the list would be the whole set. What the reader needs is that the run had
+ * nothing to work from — the windows below are this architecture's defaults,
+ * not a measurement — and the count says exactly that. */
+static int report_not_started_components(void) {
+  int shown;
+  int n = collect_outcome_names(OUTCOME_NOT_STARTED, NULL, 0, &shown);
+  if (n == 0)
+    return 0;
+
+  /* Measured against the components that were GOING to run, not against every
+   * one discovered: a filter excludes some on most hosts, so comparing with the
+   * discovered total withholds the sentence in exactly the run that needs it.
+   */
+  printf("%s%d component%s could not be started%s%s\n", c(C_DIM), n,
+         n == 1 ? "" : "s",
+         n == num_active_components ? "; the windows below rest on no evidence"
+                                    : "",
+         c(C_RESET));
   return 1;
 }
 
@@ -3862,6 +3890,7 @@ int main(int argc, char *argv[]) {
     printf("\n");
     reported = report_killed_components();
     reported |= report_crashed_components();
+    reported |= report_not_started_components();
     if (reported)
       printf("\n");
   }

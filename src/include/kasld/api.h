@@ -2466,8 +2466,11 @@ static inline void kasld_disposition(enum kasld_disp cat, const char *gate,
 
 /* Component exit codes — the component-side ABI for signalling run status to
  * the orchestrator, which maps them to a component_outcome (outcome.h) for the
- * summary and hardening report. There are exactly three classes; the specific
- * gate a technique tripped on is reported separately, not encoded in the code.
+ * summary and hardening report. A component has exactly three classes to
+ * choose from; the specific gate a technique tripped on is reported separately,
+ * not encoded in the code. KASLD_EXIT_NOTSTARTED below is a fourth value and
+ * not a fourth class — the orchestrator writes it about a component rather than
+ * the component about itself.
  *
  *   0    Ran to completion. Any results are in the tagged output. Exit 0 with
  *        no tagged line means the technique applied but produced nothing this
@@ -2493,6 +2496,12 @@ static inline void kasld_disposition(enum kasld_disp cat, const char *gate,
 #define KASLD_EXIT_UNAVAILABLE                                                 \
   69                         /* feature/hardware not present (EX_UNAVAILABLE) */
 #define KASLD_EXIT_NOPERM 77 /* access denied (EX_NOPERM) */
+
+/* RESERVED, and not for a component to return. The orchestrator's child writes
+ * it when the execve of a component fails, which is the one outcome a component
+ * cannot report for itself: it never ran. A component returning it would be
+ * recorded as never having started. */
+#define KASLD_EXIT_NOTSTARTED 127
 
 /* The exit class a failed probe implies, read from errno.
  *

@@ -84,6 +84,26 @@ static void test_crash_does_not_shadow_the_specific_signals(void) {
            OUTCOME_SUCCESS);
 }
 
+/* The exec never succeeded, so the component did not run. It has to be
+ * separable from both of its neighbours: from NO_RESULT, which asserts the
+ * technique applied and found nothing, and from CRASHED, which blames the
+ * component for a fault it never got the chance to have. */
+static void test_failed_exec_is_not_started(void) {
+  TH_CHECK(kasld_classify_outcome(st_exited(KASLD_EXIT_NOTSTARTED), 0, 0) ==
+           OUTCOME_NOT_STARTED);
+  TH_CHECK(kasld_classify_outcome(st_exited(KASLD_EXIT_NOTSTARTED), 0, 0) !=
+           OUTCOME_NO_RESULT);
+  TH_CHECK(kasld_classify_outcome(st_exited(KASLD_EXIT_NOTSTARTED), 0, 0) !=
+           OUTCOME_CRASHED);
+  /* A component that did produce output is reported on its output, whatever it
+   * exited with: the orchestrator counts the result, not the code. */
+  TH_CHECK(kasld_classify_outcome(st_exited(KASLD_EXIT_NOTSTARTED), 0, 1) ==
+           OUTCOME_SUCCESS);
+  /* And the neighbouring codes are untouched. */
+  TH_CHECK(kasld_classify_outcome(st_exited(126), 0, 0) == OUTCOME_NO_RESULT);
+  TH_CHECK(kasld_classify_outcome(st_exited(128), 0, 0) == OUTCOME_NO_RESULT);
+}
+
 int main(void) {
   TEST_SUITE("component outcome classification");
   BEGIN_CATEGORY("kasld_classify_outcome");
@@ -91,6 +111,7 @@ int main(void) {
   RUN(test_timeout_beats_status);
   RUN(test_sigsys_is_access_denied);
   RUN(test_exit_codes);
+  RUN(test_failed_exec_is_not_started);
   RUN(test_other_signal_is_crashed);
   RUN(test_crash_does_not_shadow_the_specific_signals);
   return TEST_DONE();

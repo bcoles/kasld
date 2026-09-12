@@ -65,6 +65,8 @@ static const char *outcome_name(enum component_outcome o) {
     return "no_result";
   case OUTCOME_CRASHED:
     return "crashed";
+  case OUTCOME_NOT_STARTED:
+    return "not_started";
   }
   return "unknown";
 }
@@ -944,6 +946,7 @@ void render_json(const struct summary *s) {
   printf("    \"access_denied\": %d,\n", s->stats.access_denied);
   printf("    \"timed_out\": %d,\n", s->stats.timed_out);
   printf("    \"crashed\": %d,\n", s->stats.crashed);
+  printf("    \"not_started\": %d,\n", s->stats.not_started);
   printf("    \"no_result\": %d\n", s->stats.no_result);
   printf("  }");
 
