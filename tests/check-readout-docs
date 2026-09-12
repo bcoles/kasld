@@ -45,6 +45,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/arch-names.sh
+. "$ROOT/tests/lib/arch-names.sh"
 # shellcheck source=tests/lib/host-build.sh
 . "$ROOT/tests/lib/host-build.sh"
 
@@ -208,24 +210,10 @@ replayed=0
 # Which capture this host can replay. The layout windows are compiled in, so an
 # aarch64 build reading an x86_64 capture renders a different table -- correct
 # for that build, and nothing like what the document shows. The fixture tree
-# names each capture's architecture in its directory; this is the same name for
-# the binary. Ordered longest-first: mips64 is not mips32, and aarch64 is not
-# arm. An empty triple matches no fixture, which is the safe answer.
-case $(host_arch) in
-x86_64 | amd64) fixture_arch=x86_64 ;;
-i?86) fixture_arch=x86_32 ;;
-aarch64) fixture_arch=arm64 ;;
-arm*) fixture_arch=arm32 ;;
-mips64*) fixture_arch=mips64 ;;
-mips*) fixture_arch=mips32 ;;
-powerpc64* | ppc64*) fixture_arch=ppc64 ;;
-powerpc* | ppc*) fixture_arch=ppc32 ;;
-riscv64) fixture_arch=riscv64 ;;
-riscv32) fixture_arch=riscv32 ;;
-s390*) fixture_arch=s390 ;;
-loongarch64) fixture_arch=loongarch64 ;;
-*) fixture_arch=unknown ;;
-esac
+# names each capture's architecture in its directory, which is the name
+# arch-names.sh answers with. A host it does not recognise answers nothing, and
+# nothing matches no fixture, which is the safe answer.
+fixture_arch=$(kasld_arch_for "$(host_arch)")
 # As with the tally loop above, this one is fed by a pipe and runs in a
 # subshell, so a failure it finds is recorded in a file rather than in `fail`.
 blockfail=$(mktemp) || exit 1

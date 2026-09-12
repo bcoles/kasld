@@ -1125,6 +1125,7 @@ lint :
 	    $(TEST_DIR)/check-arch-axes \
 	    $(TEST_DIR)/check-arch-headers \
 	    $(TEST_DIR)/check-arch-dispatch \
+	    $(TEST_DIR)/check-arch-names \
 	    $(TEST_DIR)/check-target-model \
 	    $(TEST_DIR)/check-macro-claims \
 	    $(TEST_DIR)/check-fail-closed \

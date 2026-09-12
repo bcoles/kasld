@@ -25,16 +25,12 @@
 # architecture — is a different question this cannot answer, and would need
 # something that knows what each predicate means.
 #
-# The chain also NAMES each architecture it dispatches, in KASLD_ARCH_NAME, and
-# that set is the vocabulary anything outside the tool has to use to name an
-# architecture to it — a capture recording the machine it came from, above all,
-# which kasld compares against this build's name and declines on a disagreement.
-# So two more drifts are held here: an arm that selects a contract header
-# without naming it, and extra/collect normalising `uname -m` onto a spelling
-# api.h does not use. Neither fails on its own. A missing name only stops the
-# build of the one architecture that reads it, and a divergent spelling in the
-# capture tooling reads as a foreign machine, which refuses a capture the build
-# in fact models.
+# The chain also NAMES each architecture it selects, in KASLD_ARCH_NAME beside
+# the arm, so a third drift is held here: an arm that selects a contract header
+# without naming it. It does not fail on its own — a missing name stops the
+# build of the one architecture whose analysis reads it, and nothing else.
+# Whether those names agree with the rest of the tree is a separate question,
+# asked by check-arch-names.
 #
 # Text, necessarily: the preprocessor cannot enumerate a directory, so there is
 # no compile-time form of this check.
@@ -136,32 +132,9 @@ while IFS= read -r a; do
   fi
 done <"$TMP/files"
 
-# extra/collect maps `uname -m` onto this vocabulary. Every name it can produce
-# has to be one api.h dispatches, or the sentinel it uses for a machine it does
-# not recognise -- which kasld reads as no answer rather than as a name.
-COLLECT=$ROOT/extra/collect
-if [ -f "$COLLECT" ]; then
-  sed -n '/^canonical_arch()/,/^}/p' "$COLLECT" |
-    sed -n 's/.*)[ \t]*echo[ \t]*"\{0,1\}\([a-z0-9_]*\)"\{0,1\}[ \t]*;;.*/\1/p' |
-    sort -u >"$TMP/collect"
-  if [ ! -s "$TMP/collect" ]; then
-    printf '%scheck-arch-dispatch: FAIL%s (no names found in extra/collect canonical_arch — has it changed shape?)\n' \
-      "$RED" "$RESET" >&2
-    fail=1
-  else
-    { cat "$TMP/files"; echo unknown; } | sort -u >"$TMP/vocab"
-    stray=$(comm -23 "$TMP/collect" "$TMP/vocab")
-    if [ -n "$stray" ]; then
-      printf '%scheck-arch-dispatch: FAIL%s (extra/collect names an architecture api.h does not dispatch)\n' \
-        "$RED" "$RESET" >&2
-      printf '%s\n' "$stray" | sed 's|^|  |' >&2
-      fail=1
-    fi
-  fi
-fi
 [ "$fail" -eq 0 ] || exit 1
 
 guard_scope "check-arch-dispatch" "$((ncontract + nstub))" 10
 
-printf '%scheck-arch-dispatch: OK%s (%d dispatch arms: %d contract headers, %d refusal stubs; %d named, capture vocabulary agrees)\n' \
+printf '%scheck-arch-dispatch: OK%s (%d dispatch arms: %d contract headers, %d refusal stubs; %d named)\n' \
   "$GREEN" "$RESET" "$((ncontract + nstub))" "$ncontract" "$nstub" "$ncontract"

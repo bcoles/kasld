@@ -30,6 +30,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/arch-names.sh
+. "$ROOT/tests/lib/arch-names.sh"
 # shellcheck source=tests/lib/qemu-target.sh
 . "$ROOT/tests/lib/qemu-target.sh"
 # shellcheck source=tests/lib/host-build.sh
@@ -127,22 +129,7 @@ if command -v jq >/dev/null 2>&1; then
   # sysroot yields nothing the binary can read, both runs then return the
   # untouched baseline, and the containment below holds without testing
   # anything. Keyed on the fixture tree's own arch directory names.
-  case "$(uname -m)" in
-  x86_64 | amd64)   fixarch=x86_64 ;;
-  i686 | i586 | i386) fixarch=x86_32 ;;
-  aarch64 | arm64)  fixarch=arm64 ;;
-  armv7l | armv6l | arm) fixarch=arm32 ;;
-  riscv64)          fixarch=riscv64 ;;
-  riscv32)          fixarch=riscv32 ;;
-  s390x)            fixarch=s390 ;;
-  ppc64le | ppc64)  fixarch=ppc64 ;;
-  ppc | powerpc)    fixarch=ppc32 ;;
-  loongarch64)      fixarch=loongarch64 ;;
-  mips64el)         fixarch=mips64el ;;
-  mipsel)           fixarch=mips32el ;;
-  mips)             fixarch=mips32 ;;
-  *)                fixarch= ;;
-  esac
+  fixarch=$(kasld_arch_for "$(uname -m)")
   fix=
   [ -n "$fixarch" ] &&
     fix=$(echo "$ROOT"/tests/fixtures/"$fixarch"/*/sysroot | awk '{print $1}')

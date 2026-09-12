@@ -102,6 +102,8 @@ set -u
 
 HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 ROOT=$(CDPATH='' cd -- "$HERE/../.." && pwd)
+# shellcheck source=tests/lib/arch-names.sh
+. "$ROOT/tests/lib/arch-names.sh"
 BUILD_DIR=${BUILD_DIR:-$ROOT/build}
 QEMU_DIR=${QEMU_DIR:-}
 ALPINE_VER=${ALPINE_VER:-3.21}
@@ -522,27 +524,6 @@ verdict() {
   return 0
 }
 
-# Canonical arch dir name under tests/fixtures/ (kasld's arch naming, which
-# differs from uname_m_raw: aarch64 -> arm64, ppc64le -> ppc64, ...). Keyed on
-# the build prefix, which is deterministic per TABLE row.
-fixture_arch() {
-  case "$1" in
-    x86_64)                 echo x86_64 ;;
-    i686|i386|x86)          echo x86_32 ;;
-    aarch64)                echo arm64 ;;
-    armv7|armeb|arm)        echo arm32 ;;
-    riscv64)                echo riscv64 ;;
-    riscv32)                echo riscv32 ;;
-    mips | mipsel)          echo mips32 ;;
-    mips64 | mips64el)      echo mips64 ;;
-    powerpc64le|powerpc64|ppc64le|ppc64) echo ppc64 ;;
-    powerpc|ppc)            echo ppc32 ;;
-    s390x)                  echo s390 ;;
-    loongarch64)            echo loongarch64 ;;
-    *)                      echo "$1" ;;
-  esac
-}
-
 # Remove host/build identity the capture inherits from the machine it ran on:
 # qemu `-cpu max` passes the host CPU brand into /proc/cpuinfo, and a locally
 # built kernel embeds "builduser@buildhost" in /proc/version. Strip only those
@@ -646,7 +627,7 @@ reconstruct_fixture() {
   mips | mipsel | mips64 | mips64el) _uname=$_prefix ;;
   esac
   # flavor=local => a mainline kernel.org build; else an Alpine distro kernel.
-  _canon=$(fixture_arch "$_prefix")
+  _canon=$(kasld_arch_for "$_prefix")
   if [ "$_flavor" = local ]; then _distro="mainline"; else _distro="alpine-$ALPINE_VER"; fi
   # A cell name is <prefix>-<flavor>-<version>[-<variant>]; the variant is what
   # makes the boot non-default (a VA size, a VMSPLIT). It has to reach the

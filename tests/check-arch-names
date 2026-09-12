@@ -1,0 +1,173 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-arch-names — every way of naming an architecture to KASLD agrees.
+#
+# KASLD names an architecture one way: the arch header's basename, which is also
+# the fixture directory and KASLD_ARCH_NAME, which api.h defines beside the arm
+# that selects the header and owns as the single source of truth. Everything
+# that reaches a build, a fixture or a header from a machine string or a
+# compiler triple has to convert into that name, and three things hold the
+# conversion: tests/lib/arch-names.sh, which does it; extra/collect, which
+# cannot use the shared table and carries its own copy; and the cross matrix,
+# whose triples are the spellings the table has to resolve.
+#
+# None of the drifts between them fails on its own.
+#
+# extra/collect runs on a target where this tree is absent, so it cannot source
+# the table and the copy is unavoidable. A copy that drifts records a capture
+# under a name nothing here resolves — and since kasld compares that recorded
+# name against the build reading the capture, a divergence reads as a foreign
+# machine and refuses a capture the build in fact models. The two are compared
+# by ANSWER rather than by text, over every spelling collect names.
+#
+# The table also answers a name KASLD already uses with that name, so a caller
+# holding one can pass it through. Fourteen of the seventeen would do that
+# whether or not the table intended it — they are machine spellings themselves,
+# or fall out of the arm glob — which is what makes the other three worth
+# holding: a property that is almost true is the one a caller assumes.
+#
+# Text, and behaviour: the tables are shell, so the guard runs them.
+#
+# Usage: tests/check-arch-names   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/arch-names.sh
+. "$ROOT/tests/lib/arch-names.sh"
+
+API=$ROOT/src/include/kasld/api.h
+ARCH=$ROOT/src/include/kasld/arch
+COLLECT=$ROOT/extra/collect
+TABLE=$ROOT/tests/lib/arch-names.sh
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+for f in "$API" "$COLLECT" "$TABLE"; do
+  [ -f "$f" ] || {
+    printf '%scheck-arch-names: FAIL%s (missing %s)\n' "$RED" "$RESET" "$f" >&2
+    exit 1
+  }
+done
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/kasld-archnames.XXXXXX") || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+fail=0
+
+# The names api.h dispatches to a contract header, and every header basename.
+# A cross target must resolve to the first set; the table must answer every
+# member of the second with itself.
+sed -n 's/^#define KASLD_ARCH_NAME "\(.*\)"$/\1/p' "$API" | sort -u >"$TMP/named"
+for f in "$ARCH"/*.h; do
+  [ -f "$f" ] || continue
+  basename "$f" .h
+done | sort -u >"$TMP/headers"
+
+nnamed=$(wc -l <"$TMP/named")
+nheaders=$(wc -l <"$TMP/headers")
+if [ "$nnamed" -eq 0 ] || [ "$nheaders" -eq 0 ]; then
+  printf '%scheck-arch-names: FAIL%s (no names in api.h or no headers in arch/ — has either changed shape?)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+
+# The table answers a name KASLD already uses with that name.
+while IFS= read -r a; do
+  got=$(kasld_arch_for "$a")
+  [ "$got" = "$a" ] || {
+    printf '%scheck-arch-names: FAIL%s (arch-names.sh does not answer "%s" with itself: %s)\n' \
+      "$RED" "$RESET" "$a" "${got:-<none>}" >&2
+    fail=1
+  }
+done <"$TMP/headers"
+
+# extra/collect's private copy agrees with the table wherever it gives an
+# answer. The table also takes the compiler-triple spellings of the same
+# architectures — powerpc64le where a machine says ppc64le — so it answers where
+# collect does not, by design; what would be a defect is the two naming one
+# string differently. Collect's sentinel for a machine it does not recognise is
+# the string "unknown", because it writes that into a file, where the table's is
+# empty because its callers branch on having no name: the same absence, spelled
+# for two different consumers.
+sed -n '/^canonical_arch()/,/^}/p' "$COLLECT" >"$TMP/collect_fn.sh"
+[ -s "$TMP/collect_fn.sh" ] || {
+  printf '%scheck-arch-names: FAIL%s (no canonical_arch in extra/collect — has it changed shape?)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+}
+# shellcheck source=/dev/null
+. "$TMP/collect_fn.sh"
+
+sed -n '/^canonical_arch()/,/^}/p' "$COLLECT" |
+  sed -n 's/^[ \t]*\([a-z0-9_?*| ]*\))[ \t]*echo.*/\1/p' |
+  tr '|' '\n' | tr -d ' \t' | grep -v '^\*$' | grep -v '^$' | sort -u >"$TMP/spellings"
+nspell=$(wc -l <"$TMP/spellings")
+[ "$nspell" -gt 0 ] || {
+  printf '%scheck-arch-names: FAIL%s (no spellings found in extra/collect canonical_arch)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+}
+
+while IFS= read -r m; do
+  c=$(canonical_arch "$m")
+  [ "$c" = unknown ] && c=
+  l=$(kasld_arch_for "$m")
+  [ "$c" = "$l" ] || {
+    printf '%scheck-arch-names: FAIL%s (extra/collect and arch-names.sh disagree on "%s": %s vs %s)\n' \
+      "$RED" "$RESET" "$m" "${c:-<none>}" "${l:-<none>}" >&2
+    fail=1
+  }
+  # And whatever collect does answer has to be a name api.h dispatches, or the
+  # analysis reads a capture recorded under a name it cannot resolve.
+  if [ -n "$c" ] && ! grep -q "^$c\$" "$TMP/headers"; then
+    printf '%scheck-arch-names: FAIL%s (extra/collect names "%s", which api.h does not dispatch)\n' \
+      "$RED" "$RESET" "$c" >&2
+    fail=1
+  fi
+done <"$TMP/spellings"
+
+# Every cross target's leading component resolves to an architecture api.h
+# dispatches to a contract header, or a harness resolving a build directory
+# finds no fixture for it.
+sed -n '/^CROSS_TARGETS *:*=/,/[^\\]$/p' "$ROOT/Makefile" |
+  sed 's/[\\]$//' | tr -s ' \t' '\n' |
+  sed -n 's/^\([a-z0-9_]*\)-.*/\1/p' | sort -u >"$TMP/triples"
+ntriple=$(wc -l <"$TMP/triples")
+[ "$ntriple" -gt 0 ] || {
+  printf '%scheck-arch-names: FAIL%s (no cross targets found in the Makefile)\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+}
+
+while IFS= read -r t; do
+  l=$(kasld_arch_for "$t")
+  if [ -z "$l" ]; then
+    printf '%scheck-arch-names: FAIL%s (cross target "%s" resolves to no architecture)\n' \
+      "$RED" "$RESET" "$t" >&2
+    fail=1
+  elif ! grep -q "^$l\$" "$TMP/named"; then
+    printf '%scheck-arch-names: FAIL%s (cross target "%s" resolves to "%s", which api.h does not name)\n' \
+      "$RED" "$RESET" "$t" "$l" >&2
+    fail=1
+  fi
+done <"$TMP/triples"
+
+[ "$fail" -eq 0 ] || exit 1
+
+guard_scope "check-arch-names" "$((nheaders + nspell + ntriple))" 40
+
+printf '%scheck-arch-names: OK%s (%d header names answer themselves, %d capture spellings agree, %d cross targets resolve)\n' \
+  "$GREEN" "$RESET" "$nheaders" "$nspell" "$ntriple"
