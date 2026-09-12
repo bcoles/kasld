@@ -294,28 +294,28 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
 #define LM_ANCHOR_DRAM_BASE 2
 #define LM_ANCHOR_UNKNOWABLE 3
 
-/* Every architecture KASLD models, named by the Kconfig symbol the kernel sets
- * for itself: a kernel built for architecture X sets CONFIG_X=y. Several
- * headers share an identifier because the kernel does — mips32 and mips64 are
- * both CONFIG_MIPS — so this is the set of identifiers, not of headers, and
- * the address width is what separates a shared pair.
+/* KASLD_ARCH_NAME — single source of truth for what this build calls the
+ * architecture it models. One identifier per architecture KASLD supports,
+ * spelled as the arch header's own basename, defined by the same chain that
+ * selects that header: a separate declaration could only ever disagree with the
+ * arm it sits beside.
  *
- * It is a list rather than just each header's own answer because it is used to
- * recognise an architecture that is NOT this build's. Recognising only this
- * build's identifier would have to read its absence as proof, and a captured
- * config can be truncated. */
-#define KASLD_KCONFIG_IDS(X)                                                   \
-  X("X86_64")                                                                  \
-  X("X86_32")                                                                  \
-  X("ARM64") X("ARM") X("MIPS") X("PPC64") X("PPC") X("RISCV") X("LOONGARCH")  \
-      X("S390")
-
+ * This is the vocabulary. Anything that has to name an architecture to KASLD --
+ * a capture recording the machine it came from, a harness choosing a build --
+ * spells it this way and takes the spelling from here. Nothing here defers to
+ * them; tests/check-arch-dispatch holds them to this set.
+ *
+ * The refusal stubs below define no name. Each errors inside its own header
+ * before anything could read one. */
 #if defined(__x86_64__) || defined(__amd64__)
 #include "arch/x86_64.h"
+#define KASLD_ARCH_NAME "x86_64"
 #elif defined(__i386__)
 #include "arch/x86_32.h"
+#define KASLD_ARCH_NAME "x86_32"
 #elif defined(__aarch64__)
 #include "arch/arm64.h"
+#define KASLD_ARCH_NAME "arm64"
 #elif defined(__arm__) || defined(__ARM_ARCH_6__) ||                           \
     defined(__ARM_ARCH_6J__) || defined(__ARM_ARCH_6K__) ||                    \
     defined(__ARM_ARCH_6Z__) || defined(__ARM_ARCH_6ZK__) ||                   \
@@ -323,24 +323,33 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
     defined(__ARM_ARCH_7A__) || defined(__ARM_ARCH_7R__) ||                    \
     defined(__ARM_ARCH_7M__) || defined(__ARM_ARCH_7S__)
 #include "arch/arm32.h"
+#define KASLD_ARCH_NAME "arm32"
 #elif defined(__mips64) || defined(__mips64__)
 #include "arch/mips64.h"
+#define KASLD_ARCH_NAME "mips64"
 #elif defined(__mips__)
 #include "arch/mips32.h"
+#define KASLD_ARCH_NAME "mips32"
 #elif defined(__powerpc64__) || defined(__POWERPC64__) ||                      \
     defined(__ppc64__) || defined(__PPC64__)
 #include "arch/ppc64.h"
+#define KASLD_ARCH_NAME "ppc64"
 #elif defined(__powerpc__) || defined(__POWERPC__) || defined(__ppc__) ||      \
     defined(__PPC__)
 #include "arch/ppc32.h"
+#define KASLD_ARCH_NAME "ppc32"
 #elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
 #include "arch/riscv64.h"
+#define KASLD_ARCH_NAME "riscv64"
 #elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 32
 #include "arch/riscv32.h"
+#define KASLD_ARCH_NAME "riscv32"
 #elif defined(__loongarch__) && __loongarch_grlen == 64
 #include "arch/loongarch64.h"
+#define KASLD_ARCH_NAME "loongarch64"
 #elif defined(__s390x__) || defined(__zarch__)
 #include "arch/s390.h" /* experimental */
+#define KASLD_ARCH_NAME "s390"
 #elif defined(__sparc__)
 #include "arch/sparc.h"
 #elif defined(__sh__)
@@ -504,10 +513,6 @@ __extension__ _Static_assert((unsigned long)PAGE_OFFSET <
                              "TEXT_WINDOW_EXCLUSIVE claims the text window "
                              "holds only the image and modules, but the linear "
                              "map begins inside it");
-#endif
-#ifndef KASLD_KCONFIG_ID
-#error                                                                         \
-    "arch header must define KASLD_KCONFIG_ID (the kernel's own CONFIG_ symbol for this architecture, from KASLD_KCONFIG_IDS)"
 #endif
 #ifndef MODULES_ANCHOR
 #error                                                                         \

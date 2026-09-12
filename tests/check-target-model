@@ -12,17 +12,19 @@
 # model comes from the analysing binary's own architecture — so it needs a
 # harness that deliberately constructs it.
 #
-# The host's native binary is pointed at every committed fixture. Fixtures for
-# the host's own architecture must run; the rest must be refused with exit 3,
-# but only where the capture carries something that PROVES the mismatch. That
-# expectation is computed per fixture from the capture itself rather than
-# assumed, so "cannot tell" is a documented outcome and not a silent pass:
+# Every committed fixture is prepared the way an operator prepares one -- through
+# extra/prepare-bundle, which is what carries the bundle's provenance record into
+# the tree -- and the host's native binary is then pointed at it. Fixtures for the
+# host's own architecture must run; the rest must be refused with exit 3, but
+# only where the prepared tree carries something that PROVES the mismatch. That
+# expectation is computed per fixture rather than assumed, so "cannot tell" is a
+# documented outcome and not a silent pass:
 #
 #   a kallsyms address column of a different width, or
-#   a release-keyed /boot/config declaring a different architecture.
+#   a capture record naming a different architecture.
 #
-# A capture carrying neither is counted and reported. That count is the guard's
-# real coverage, and printing it is the point: it moves with the corpus.
+# A tree carrying neither is counted and reported. That count is the guard's real
+# coverage, and printing it is the point: it moves with the corpus.
 #
 # Usage: tests/check-target-model   (also run by `make test`)
 # ---
@@ -80,23 +82,28 @@ case "$HOST_FIXTURE_ARCH" in
 x86_32 | arm32 | mips32 | ppc32 | riscv32) HOST_DIGITS=8 ;;
 *) HOST_DIGITS=16 ;;
 esac
-HOST_ID=$(sed -n 's/^#define KASLD_KCONFIG_ID "\(.*\)"$/\1/p' \
-  "$ROOT/src/include/kasld/arch/$HOST_FIXTURE_ARCH.h")
-[ -n "$HOST_ID" ] || {
-  printf '%scheck-target-model: FAIL%s (no KASLD_KCONFIG_ID in arch/%s.h)\n' \
-    "$RED" "$RESET" "$HOST_FIXTURE_ARCH" >&2
-  exit 1
-}
 
 fails=0
 matched=0
 refused=0
 undetectable=0
 
-for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
-  [ -d "$sysroot" ] || continue
-  arch=$(basename "$(dirname "$(dirname "$sysroot")")")
-  name=$arch/$(basename "$(dirname "$sysroot")")
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT
+
+for bundle in "$ROOT"/tests/fixtures/*/*; do
+  [ -d "$bundle/sysroot" ] || continue
+  arch=$(basename "$(dirname "$bundle")")
+  name=$arch/$(basename "$bundle")
+
+  sysroot=$TMP/r
+  rm -rf "$sysroot"
+  "$ROOT/extra/prepare-bundle" "$bundle" "$sysroot" >/dev/null 2>&1 || {
+    printf '%scheck-target-model: FAIL%s — %s: prepare-bundle failed\n' \
+      "$RED" "$RESET" "$name" >&2
+    fails=$((fails + 1))
+    continue
+  }
 
   rc=0
   KASLD_SYSROOT=$sysroot "$BIN" -j >/dev/null 2>&1 || rc=$?
@@ -118,28 +125,31 @@ for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
     d=$(head -1 "$sysroot/proc/kallsyms" | grep -oE '^[0-9a-fA-F]+' | tr -d '\n' | wc -c)
     [ "$d" -ne 0 ] && [ "$d" -ne "$HOST_DIGITS" ] && provable=yes
   fi
-  if [ "$provable" = no ]; then
-    for cfg in "$sysroot"/boot/config-*; do
-      [ -f "$cfg" ] || continue
-      grep -qE "^CONFIG_$HOST_ID=y\$" "$cfg" && continue
-      grep -qE '^CONFIG_(X86_64|X86_32|ARM64|ARM|MIPS|PPC64|PPC|RISCV|LOONGARCH|S390)=y$' \
-        "$cfg" && provable=yes
-    done
+  if [ "$provable" = no ] && [ -f "$sysroot/.kasld-capture" ]; then
+    rec=$(awk -F: '/^arch_canonical:/ { gsub(/[ \t]/, "", $2); print $2 }' \
+      "$sysroot/.kasld-capture" | head -1)
+    # Read exactly as the guard reads it, or the expectation computed here and
+    # the verdict under test are answering two different questions: the earliest
+    # bundle layout carried byte order in this field, and "unknown" is the
+    # answer for a machine collect did not recognise, not the name of one.
+    case "$rec" in *el | *eb) rec=${rec%??} ;; esac
+    [ "$rec" = unknown ] && rec=
+    [ -n "$rec" ] && [ "$rec" != "$HOST_FIXTURE_ARCH" ] && provable=yes
   fi
 
   if [ "$provable" = yes ]; then
     refused=$((refused + 1))
     if [ "$rc" -ne 3 ]; then
-      printf '%scheck-target-model: FAIL%s — %s: exit %s, want 3 (capture states its architecture)\n' \
+      printf '%scheck-target-model: FAIL%s — %s: exit %s, want 3 (the prepared tree proves the mismatch)\n' \
         "$RED" "$RESET" "$name" "$rc" >&2
       fails=$((fails + 1))
     fi
   else
-    # Neither signal is present. Declining here would mean declining on absence,
-    # which would refuse captures that were never wrong.
+    # Neither signal is present. Declining here would mean declining on
+    # absence, which would refuse captures that were never wrong.
     undetectable=$((undetectable + 1))
     if [ "$rc" -eq 3 ]; then
-      printf '%scheck-target-model: FAIL%s — %s: refused on a capture that proves nothing\n' \
+      printf '%scheck-target-model: FAIL%s — %s: refused on a tree that proves nothing\n' \
         "$RED" "$RESET" "$name" >&2
       fails=$((fails + 1))
     fi

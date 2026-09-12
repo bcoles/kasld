@@ -83,13 +83,6 @@
 // DRAM discovery would be right by accident and wrong on any machine that
 // reported RAM starting higher.
 // arch/s390/include/asm/page.h __va() / __identity_base
-
-// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
-// sets for itself, so a captured config NAMES the architecture rather than
-// being read for its shape.
-// arch/s390/Kconfig config S390 (def_bool y)
-#define KASLD_KCONFIG_ID "S390"
-
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0

@@ -33,14 +33,6 @@
 // lands off a large-page boundary and the consumer's alignment check drops
 // it rather than trusting it).
 // arch/riscv/mm/init.c setup_bootmem()
-
-// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
-// sets for itself, so a captured config NAMES the architecture rather than
-// being read for its shape.
-// arch/riscv/Kconfig config RISCV (def_bool y). Shared with riscv64:
-// the kernel names the family, and the address width separates the pair.
-#define KASLD_KCONFIG_ID "RISCV"
-
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_DRAM_BASE
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1

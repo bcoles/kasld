@@ -40,11 +40,14 @@
 //               file read it describes whichever tree is being analysed, which
 //               makes it the only width signal available offline — and it is
 //               absent exactly where a policy hides the file.
-//   kconfig     a kernel built for architecture X sets CONFIG_X=y, so a
-//               captured config is the kernel NAMING ITS OWN architecture
-//               rather than anything inferred from a file's shape. It is the
-//               only signal that separates two architectures of equal width,
-//               and it is present only where the config was captured.
+//   provenance  extra/collect records the machine it ran on, and
+//               extra/prepare-bundle carries that record into the tree it
+//               prepares. It is the capture STATING where it came from, which
+//               is the only thing that separates two architectures of equal
+//               width, and it is present only in a tree prepared from a
+//               bundle. Nothing about the kernel itself answers this: no
+//               procfs or sysfs file names the machine, which is why uname's
+//               .machine describes the analysing binary even on a replay.
 //
 // None is a fallback for another: each covers where the others cannot.
 //
@@ -75,7 +78,7 @@ enum kasld_model_signal {
   KASLD_MODEL_SIGNAL_NONE = 0,
   KASLD_MODEL_SIGNAL_TASK_SIZE,
   KASLD_MODEL_SIGNAL_KALLSYMS,
-  KASLD_MODEL_SIGNAL_KCONFIG,
+  KASLD_MODEL_SIGNAL_PROVENANCE,
 };
 
 struct kasld_model_check {
@@ -90,6 +93,20 @@ struct kasld_model_check {
 /* Whether a signal names the address width rather than the architecture. */
 static inline int kasld_model_signal_is_width(enum kasld_model_signal s) {
   return s == KASLD_MODEL_SIGNAL_TASK_SIZE || s == KASLD_MODEL_SIGNAL_KALLSYMS;
+}
+
+/* The verdict a signal returns when it proves a mismatch.
+ *
+ * Every signal answers the same question and differs only in what it read, so
+ * each leaves through here rather than assigning the verdict itself. The two
+ * fields cannot then drift apart: there is no way to record a mismatch that
+ * does not say which signal reached it, and that is what selects both the
+ * operator-facing message and the reported error code. */
+static inline struct kasld_model_check
+kasld__mismatch(struct kasld_model_check r, enum kasld_model_signal s) {
+  r.verdict = KASLD_MODEL_MISMATCH;
+  r.signal = s;
+  return r;
 }
 
 /* The kernel prints kallsyms addresses zero-padded to its own pointer width, so
@@ -119,65 +136,59 @@ static inline int kasld__kallsyms_hex_digits(void) {
   return n;
 }
 
-/* Whether a config line is exactly `CONFIG_<id>=y`, so CONFIG_ARM does not
- * match on a line reading CONFIG_ARM_SMMU=y. */
-static inline int kasld__kconfig_declares(const char *line, const char *id) {
-  size_t n = strlen(id);
-  if (strncmp(line, "CONFIG_", 7) != 0 || strncmp(line + 7, id, n) != 0)
-    return 0;
-  return line[7 + n] == '=' && line[8 + n] == 'y';
-}
+/* The capture file extra/prepare-bundle writes into a tree it prepares.
+ *
+ * A dotfile at the root of the sysroot, which is not a path any kernel has —
+ * deliberately, because nothing the kernel exposes answers this question. It is
+ * the bundle's own meta.txt, carried across unchanged so the two cannot drift
+ * into disagreeing about the same capture. */
+#define KASLD_CAPTURE_FILE "/.kasld-capture"
 
-/* The architecture a captured kernel declares for itself.
+/* The architecture a prepared capture records for itself, or "" if it records
+ * none. The record states the machine in KASLD's own vocabulary, which is
+ * KASLD_ARCH_NAME's set, so the comparison is a string equality and needs no
+ * translation table.
  *
- * Read from /boot/config-<release> and no other path. An unkeyed /boot/config
- * carries no binding to any particular kernel — it may be a leftover or a
- * rescue image — and refusing a run on a file that describes a different kernel
- * would be the same error in the opposite direction. /proc/config.gz answers
- * the same question but needs a decompressor this caller does not link.
+ * "unknown" is that field's answer for a machine collect did not recognise, and
+ * is read as no answer rather than as a name. Comparing it would refuse a
+ * capture that is merely unlabelled, including to the build that models it.
  *
- * Sets `declared_arch` and returns 1 only on POSITIVE evidence: this build's
- * identifier absent AND a different one present. Absence alone decides nothing,
- * because a captured file is restored to its true length with whatever prefix
- * was collected, so the line naming the architecture may simply not be there.
- */
-static inline int kasld__declared_arch_differs(const char *release, char *out,
-                                               size_t out_len) {
-#define KASLD__ID_ENTRY(s) s,
-  static const char *const ids[] = {KASLD_KCONFIG_IDS(KASLD__ID_ENTRY)};
-#undef KASLD__ID_ENTRY
-  char path[320];
+ * A trailing el or eb is dropped because the field carried the byte order in
+ * the earliest bundle layout, which recorded mips64el where the header is
+ * mips64. The two orders share an arch header and resolve identical windows, so
+ * the suffix names nothing this check is about. No architecture name ends in
+ * either, which is what makes dropping it unambiguous. */
+static inline void kasld__captured_arch(char *out, size_t out_len) {
   char line[256];
-  const char *other = NULL;
-  int mine = 0;
   FILE *f;
 
-  if (!release || !*release)
-    return 0;
-  if (snprintf(path, sizeof(path), "/boot/config-%s", release) >=
-      (int)sizeof(path))
-    return 0;
-  f = kasld_fopen(path, "r");
+  out[0] = '\0';
+  f = kasld_fopen(KASLD_CAPTURE_FILE, "r");
   if (!f)
-    return 0;
-
+    return;
   while (fgets(line, sizeof(line), f)) {
-    size_t i;
-    for (i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) {
-      if (!kasld__kconfig_declares(line, ids[i]))
-        continue;
-      if (strcmp(ids[i], KASLD_KCONFIG_ID) == 0)
-        mine = 1;
-      else if (!other)
-        other = ids[i];
+    char *v;
+    size_t n;
+    if (strncmp(line, "arch_canonical:", 15) != 0)
+      continue;
+    v = line + 15;
+    while (*v == ' ' || *v == '\t')
+      v++;
+    n = strcspn(v, " \t\r\n");
+    if (n == 0 || n >= out_len)
+      break;
+    memcpy(out, v, n);
+    out[n] = '\0';
+    if (strcmp(out, "unknown") == 0) {
+      out[0] = '\0';
+      break;
     }
+    if (n > 2 &&
+        (strcmp(out + n - 2, "el") == 0 || strcmp(out + n - 2, "eb") == 0))
+      out[n - 2] = '\0';
+    break;
   }
   fclose(f);
-
-  if (mine || !other)
-    return 0;
-  snprintf(out, out_len, "%s", other);
-  return 1;
 }
 
 /* Establish whether this build models the target.
@@ -185,11 +196,10 @@ static inline int kasld__declared_arch_differs(const char *release, char *out,
  * `facts` says where the run's facts come from. KASLD_FACTS_CAPTURE suppresses
  * the TASK_SIZE probe: mmap would measure the host running the analysis, not
  * the kernel the capture came from. It is also what enables the two signals
- * that only a capture can trip. `release` identifies the captured kernel, for
- * the config path; pass NULL when none is known. Both are passed rather than
- * read here so a test can exercise every answer without staging a tree. */
+ * that only a capture can trip. Passed rather than read here so a test can
+ * exercise both answers without staging a tree. */
 static inline struct kasld_model_check
-kasld_check_target_model(enum kasld_fact_source facts, const char *release) {
+kasld_check_target_model(enum kasld_fact_source facts) {
   struct kasld_model_check r;
   const int build_digits = (int)(sizeof(kasld_addr_t) * 2);
   memset(&r, 0, sizeof(r));
@@ -205,11 +215,8 @@ kasld_check_target_model(enum kasld_fact_source facts, const char *release) {
     enum kasld_ts_status st = kasld_task_size_probe(&split);
     if ((st == KASLD_TS_EXACT || st == KASLD_TS_APPROX) && split != 0) {
       r.task_size = split;
-      if (split > (unsigned long)PAGE_OFFSET_MAX) {
-        r.verdict = KASLD_MODEL_MISMATCH;
-        r.signal = KASLD_MODEL_SIGNAL_TASK_SIZE;
-        return r;
-      }
+      if (split > (unsigned long)PAGE_OFFSET_MAX)
+        return kasld__mismatch(r, KASLD_MODEL_SIGNAL_TASK_SIZE);
     }
   }
 
@@ -226,11 +233,8 @@ kasld_check_target_model(enum kasld_fact_source facts, const char *release) {
    * PAGE_OFFSET — so declaring it there would refuse every native kernel. */
 #ifdef TASK_SIZE_EXACT
   if (facts == KASLD_FACTS_LIVE && r.task_size != 0 &&
-      r.task_size != (unsigned long)TASK_SIZE_EXACT) {
-    r.verdict = KASLD_MODEL_MISMATCH;
-    r.signal = KASLD_MODEL_SIGNAL_TASK_SIZE;
-    return r;
-  }
+      r.task_size != (unsigned long)TASK_SIZE_EXACT)
+    return kasld__mismatch(r, KASLD_MODEL_SIGNAL_TASK_SIZE);
 #endif
 #endif /* !LP64 */
 
@@ -246,22 +250,18 @@ kasld_check_target_model(enum kasld_fact_source facts, const char *release) {
     r.kallsyms_hex_digits = kasld__kallsyms_hex_digits();
     if (r.kallsyms_hex_digits != 0 &&
         (facts == KASLD_FACTS_CAPTURE ? r.kallsyms_hex_digits != build_digits
-                                      : r.kallsyms_hex_digits > build_digits)) {
-      r.verdict = KASLD_MODEL_MISMATCH;
-      r.signal = KASLD_MODEL_SIGNAL_KALLSYMS;
-      return r;
-    }
+                                      : r.kallsyms_hex_digits > build_digits))
+      return kasld__mismatch(r, KASLD_MODEL_SIGNAL_KALLSYMS);
   }
 
-  /* Signal 3: the architecture the captured kernel declares. Two architectures
-   * of equal width are invisible to everything above, and that pair is the
-   * common case offline — a capture taken on one machine and read on another.
-   */
-  if (facts == KASLD_FACTS_CAPTURE &&
-      kasld__declared_arch_differs(release, r.declared_arch,
-                                   sizeof(r.declared_arch))) {
-    r.verdict = KASLD_MODEL_MISMATCH;
-    r.signal = KASLD_MODEL_SIGNAL_KCONFIG;
+  /* Signal 3: the architecture the capture records for itself. Two
+   * architectures of equal width are invisible to everything above, and that
+   * pair is the common case offline — a capture taken on one machine and read
+   * on another. A capture recording nothing is not a mismatch. */
+  if (facts == KASLD_FACTS_CAPTURE) {
+    kasld__captured_arch(r.declared_arch, sizeof(r.declared_arch));
+    if (r.declared_arch[0] && strcmp(r.declared_arch, KASLD_ARCH_NAME) != 0)
+      return kasld__mismatch(r, KASLD_MODEL_SIGNAL_PROVENANCE);
   }
   return r;
 }
@@ -273,8 +273,8 @@ static inline const char *kasld_model_signal_name(enum kasld_model_signal s) {
     return "measured user/kernel boundary";
   case KASLD_MODEL_SIGNAL_KALLSYMS:
     return "/proc/kallsyms address column";
-  case KASLD_MODEL_SIGNAL_KCONFIG:
-    return "captured kernel config";
+  case KASLD_MODEL_SIGNAL_PROVENANCE:
+    return "capture record";
   default:
     return "none";
   }

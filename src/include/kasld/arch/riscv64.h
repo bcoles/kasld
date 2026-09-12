@@ -82,14 +82,6 @@
 // the VIRTUAL base, which Q_VA_BITS carries and this axis says nothing
 // about — the physical anchor tracks DRAM under every mode.
 // arch/riscv/mm/init.c setup_bootmem()
-
-// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
-// sets for itself, so a captured config NAMES the architecture rather than
-// being read for its shape.
-// arch/riscv/Kconfig config RISCV (def_bool y). Shared with riscv32:
-// the kernel names the family, and the address width separates the pair.
-#define KASLD_KCONFIG_ID "RISCV"
-
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_DRAM_BASE
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0

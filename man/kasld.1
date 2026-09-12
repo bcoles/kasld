@@ -163,7 +163,10 @@ under
 .B KASLD_SYSROOT
 \(em live, a kernel would not have loaded a binary for another architecture \(em
 and means the captured tree was taken from a machine this build cannot model;
-run the build matching the capture's architecture. The
+run the build matching the capture's architecture. No kernel interface names the
+machine, so that one is read from the capture record
+.B extra/prepare-bundle
+writes into a tree it prepares. The
 .B code
 field of the
 .B \-j

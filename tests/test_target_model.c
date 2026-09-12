@@ -65,8 +65,7 @@ static void test_kallsyms_non_column_is_no_signal(void) {
  * have contributed, since it would describe the analysing host. */
 static void test_replay_uses_only_the_file_signal(void) {
   stage_kallsyms("ffffffff81a00000 T _text\n");
-  struct kasld_model_check w =
-      kasld_check_target_model(KASLD_FACTS_CAPTURE, NULL);
+  struct kasld_model_check w = kasld_check_target_model(KASLD_FACTS_CAPTURE);
   if (sizeof(kasld_addr_t) < 8) {
     TH_CHECK(w.verdict == KASLD_MODEL_MISMATCH);
     TH_CHECK(w.signal == KASLD_MODEL_SIGNAL_KALLSYMS);
@@ -84,8 +83,7 @@ static void test_matching_width_is_not_a_mismatch(void) {
   snprintf(line, sizeof(line), "%0*lx T _text\n",
            (int)(sizeof(kasld_addr_t) * 2), (unsigned long)0x1000);
   stage_kallsyms(line);
-  struct kasld_model_check w =
-      kasld_check_target_model(KASLD_FACTS_CAPTURE, NULL);
+  struct kasld_model_check w = kasld_check_target_model(KASLD_FACTS_CAPTURE);
   TH_CHECK(w.verdict == KASLD_MODEL_OK);
 }
 
@@ -94,8 +92,7 @@ static void test_matching_width_is_not_a_mismatch(void) {
  * policy hides the file — and the case a careless implementation gets wrong. */
 static void test_no_signal_is_not_a_mismatch(void) {
   stage_kallsyms(NULL);
-  struct kasld_model_check w =
-      kasld_check_target_model(KASLD_FACTS_CAPTURE, NULL);
+  struct kasld_model_check w = kasld_check_target_model(KASLD_FACTS_CAPTURE);
   TH_CHECK(w.verdict == KASLD_MODEL_OK);
   TH_CHECK(w.signal == KASLD_MODEL_SIGNAL_NONE);
 }
@@ -106,7 +103,7 @@ static void test_64bit_build_is_inert_live(void) {
   if (sizeof(kasld_addr_t) < 8)
     return;
   stage_kallsyms("c1000000 T _text\n"); /* a 32-bit column */
-  struct kasld_model_check w = kasld_check_target_model(KASLD_FACTS_LIVE, NULL);
+  struct kasld_model_check w = kasld_check_target_model(KASLD_FACTS_LIVE);
   TH_CHECK(w.verdict == KASLD_MODEL_OK);
   TH_CHECK(w.kallsyms_hex_digits == 0); /* not consulted */
 }
@@ -119,8 +116,7 @@ static void test_narrower_capture_is_a_mismatch(void) {
   if (sizeof(kasld_addr_t) < 8)
     return;
   stage_kallsyms("c1000000 T _text\n");
-  struct kasld_model_check w =
-      kasld_check_target_model(KASLD_FACTS_CAPTURE, NULL);
+  struct kasld_model_check w = kasld_check_target_model(KASLD_FACTS_CAPTURE);
   TH_CHECK(w.verdict == KASLD_MODEL_MISMATCH);
   TH_CHECK(w.signal == KASLD_MODEL_SIGNAL_KALLSYMS);
   TH_CHECK(w.kallsyms_hex_digits == 8);
@@ -164,8 +160,8 @@ static void test_refusal_document_shape(void) {
   w.signal = KASLD_MODEL_SIGNAL_KALLSYMS;
   TH_CHECK(strstr(kasld_model_signal_name(w.signal), "kallsyms") != NULL);
   TH_CHECK(kasld_model_signal_is_width(w.signal));
-  w.signal = KASLD_MODEL_SIGNAL_KCONFIG;
-  TH_CHECK(strstr(kasld_model_signal_name(w.signal), "config") != NULL);
+  w.signal = KASLD_MODEL_SIGNAL_PROVENANCE;
+  TH_CHECK(strstr(kasld_model_signal_name(w.signal), "capture") != NULL);
   /* The architecture refusal is reported apart from the width one: they call
    * for different corrective action. */
   TH_CHECK(!kasld_model_signal_is_width(w.signal));
@@ -174,13 +170,11 @@ static void test_refusal_document_shape(void) {
   TH_CHECK(strcmp(kasld_model_signal_name(w.signal), "none") == 0);
 }
 
-/* The architecture signal reads /boot/config-<release>, so the release is part
- * of the staged fixture. "none" removes the file. */
-static void stage_config(const char *release, const char *text) {
+/* The provenance signal reads the capture record prepare-bundle leaves at the
+ * root of a prepared tree. "none" removes it. */
+static void stage_capture(const char *text) {
   char path[320];
-  char rel[256];
-  snprintf(rel, sizeof(rel), "/boot/config-%s", release);
-  th_sysroot_stage_path(rel, path, sizeof(path));
+  th_sysroot_stage_path(KASLD_CAPTURE_FILE, path, sizeof(path));
   if (text == NULL) {
     unlink(path);
     return;
@@ -192,90 +186,97 @@ static void stage_config(const char *release, const char *text) {
   close(fd);
 }
 
-/* An identifier no build in the tree claims, so the "some other architecture"
- * case is exercised on every architecture this test is compiled for. */
-static const char *foreign_id(void) {
-  return strcmp(KASLD_KCONFIG_ID, "S390") == 0 ? "ARM64" : "S390";
+/* An architecture name no build in the tree answers to, so the "some other
+ * machine" case is exercised whichever architecture this test is compiled for.
+ */
+static const char *foreign_arch(void) {
+  return strcmp(KASLD_ARCH_NAME, "s390") == 0 ? "arm64" : "s390";
 }
 
-/* A capture whose config names a different architecture is a mismatch, and the
- * verdict names what it found so the operator learns which build to run. */
-static void test_foreign_config_is_a_mismatch(void) {
-  char cfg[128];
+/* A capture recording a different machine is a mismatch, and the verdict names
+ * it so the operator learns which build to run. */
+static void test_foreign_capture_is_a_mismatch(void) {
+  char rec[160];
   stage_kallsyms(NULL);
-  snprintf(cfg, sizeof(cfg), "CONFIG_CC_IS_GCC=y\nCONFIG_%s=y\n", foreign_id());
-  stage_config("6.1.0-test", cfg);
-  struct kasld_model_check w =
-      kasld_check_target_model(KASLD_FACTS_CAPTURE, "6.1.0-test");
+  snprintf(rec, sizeof(rec),
+           "kernel_release:   6.1.0-test\narch_canonical:   %s\n",
+           foreign_arch());
+  stage_capture(rec);
+  struct kasld_model_check w = kasld_check_target_model(KASLD_FACTS_CAPTURE);
   TH_CHECK(w.verdict == KASLD_MODEL_MISMATCH);
-  TH_CHECK(w.signal == KASLD_MODEL_SIGNAL_KCONFIG);
-  TH_CHECK(strcmp(w.declared_arch, foreign_id()) == 0);
-  stage_config("6.1.0-test", NULL);
+  TH_CHECK(w.signal == KASLD_MODEL_SIGNAL_PROVENANCE);
+  TH_CHECK(strcmp(w.declared_arch, foreign_arch()) == 0);
+  stage_capture(NULL);
 }
 
-/* This build's own identifier settles it even when another is also set, which
- * is the ppc64 shape: a 64-bit PowerPC kernel sets CONFIG_PPC as well. */
-static void test_own_identifier_wins(void) {
-  char cfg[192];
+/* A capture recording this build's own machine is analysed. */
+static void test_own_capture_is_not_a_mismatch(void) {
+  char rec[160];
   stage_kallsyms(NULL);
-  snprintf(cfg, sizeof(cfg), "CONFIG_%s=y\nCONFIG_%s=y\n", foreign_id(),
-           KASLD_KCONFIG_ID);
-  stage_config("6.1.0-test", cfg);
-  TH_CHECK(
-      kasld_check_target_model(KASLD_FACTS_CAPTURE, "6.1.0-test").verdict ==
-      KASLD_MODEL_OK);
-  stage_config("6.1.0-test", NULL);
+  snprintf(rec, sizeof(rec), "arch_canonical:   %s\n", KASLD_ARCH_NAME);
+  stage_capture(rec);
+  TH_CHECK(kasld_check_target_model(KASLD_FACTS_CAPTURE).verdict ==
+           KASLD_MODEL_OK);
+  stage_capture(NULL);
 }
 
-/* A config that names no architecture at all proves nothing. A capture is
- * restored to its true length from whatever prefix was collected, so the line
- * may simply not be there — reading absence as proof would refuse a run that
- * was never wrong. */
-static void test_config_naming_nothing_is_not_a_mismatch(void) {
+/* mips records its byte order in the same field, because uname cannot express
+ * it there. Both orders share one arch header and resolve identical windows, so
+ * the suffix must not read as a different machine. */
+static void test_mips_byte_order_suffix_is_not_a_mismatch(void) {
+  if (strcmp(KASLD_ARCH_NAME, "mips64") != 0 &&
+      strcmp(KASLD_ARCH_NAME, "mips32") != 0)
+    return;
+  char rec[160];
   stage_kallsyms(NULL);
-  stage_config("6.1.0-test", "CONFIG_CC_IS_GCC=y\nCONFIG_64BIT=y\n");
-  struct kasld_model_check w =
-      kasld_check_target_model(KASLD_FACTS_CAPTURE, "6.1.0-test");
+  snprintf(rec, sizeof(rec), "arch_canonical:   %sel\n", KASLD_ARCH_NAME);
+  stage_capture(rec);
+  TH_CHECK(kasld_check_target_model(KASLD_FACTS_CAPTURE).verdict ==
+           KASLD_MODEL_OK);
+  snprintf(rec, sizeof(rec), "arch_canonical:   %seb\n", KASLD_ARCH_NAME);
+  stage_capture(rec);
+  TH_CHECK(kasld_check_target_model(KASLD_FACTS_CAPTURE).verdict ==
+           KASLD_MODEL_OK);
+  stage_capture(NULL);
+}
+
+/* A tree with no capture record -- a hand-made sysroot, or one predating the
+ * field -- states nothing, and stating nothing must not refuse the run. */
+static void test_no_capture_record_is_not_a_mismatch(void) {
+  stage_kallsyms(NULL);
+  stage_capture(NULL);
+  struct kasld_model_check w = kasld_check_target_model(KASLD_FACTS_CAPTURE);
   TH_CHECK(w.verdict == KASLD_MODEL_OK);
   TH_CHECK(w.declared_arch[0] == '\0');
-  stage_config("6.1.0-test", NULL);
+  /* A record that carries other fields but not this one is the same case. */
+  stage_capture("collect_version:  3\nanonymized:       1\n");
+  TH_CHECK(kasld_check_target_model(KASLD_FACTS_CAPTURE).verdict ==
+           KASLD_MODEL_OK);
+  stage_capture(NULL);
 }
 
-/* The match is on the whole symbol: CONFIG_ARM must not fire on CONFIG_ARM_FOO,
- * and a set symbol is "=y" — "is not set" and "=m" are not a declaration. */
-static void test_identifier_match_is_exact(void) {
-  char cfg[256];
+/* "unknown" is what a capture records when collect did not recognise the
+ * machine. It is an absent answer wearing a name, and comparing it as a name
+ * would refuse an unlabelled capture even to the build that models it. */
+static void test_unrecognised_machine_is_not_a_mismatch(void) {
   stage_kallsyms(NULL);
-  snprintf(cfg, sizeof(cfg),
-           "CONFIG_%s_EXTRA=y\n# CONFIG_%s is not set\nCONFIG_%s=m\n",
-           foreign_id(), foreign_id(), foreign_id());
-  stage_config("6.1.0-test", cfg);
-  TH_CHECK(
-      kasld_check_target_model(KASLD_FACTS_CAPTURE, "6.1.0-test").verdict ==
-      KASLD_MODEL_OK);
-  stage_config("6.1.0-test", NULL);
+  stage_capture("arch_canonical:   unknown\n");
+  struct kasld_model_check w = kasld_check_target_model(KASLD_FACTS_CAPTURE);
+  TH_CHECK(w.verdict == KASLD_MODEL_OK);
+  TH_CHECK(w.declared_arch[0] == '\0');
+  stage_capture(NULL);
 }
 
-/* Live, the config is not read at all: it describes the kernel the binary is
- * running on, which cannot be a foreign architecture. */
-static void test_config_not_consulted_live(void) {
-  char cfg[128];
+/* Live, the record is not read: there is no capture, and a tree that happens to
+ * hold the file describes nothing about the running kernel. */
+static void test_capture_record_not_consulted_live(void) {
+  char rec[160];
   stage_kallsyms(NULL);
-  snprintf(cfg, sizeof(cfg), "CONFIG_%s=y\n", foreign_id());
-  stage_config("6.1.0-test", cfg);
-  TH_CHECK(kasld_check_target_model(KASLD_FACTS_LIVE, "6.1.0-test").verdict ==
+  snprintf(rec, sizeof(rec), "arch_canonical:   %s\n", foreign_arch());
+  stage_capture(rec);
+  TH_CHECK(kasld_check_target_model(KASLD_FACTS_LIVE).verdict ==
            KASLD_MODEL_OK);
-  stage_config("6.1.0-test", NULL);
-}
-
-/* No release names no config path, so a capture that identifies no kernel is
- * simply unanswerable rather than refused. */
-static void test_no_release_is_not_a_mismatch(void) {
-  stage_kallsyms(NULL);
-  TH_CHECK(kasld_check_target_model(KASLD_FACTS_CAPTURE, NULL).verdict ==
-           KASLD_MODEL_OK);
-  TH_CHECK(kasld_check_target_model(KASLD_FACTS_CAPTURE, "").verdict ==
-           KASLD_MODEL_OK);
+  stage_capture(NULL);
 }
 
 int main(void) {
@@ -292,13 +293,13 @@ int main(void) {
   RUN(test_64bit_build_is_inert_live);
   RUN(test_narrower_capture_is_a_mismatch);
   RUN(test_exact_boundary_arch);
-  BEGIN_CATEGORY("declared architecture");
-  RUN(test_foreign_config_is_a_mismatch);
-  RUN(test_own_identifier_wins);
-  RUN(test_config_naming_nothing_is_not_a_mismatch);
-  RUN(test_identifier_match_is_exact);
-  RUN(test_config_not_consulted_live);
-  RUN(test_no_release_is_not_a_mismatch);
+  BEGIN_CATEGORY("recorded architecture");
+  RUN(test_foreign_capture_is_a_mismatch);
+  RUN(test_own_capture_is_not_a_mismatch);
+  RUN(test_mips_byte_order_suffix_is_not_a_mismatch);
+  RUN(test_no_capture_record_is_not_a_mismatch);
+  RUN(test_unrecognised_machine_is_not_a_mismatch);
+  RUN(test_capture_record_not_consulted_live);
   BEGIN_CATEGORY("refusal document");
   RUN(test_refusal_document_shape);
 

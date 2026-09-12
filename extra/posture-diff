@@ -20,11 +20,11 @@
 #
 # Usage:  posture-diff BASELINE.json CURRENT.json
 #   Snapshots are `kasld -j` output (live, or replayed from an extra/collect
-#   bundle via KASLD_SYSROOT=<bundle>/sysroot kasld -j) -- both taken the same
-#   way, which the tool checks: a replay reaches only the components a captured
-#   tree can answer, so a live run and a replay of one host measure different
-#   vantages and are not comparable. A pair describing different architectures
-#   is refused on the same grounds.
+#   bundle via extra/prepare-bundle <bundle> DIR && KASLD_SYSROOT=DIR kasld -j)
+#   -- both taken the same way, which the tool checks: a replay reaches only the
+#   components a captured tree can answer, so a live run and a replay of one
+#   host measure different vantages and are not comparable. A pair describing
+#   different architectures is refused on the same grounds.
 #
 # Exit:  0 = no regression   1 = regression (findings on stdout)   2 = error
 #

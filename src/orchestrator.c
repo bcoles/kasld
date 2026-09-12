@@ -3701,8 +3701,7 @@ int main(int argc, char *argv[]) {
    * base. The parse layer already refuses individual addresses it cannot
    * represent; this refuses the analysis. */
   {
-    struct kasld_model_check w = kasld_check_target_model(
-        kasld_fact_source(), kasld_env.have_uts ? kasld_env.uts.release : NULL);
+    struct kasld_model_check w = kasld_check_target_model(kasld_fact_source());
     if (w.verdict == KASLD_MODEL_MISMATCH) {
       const int width = kasld_model_signal_is_width(w.signal);
       char detail[192];
@@ -3725,10 +3724,9 @@ int main(int argc, char *argv[]) {
                  kasld_model_signal_name(w.signal), w.kallsyms_hex_digits,
                  w.kallsyms_hex_digits * 4, (int)(sizeof(kasld_addr_t) * 8));
       else
-        snprintf(detail, sizeof(detail),
-                 "%s declares CONFIG_%s; this build models CONFIG_%s",
+        snprintf(detail, sizeof(detail), "%s names %s; this build models %s",
                  kasld_model_signal_name(w.signal), w.declared_arch,
-                 KASLD_KCONFIG_ID);
+                 KASLD_ARCH_NAME);
 
       fprintf(stderr, "[-] %s\n", summary);
       fprintf(stderr, "[-]   %s\n", detail);

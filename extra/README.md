@@ -93,8 +93,8 @@ extra/collect --kallsyms                    # -> kasld-bundle-<arch>-<rel>-<ts>/
 # Anywhere: prepare the bundle into a runnable sysroot, then replay the exact
 # same facts through kasld, no target needed. The report names the captured
 # kernel, not the one running the replay.
-extra/prepare-bundle kasld-bundle-* /tmp/replay-root
-KASLD_SYSROOT=/tmp/replay-root ./build/*/kasld -v
+extra/prepare-bundle kasld-bundle-* /tmp/replay-root   # prints the capture's arch
+KASLD_SYSROOT=/tmp/replay-root ./build/<arch>/kasld -v
 
 # And check the engine stayed sound over that capture (truth ∈ every range):
 extra/validate-bundle kasld-bundle-*
@@ -105,6 +105,21 @@ captured as a header prefix, with their true length in `sizes.txt`, and the
 device tree as one blob rather than the tree the DT components walk.
 `prepare-bundle` restores both, so the replay reads the fact set the live system
 offered. `validate-bundle` prepares the bundle itself.
+
+Read a bundle with the `kasld` built for **its** architecture, which is why the
+recipe above names one rather than globbing: `build/*/kasld` takes whichever
+sorts first, and an i686 build runs perfectly well on an x86_64 host. The layout
+model — `PAGE_OFFSET`, the KASLR window, the module band, the address width —
+comes from the analysing binary's own architecture, so the wrong build resolves
+a guaranteed window for an address space that kernel does not have. Live this
+cannot happen, since a kernel does not load a binary for another architecture;
+replaying is where it can, because the whole point is to read the capture
+elsewhere. `kasld` refuses that run with exit 3 rather than reporting it:
+`prepare-bundle` carries the bundle's own record into the prepared tree as
+`.kasld-capture`, and `kasld` compares it against the architecture it was built
+for. `prepare-bundle`
+also prints the architecture, so the right build can be chosen rather than
+guessed. `validate-bundle` resolves it from the bundle and needs no help.
 
 `validate-bundle` needs no root — the truth comes from the bundle's captured files,
 not the host's `/proc`. It exits `0` (every quantity PASS or N/A), `1` (a soundness

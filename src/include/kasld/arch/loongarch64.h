@@ -34,13 +34,6 @@
 // LINEAR_MAP_ANCHOR: __va(x) = x + PAGE_OFFSET - PHYS_OFFSET with
 // PHYS_OFFSET a compile-time 0, so the anchor is that constant.
 // arch/loongarch/include/asm/page.h __va(); asm/addrspace.h PHYS_OFFSET
-
-// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
-// sets for itself, so a captured config NAMES the architecture rather than
-// being read for its shape.
-// arch/loongarch/Kconfig config LOONGARCH (default y)
-#define KASLD_KCONFIG_ID "LOONGARCH"
-
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1

@@ -517,20 +517,6 @@ present. A replayed document names the captured kernel in every field, so
 nothing else in it separates a capture from a live snapshot — a fleet or CI
 layer that handles both should key on this rather than infer it.
 
-A capture must be read by the build for **its own** architecture. The layout
-model — `PAGE_OFFSET`, the KASLR window, the module band, the address width —
-comes from the analysing binary's architecture, so a build reading a capture
-from another one resolves a guaranteed window for an address space that kernel
-does not have. Live this cannot arise, since a kernel does not load a binary
-for another architecture; under `KASLD_SYSROOT` it is the ordinary mistake,
-because the point of a capture is to analyse it elsewhere. kasld refuses such a
-run with exit 3 wherever the capture states enough to prove it — a
-`/proc/kallsyms` address column of a different width, or a release-keyed
-`/boot/config` naming another architecture — and `extra/prepare-bundle` reports
-the architecture the bundle recorded, so the right build can be chosen rather
-than assumed. A capture stating neither is analysed as asked: refusing on
-absence would reject captures that were never wrong.
-
 The KASLR object reports two windows plus a headline base. The key names
 differ from the text labels; the mapping is:
 

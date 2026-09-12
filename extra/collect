@@ -12,9 +12,13 @@
 #     sysroot/        # faithful path-preserving copy of the files read
 #       proc/meminfo, proc/cpuinfo, sys/firmware/memmap/..., boot/config-*, ...
 #
-# The sysroot mirror is replayed by pointing the analysis at it
-# (KASLD_SYSROOT=<bundle>/sysroot), so paths under sysroot/ must match the
-# real layout.
+# The mirror is replayed through extra/prepare-bundle, which turns the bundle
+# into a sysroot and points the analysis at that, so paths under sysroot/ must
+# match the real layout. Pointing KASLD_SYSROOT at sysroot/ directly skips the
+# preparation: the captured file lengths are not restored, the device tree is
+# still one blob, and the tree states nothing about the machine it came from --
+# which a build for another architecture needs it to, or it resolves windows
+# for an address space that kernel does not have.
 # ---
 # <bcoles@gmail.com>
 

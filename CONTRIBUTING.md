@@ -832,7 +832,7 @@ and [Cross-region derivation](docs/architecture.md#cross-region-derivation).
 A new architecture is one header under `src/include/kasld/arch/`. It answers a
 fixed set of questions about how that architecture lays memory out, and `api.h`
 refuses to compile a header that leaves any of the mandatory ones unanswered —
-the eight listed under [Mandatory axes](#api-reference) below. Nothing here is
+the seven listed under [Mandatory axes](#api-reference) below. Nothing here is
 inferred from a neighbouring header: an answer copied from the closest-looking
 architecture is the failure this section exists to prevent.
 
@@ -1015,7 +1015,6 @@ separate question: a permissive answer to one does not license the others.
 | `TEXT_TRACKS_DIRECTMAP` | 0 / 1 | Whether kernel text slides with the linear map |
 | `DIRECTMAP_STATIC` | 0 / 1 | Whether the compile-time direct-map projection holds at runtime |
 | `IMAGE_BASE_RESIDUE_FIXED` | 0 / 1 | Whether `_text`'s residue modulo `KASLR_VIRT_ALIGN` is an architectural constant rather than config-dependent |
-| `KASLD_KCONFIG_ID` | a `KASLD_KCONFIG_IDS` string | Which architecture the kernel's own Kconfig calls this one — a kernel built for it sets `CONFIG_<id>=y`, so a captured config can be checked against the build reading it |
 
 A larger set of arch axes is *optional*: `api.h` supplies a default when the
 header omits one, and every default is the conservative answer — the weakest

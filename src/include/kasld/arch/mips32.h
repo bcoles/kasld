@@ -64,14 +64,6 @@
 // platform KASLD models; a platform overriding ARCH_PFN_OFFSET is out of
 // scope, and would be a different constant, still not a DRAM discovery).
 // arch/mips/include/asm/mach-generic/spaces.h PAGE_OFFSET / PHYS_OFFSET
-
-// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
-// sets for itself, so a captured config NAMES the architecture rather than
-// being read for its shape.
-// arch/mips/Kconfig config MIPS (default y). Shared with mips64: the
-// kernel names the family, and the address width separates the pair.
-#define KASLD_KCONFIG_ID "MIPS"
-
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1

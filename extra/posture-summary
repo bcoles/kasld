@@ -14,7 +14,8 @@
 #   for h in $(cat hosts); do ssh "$h" 'kasld -j' > "snap/$h.json"; done
 #   posture-summary snap/*.json
 #
-# (or replay extra/collect bundles: KASLD_SYSROOT=<bundle>/sysroot kasld -j).
+# (or replay extra/collect bundles: prepare each one first --
+#   extra/prepare-bundle <bundle> DIR && KASLD_SYSROOT=DIR kasld -j).
 #
 # A file that is not a valid `kasld -j` snapshot is skipped with a warning
 # (one bad host does not sink the report); the skipped count is noted.

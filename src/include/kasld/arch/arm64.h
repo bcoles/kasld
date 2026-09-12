@@ -156,15 +156,6 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 // separate a displaced candidate from a true base. Nothing unprivileged
 // recovers memstart_addr, so a rule needing the anchor must decline.
 // arch/arm64/mm/init.c arm64_memblock_init()
-
-// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
-// sets for itself, so a captured config NAMES the architecture rather than
-// being read for its shape.
-// arch/arm64/Kconfig config ARM64 (def_bool y). A 64-bit ARM kernel
-// does NOT set CONFIG_ARM, so the two are distinct identifiers rather than a
-// family and a width.
-#define KASLD_KCONFIG_ID "ARM64"
-
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_UNKNOWABLE
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0
