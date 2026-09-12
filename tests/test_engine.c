@@ -4648,6 +4648,26 @@ __attribute__((unused)) static int finset_is(const struct estimate *est,
   return want != 0 && est->lo == want;
 }
 
+/* The VA_BITS candidate set carries the declared/undeclared distinction in its
+ * VALUES, not in a flag beside them: an architecture that declares no set gets
+ * a lone 0, and no address space is 0 bits wide, so nothing can read it as a
+ * resolved width. That only holds while every DECLARED width is non-zero -- a
+ * declared set containing 0 would make "the architecture pins one width"
+ * indistinguishable from "nobody declared one", and the consumers that test
+ * `va_bits == 0` for "no answer" would reject a real one.
+ *
+ * Runs on every architecture under the cross suite, which is where a new port
+ * declaring a bad set would show up. */
+static void test_va_bits_zero_is_reserved_for_undeclared(void) {
+  const struct quantity_def *qd = &quantities[Q_VA_BITS];
+
+  TH_CHECK(qd->n_candidates >= 1); /* an empty set is the lattice's bottom */
+  if (qd->n_candidates == 1 && qd->candidates[0] == 0)
+    return; /* the undeclared placeholder, which is the point of the rule */
+  for (int i = 0; i < qd->n_candidates; i++)
+    TH_CHECK(qd->candidates[i] != 0);
+}
+
 #if __SIZEOF_LONG__ >=                                                         \
     8 /* 64-bit-only: LA57 / arm64 VA-bits directmap layouts */
 static void test_va_bits_la57_l5(void) {
@@ -9242,6 +9262,7 @@ int main(void) {
   BEGIN_CATEGORY("ppc-specific rules");
   RUN(test_ppc32_phys_ceiling);
   RUN(test_arm64_va_bits_constants_agree);
+  RUN(test_va_bits_zero_is_reserved_for_undeclared);
   RUN(test_ppc64_firmware_ceiling);
 
   return TEST_DONE();

@@ -24,9 +24,24 @@
 #if defined(VA_BITS_CANDIDATES)
 static const unsigned long va_bits_candidates[] = VA_BITS_CANDIDATES;
 #else
-/* Fallback: single candidate so the lattice is well-formed on arches that
- * haven't declared a candidate set yet. */
-static const unsigned long va_bits_candidates[] = {48ul};
+/* No candidate set is declared for this architecture. The lattice still needs a
+ * non-empty set -- an EMPTY finite set is the lattice's bottom and would assert
+ * that no address-space width is possible, which is a contradiction rather than
+ * the ignorance actually being expressed -- so it holds one candidate, and that
+ * candidate is 0.
+ *
+ * Zero because no architecture has a zero-bit address space, so the value can
+ * never be mistaken for a resolved width. Every consumer already rejects it:
+ * `va_bits == 0` is the established "no answer" test, and kasld_rm_level_for()
+ * matches 48 and 57 and returns 0 for anything else. A plausible stand-in like
+ * 48 would instead be read as an answer by any future reader that forgot this
+ * set was never declared, and would be wrong on most of the architectures that
+ * land here -- the 32-bit ones above all.
+ *
+ * It also keeps "the architecture pins one width" distinguishable from "nobody
+ * declared one", which a single plausible candidate cannot express: one live
+ * candidate that is 0 is the absence, one that is non-zero is the pin. */
+static const unsigned long va_bits_candidates[] = {0ul};
 #endif
 #define N_VA_BITS                                                              \
   ((int)(sizeof(va_bits_candidates) / sizeof(va_bits_candidates[0])))
