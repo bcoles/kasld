@@ -117,24 +117,24 @@
 # The `struct page` modes also need the page size and sizeof(struct page), and
 # the two are known to different degrees.
 #
-# The page size follows from the machine on every architecture that admits only
-# one -- x86, arm32, riscv and s390 are 4 KiB and nothing else -- so --page-shift
-# defaults to 12 there. arm64, powerpc, mips and loongarch each build with a
-# choice of several, and a shift four out puts the entry sixteen times too far
-# along the array, so a piped line naming one of those refuses until
-# --page-shift states it. `getconf PAGESIZE` on the target reports it.
+# A `kasld -1` line states the target's page size outright, as `pagesize=`, so
+# --page-shift is taken from there rather than guessed from the machine. That
+# matters on arm64, powerpc, mips and loongarch, which build with a choice of
+# page sizes: a shift four out puts the entry sixteen times too far along the
+# array, and no default can serve them.
 #
-# That refusal reaches as far as the evidence does, on the same terms as the
-# anchor: the machine is known only from a piped line's `arch=`. Naming the
-# bases on the command line states the layout by hand, consults no `arch=`, and
-# leaves the shift at 12 -- so on a 16 KiB or 64 KiB target the shift has to be
-# stated there, since nothing is left to notice it was not.
+# Where a line was read and stated none (`pagesize=na`), that is the tool saying
+# it does not know, and the `struct page` modes refuse rather than assume.
+# Where no line was read at all the bases were named by hand, and 4 KiB stands
+# as the documented default beside the anchor's zero -- so on a 16 KiB or 64 KiB
+# target the shift has to be stated there, since nothing is left to notice it
+# was not. `getconf PAGESIZE` on the target reports it.
 #
-# sizeof(struct page) follows from nothing outside the kernel's own BTF, so it
-# cannot be gated the same way -- a check that can never pass would remove the
-# mode rather than make it honest. --struct-page-size defaults to 64, which is
-# the value on essentially every 64-bit configuration; KASLD's `btf_facts`
-# component reports the target's exactly where BTF is present.
+# sizeof(struct page) comes off the same line as `structpage=` where BTF
+# reported it. Nothing outside the kernel's own BTF derives it, so it cannot be
+# gated the way the page size is -- a check that could never pass would remove
+# the mode rather than make it honest. Absent from the line, --struct-page-size
+# defaults to 64, the value on essentially every 64-bit configuration.
 #
 # Output: a virtual address prints as 16 zero-padded hex digits with no prefix
 # (`ffff9e8034600000`); a physical address prints `0x`-prefixed (`0x34600000`).
@@ -231,6 +231,28 @@ hex_ult() {  # a b (hex, no 0x) -> true if a < b unsigned
 oneline_hex() {  # key line -> hex (no 0x)
   [[ "$2" =~ (^|[[:space:]])"$1"=0x([0-9a-fA-F]+)([[:space:]]|$) ]] || return 1
   printf '%s' "${BASH_REMATCH[2]}"
+}
+
+# Read one decimal-valued field out of a `kasld -1` line. The geometry keys are
+# plain counts, not addresses, so they carry no 0x and use this rather than
+# oneline_hex; `na` does not match, which is the whole point.
+oneline_dec() {  # key line -> decimal
+  [[ "$2" =~ (^|[[:space:]])"$1"=([0-9]+)([[:space:]]|$) ]] || return 1
+  printf '%s' "${BASH_REMATCH[2]}"
+}
+
+# log2 of a power of two. Fails on anything else: a page size that is not a
+# power of two is not a page size, and shifting by a rounded-down log would
+# misplace every entry rather than approximate it.
+size_to_shift() {  # varname size
+  local n=$2 k=0
+  (( n >= 1 )) || return 1
+  while (( n > 1 )); do
+    (( n & 1 )) && return 1
+    n=$(( n >> 1 ))
+    k=$(( k + 1 ))
+  done
+  printf -v "$1" '%s' "$k"
 }
 
 # SECURITY: any value interpolated into `$(( 0x$x ))` must be pure hex/decimal.
@@ -434,29 +456,35 @@ if [[ -n "$phys_mode" ]]; then
       && (( struct_page_bytes <= 4096 )); } \
     || die "bad --struct-page-size: $struct_page_bytes"
 
-  # The page shift, on the same terms as the anchor: 4 KiB is the default only
-  # for a machine known to admit one base page size. arm64, powerpc, mips and
-  # loongarch each build with several, and a shift four out puts the entry
-  # sixteen times too far along the array -- so those refuse rather than assume.
+  # The page shift. The `kasld -1` line states the target's page size outright,
+  # so the value is taken from there rather than inferred from the machine: the
+  # architectures that build with a choice of page sizes -- arm64, powerpc, mips
+  # and loongarch -- cannot be served by a default, and a shift four out puts
+  # the entry sixteen times too far along the array.
   #
-  # This list is NOT the anchor's, and the difference is the point: the two axes
-  # cross. mips, ppc64 and loongarch64 map physical 0 at the direct-map base yet
-  # admit several page sizes, while arm32 and riscv anchor the map elsewhere yet
-  # have only one. One combined "safe machine" list would be wrong both ways.
+  # Where a line was read and did not state one, that is the authority saying it
+  # does not know, and the page modes refuse rather than assume. Where no line
+  # was read at all the bases were named by hand, and 4 KiB stands as the
+  # documented default alongside the anchor's zero.
   #
-  # sizeof(struct page) gets no such gate. Nothing outside the kernel's own BTF
-  # derives it, so a gate on it could never pass and would remove the mode
-  # rather than make it honest; 64 stands as a stated default instead.
+  # sizeof(struct page) is taken from the same line where it says so. It has no
+  # architectural answer -- only the kernel's own BTF reports it -- so where the
+  # line is silent 64 stands as a stated default rather than a refusal, which
+  # would remove the mode rather than make it honest.
   if [[ -n "$page_shift" ]]; then
     { is_dec "$page_shift" && (( page_shift > 0 && page_shift < 64 )); } \
       || die "bad --page-shift: $page_shift"
-  elif (( need_vm )); then
-    case "$arch" in
-      ''|x86_64|amd64|i[3-6]86|arm|armv*|riscv32|riscv64|s390x) page_shift=12 ;;
-      *)  die "arch=$arch builds with more than one page size — pass --page-shift N (log2 of the target's page size: 12 for 4 KiB, 14 for 16 KiB, 16 for 64 KiB; \`getconf PAGESIZE\` on the target reports it)" ;;
-    esac
+  elif ps=$(oneline_dec pagesize "$line"); then
+    size_to_shift page_shift "$ps" \
+      || die "\`pagesize=$ps\` on the piped line is not a power of two"
+  elif (( need_vm )) && [[ -n "$line" ]]; then
+    die "the piped line states no page size (\`pagesize=na\`) — pass --page-shift N (log2 of the target's page size; \`getconf PAGESIZE\` on the target reports it)"
   else
     page_shift=12
+  fi
+
+  if [[ "$struct_page_bytes" == 64 ]] && sp=$(oneline_dec structpage "$line"); then
+    struct_page_bytes=$sp
   fi
 
   # Two anchors, one per region, because two architectures disagree about

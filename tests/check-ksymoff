@@ -109,7 +109,7 @@ eq 'phys2page: 4KiB / 64B'        'ffffea0000d18000' \
 eq 'phys2page: 64KiB / 56B'       'ffffea00000b7500' \
    "$("$KSYMOFF" --vmemmap "$VM" --page-shift 16 --page-size 56 --phys2page 0x34600000 2>/dev/null)"
 eq 'phys2page: stdin vmemmap='    'ffffea0000d18000' \
-   "$(printf 'arch=x86_64 text=na vmemmap=%s dram=na\n' "$VM" | "$KSYMOFF" --phys2page 0x34600000 2>/dev/null)"
+   "$(printf 'arch=x86_64 text=na vmemmap=%s pagesize=4096 dram=na\n' "$VM" | "$KSYMOFF" --phys2page 0x34600000 2>/dev/null)"
 
 # ---- page2phys is the exact inverse of phys2page ----
 eq 'page2phys: 4KiB / 64B'        '0x34600000' \
@@ -153,43 +153,31 @@ eq 'page2phys inverts the array anchor'   '0x80400000' \
 # A page mode is satisfied by the array's anchor alone -- it never consults the
 # linear map's, so no default has to be defended for it.
 eq 'vmemmap-offset alone answers on riscv' 'ffffea0000008000' \
-   "$(printf 'arch=riscv64 vmemmap=%s\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0x80000000 --phys2page 0x80200000 2>/dev/null)"
+   "$(printf 'arch=riscv64 vmemmap=%s pagesize=4096\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0x80000000 --phys2page 0x80200000 2>/dev/null)"
 
-# The page shift is gated on its OWN arch list, because the two axes cross:
-# mips/ppc64/loongarch64 anchor at physical 0 yet build with several page sizes,
-# while arm32/riscv anchor elsewhere yet have only 4 KiB. A single list would be
-# wrong both ways, so each machine is checked against the axis that applies.
-eq 'riscv64 takes the 4 KiB default'   'ffffea0000d18000' \
-   "$(printf 'arch=riscv64 vmemmap=%s\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --phys2page 0x34600000 2>/dev/null)"
-eq 's390x takes the 4 KiB default'     'ffffea0000d18000' \
-   "$(printf 'arch=s390x vmemmap=%s\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --phys2page 0x34600000 2>/dev/null)"
-eq 'ppc64le answers once shift stated' 'ffffea00000d1800' \
-   "$(printf 'arch=ppc64le vmemmap=%s\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --page-shift 16 --phys2page 0x34600000 2>/dev/null)"
-# A page size the machine does not pin must refuse, not assume 4 KiB.
-errs 'aarch64 page mode needs a shift' \
-   sh -c "printf 'arch=aarch64 vmemmap=$VM\n' | '$KSYMOFF' --vmemmap-offset 0 --phys2page 0x1000"
-errs 'ppc64le page mode needs a shift' \
-   sh -c "printf 'arch=ppc64le vmemmap=$VM\n' | '$KSYMOFF' --vmemmap-offset 0 --phys2page 0x1000"
-errs 'loongarch64 page mode needs a shift' \
-   sh -c "printf 'arch=loongarch64 vmemmap=$VM\n' | '$KSYMOFF' --vmemmap-offset 0 --page2phys $VM"
-# The page size never enters a direct-map translation, so that stays answerable
-# on a machine whose page size is unstated.
-eq 'ppc64le phys2virt needs no shift'  'c000000034600000' \
-   "$(printf 'arch=ppc64le dmap=0xc000000000000000\n' | "$KSYMOFF" --phys2virt 0x34600000 2>/dev/null)"
-
-# Manual mode -- every base named on the command line, nothing piped -- states
-# the layout by hand and consults no `arch=`, so both defaults apply: the anchor
-# stays 0 and the shift stays 12. Documented rather than gated, on the same
-# terms for both, and asserted here because the gates above fire only on the
-# piped path and nothing else covers the hand-named one.
-eq 'manual mode: anchor defaults to 0'  'ffff9e8034600000' \
-   "$("$KSYMOFF" --page-offset "$PO" --phys2virt 0x34600000 </dev/null 2>/dev/null)"
-eq 'manual mode: shift defaults to 12'  'ffffea0000d18000' \
-   "$("$KSYMOFF" --vmemmap "$VM" --phys2page 0x34600000 </dev/null 2>/dev/null)"
-# The same machine refuses the moment a line names it, which is the whole
-# difference between the two paths and the reason the defaults are documented.
-errs 'piped aarch64 refuses the shift' \
+# The page shift comes off the line's `pagesize=`, not from the machine. These
+# are the four states: the line states a size, the line states none, no line at
+# all, and an explicit override.
+eq 'pagesize= drives the shift (64 KiB)' 'ffffea00000d1800' \
+   "$(printf 'arch=aarch64 vmemmap=%s pagesize=65536 structpage=64\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --phys2page 0x34600000 2>/dev/null)"
+eq 'pagesize= drives the shift (4 KiB)'  'ffffea0000d18000' \
+   "$(printf 'arch=x86_64 vmemmap=%s pagesize=4096 structpage=64\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --phys2page 0x34600000 2>/dev/null)"
+eq 'structpage= drives the entry size'   'ffffea00000b7500' \
+   "$(printf 'arch=x86_64 vmemmap=%s pagesize=65536 structpage=56\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --phys2page 0x34600000 2>/dev/null)"
+eq '--page-shift overrides the line'     'ffffea0000d18000' \
+   "$(printf 'arch=aarch64 vmemmap=%s pagesize=65536 structpage=64\n' "$VM" | "$KSYMOFF" --vmemmap-offset 0 --page-shift 12 --phys2page 0x34600000 2>/dev/null)"
+# A line that states no size is the tool saying it does not know; assuming 4 KiB
+# there is the bug the key exists to remove, so the page modes refuse.
+errs 'pagesize=na refuses' \
+   sh -c "printf 'arch=aarch64 vmemmap=$VM pagesize=na structpage=na\n' | '$KSYMOFF' --vmemmap-offset 0 --phys2page 0x34600000"
+errs 'a line predating the key refuses' \
    sh -c "printf 'arch=aarch64 vmemmap=$VM\n' | '$KSYMOFF' --vmemmap-offset 0 --phys2page 0x34600000"
+errs 'a non-power-of-two pagesize refuses' \
+   sh -c "printf 'arch=x86_64 vmemmap=$VM pagesize=5000\n' | '$KSYMOFF' --vmemmap-offset 0 --phys2page 0x1000"
+# The page size never enters a direct-map translation, so that stays answerable
+# on a line that states none.
+eq 'phys2virt needs no page size'  'c000000034600000' \
+   "$(printf 'arch=ppc64le dmap=0xc000000000000000 pagesize=na\n' | "$KSYMOFF" --phys2virt 0x34600000 2>/dev/null)"
 
 # A machine that does not anchor at 0 must refuse, not answer.
 errs 'riscv64 refuses without an anchor' \
