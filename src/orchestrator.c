@@ -29,7 +29,7 @@
 #include "include/kasld/randomize_memory.h"
 #include "include/kasld/render_internal.h"
 #include "include/kasld/report.h"
-#include "include/kasld/target_width.h"
+#include "include/kasld/target_model.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -3693,33 +3693,46 @@ int main(int argc, char *argv[]) {
     render_system_config(kasld_fact_source() == KASLD_FACTS_CAPTURE);
   }
 
-  /* A build narrower than the target kernel cannot model it. The arch header is
-   * selected by THIS binary's architecture, so every window resolved from here
-   * would describe an address space the kernel does not have — and on a coupled
-   * architecture correctly-read physical bounds would be projected through the
-   * wrong linear map into a virtual window that cannot contain the base. The
-   * parse layer already refuses individual addresses it cannot represent; this
-   * refuses the analysis. */
+  /* A build that does not model the target kernel cannot analyse it. The arch
+   * header is selected by THIS binary's architecture, so every window resolved
+   * from here would describe an address space the kernel does not have — and on
+   * a coupled architecture correctly-read physical bounds would be projected
+   * through the wrong linear map into a virtual window that cannot contain the
+   * base. The parse layer already refuses individual addresses it cannot
+   * represent; this refuses the analysis. */
   {
-    struct kasld_width_check w = kasld_check_target_width(kasld_fact_source());
-    if (w.verdict == KASLD_WIDTH_MISMATCH) {
-      char detail[160];
-      if (w.signal == KASLD_WIDTH_SIGNAL_TASK_SIZE)
+    struct kasld_model_check w = kasld_check_target_model(
+        kasld_fact_source(), kasld_env.have_uts ? kasld_env.uts.release : NULL);
+    if (w.verdict == KASLD_MODEL_MISMATCH) {
+      const int width = kasld_model_signal_is_width(w.signal);
+      char detail[192];
+      const char *summary =
+          width ? "target kernel does not use this build's address width"
+                : "capture is from an architecture this build does not model";
+      const char *action =
+          width ? "run the build matching the kernel's word size"
+                : "run the build matching the capture's architecture";
+
+      if (w.signal == KASLD_MODEL_SIGNAL_TASK_SIZE)
         snprintf(detail, sizeof(detail),
                  "%s: %#lx, above this architecture's highest split (%#lx)",
-                 kasld_width_signal_name(w.signal), w.task_size,
+                 kasld_model_signal_name(w.signal), w.task_size,
                  (unsigned long)PAGE_OFFSET_MAX);
+      else if (w.signal == KASLD_MODEL_SIGNAL_KALLSYMS)
+        snprintf(detail, sizeof(detail),
+                 "%s: %d hex digits, a %d-bit kernel pointer; this build "
+                 "models %d-bit",
+                 kasld_model_signal_name(w.signal), w.kallsyms_hex_digits,
+                 w.kallsyms_hex_digits * 4, (int)(sizeof(kasld_addr_t) * 8));
       else
         snprintf(detail, sizeof(detail),
-                 "%s: %d hex digits, a %d-bit kernel pointer",
-                 kasld_width_signal_name(w.signal), w.kallsyms_hex_digits,
-                 w.kallsyms_hex_digits * 4);
+                 "%s declares CONFIG_%s; this build models CONFIG_%s",
+                 kasld_model_signal_name(w.signal), w.declared_arch,
+                 KASLD_KCONFIG_ID);
 
-      fprintf(stderr,
-              "[-] target kernel addresses more widely than this build can "
-              "represent\n");
+      fprintf(stderr, "[-] %s\n", summary);
       fprintf(stderr, "[-]   %s\n", detail);
-      fprintf(stderr, "[-] run the build matching the kernel's word size\n");
+      fprintf(stderr, "[-] %s\n", action);
 
       /* What the machine formats emit here is decided per format, because the
        * right answer differs:
@@ -3729,7 +3742,8 @@ int main(int argc, char *argv[]) {
        *           address space would describe one the kernel does not have,
        *           which is the whole reason for declining. A consumer reaching
        *           for a layout field finds nothing, exactly as before, but one
-       *           that logs the document now learns why.
+       *           that logs the document now learns why. The `code` separates
+       *           the two refusals, which call for different corrective action.
        * markdown  a short section, for the same reason a human reading the
        *           text mode gets the message on stderr.
        * oneline   nothing at all. Its schema fixes the key set on every line,
@@ -3738,23 +3752,23 @@ int main(int argc, char *argv[]) {
        *           host that yields nothing (exit 1) — the one distinction that
        *           matters here. Absence plus the exit code stays honest. */
       if (json_output) {
-        printf("{\n  \"error\": {\n    \"code\": \"target_width_mismatch\",");
+        printf("{\n  \"error\": {\n    \"code\": \"%s\",",
+               width ? "target_width_mismatch" : "target_arch_mismatch");
         printf("\n    \"message\": ");
-        json_print_escaped("target kernel addresses more widely than this "
-                           "build can represent");
+        json_print_escaped(summary);
         printf(",\n    \"detail\": ");
         json_print_escaped(detail);
         printf(",\n    \"action\": ");
-        json_print_escaped("run the build matching the kernel's word size");
+        json_print_escaped(action);
         printf("\n  }\n}\n");
       } else if (markdown_output) {
         printf("# KASLD\n\n## Analysis declined\n\n");
-        printf("The target kernel addresses more widely than this build can "
-               "represent, so no layout is reported: the model comes from this "
+        printf("%s, so no layout is reported: the model comes from this "
                "binary's architecture and would describe an address space the "
-               "kernel does not have.\n\n");
+               "kernel does not have.\n\n",
+               summary);
         printf("- Observed: %s\n", detail);
-        printf("- Action: run the build matching the kernel's word size\n");
+        printf("- Action: %s\n", action);
       }
       return 3;
     }

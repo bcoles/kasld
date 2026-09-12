@@ -22,6 +22,14 @@
 # fewer. This is that recipe, in one place, so a harness and an operator
 # prepare a bundle the same way.
 #
+# The recipe also has an argument the bundle carries and the sysroot does not:
+# WHICH kasld reads it. The layout model comes from the analysing binary's own
+# architecture, so a capture read by a build for another one resolves windows
+# for an address space that kernel does not have. kasld refuses such a run where
+# the capture states enough to prove it, but a capture need not state it, so the
+# architecture meta.txt recorded is reported here — the one place that has it
+# and the sysroot does not.
+#
 # Usage:  extra/prepare-bundle <bundle-dir> <dest-dir>
 #         KASLD_SYSROOT=<dest-dir> kasld -v
 #
@@ -61,9 +69,14 @@ DEST=$2
 [ -d "$BUNDLE" ] || die "bundle '$BUNDLE' is not a directory"
 [ -d "$BUNDLE/sysroot" ] || die "bundle missing sysroot/"
 
+meta_field() {
+  awk -F: -v k="^$1:" '$0 ~ k { gsub(/[ \t]/, "", $2); print $2 }' \
+    "$BUNDLE/meta.txt" 2>/dev/null | head -1
+}
+
+BUNDLE_ARCH=
 if [ -f "$BUNDLE/meta.txt" ]; then
-  v=$(awk -F: '/^collect_version:/ { gsub(/[ \t]/, "", $2); print $2 }' \
-        "$BUNDLE/meta.txt" | head -1)
+  v=$(meta_field collect_version)
   case "$v" in
   '' | *[!0-9]*) ;; # absent or not a number: read it as the original layout
   *)
@@ -71,6 +84,7 @@ if [ -f "$BUNDLE/meta.txt" ]; then
       die "bundle is collect_version $v; this reader knows $KNOWN_VERSION"
     ;;
   esac
+  BUNDLE_ARCH=$(meta_field uname_m_raw)
 fi
 
 if [ -e "$DEST" ]; then
@@ -102,6 +116,12 @@ if [ -f "$BUNDLE/sizes.txt" ]; then
     mkdir -p "$DEST$(dirname "$path")" 2>/dev/null
     truncate -s "$sz" "$DEST$path" 2>/dev/null
   done < "$BUNDLE/sizes.txt"
+fi
+
+# Name the architecture the capture came from, so the reader is chosen rather
+# than assumed. A bundle predating the field says nothing, and stays silent.
+if [ -n "$BUNDLE_ARCH" ]; then
+  echo "bundle architecture: $BUNDLE_ARCH — read it with the kasld built for that" >&2
 fi
 
 exit 0

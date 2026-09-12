@@ -517,7 +517,7 @@ endif
 build : check-headers prune-components component-manifest $(BIN_FILES) $(KASLD_BIN)
 
 # -I$(SRC_DIR) so the orchestrator can include the component-side fact headers
-# (task_size.h and target_width.h use the same "include/kasld/..." form the
+# (task_size.h and target_model.h use the same "include/kasld/..." form the
 # components do).
 # These three bake the version in through -DVERSION. make does not track a
 # change of FLAGS, only of files, so a bump left the objects standing and the
@@ -884,11 +884,11 @@ $(TEST_TIMERLIST_BIN): $(TEST_DIR)/test_proc_timer_list.c $(SRC_DIR)/components/
 
 # Build/target width check (header-only): the two mismatch signals and, mostly,
 # the paths that must NOT report one. Driven over a staged KASLD_SYSROOT.
-TEST_TWIDTH_BIN := $(TEST_OBJ_DIR)/test_target_width
+TEST_TMODEL_BIN := $(TEST_OBJ_DIR)/test_target_model
 
-$(TEST_TWIDTH_BIN): $(TEST_DIR)/test_target_width.c $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_TMODEL_BIN): $(TEST_DIR)/test_target_model.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_target_width.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_target_model.c -o $@
 
 # Kernel identity under KASLD_SYSROOT (header-only): release and version taken
 # from a captured /proc/version, the environment override, and the fallbacks
@@ -1004,7 +1004,7 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_EV_BIN) \
   $(TEST_ALIGN_BIN) \
   $(TEST_ADDRP_BIN) \
-  $(TEST_TWIDTH_BIN) \
+  $(TEST_TMODEL_BIN) \
   $(TEST_UNAME_BIN) \
   $(TEST_TS_BIN) \
   $(TEST_PREFETCH_SCAN_BIN) \
@@ -1125,6 +1125,7 @@ lint :
 	    $(TEST_DIR)/check-arch-axes \
 	    $(TEST_DIR)/check-arch-headers \
 	    $(TEST_DIR)/check-arch-dispatch \
+	    $(TEST_DIR)/check-target-model \
 	    $(TEST_DIR)/check-macro-claims \
 	    $(TEST_DIR)/check-fail-closed \
 	    $(TEST_DIR)/check-guard-docs \

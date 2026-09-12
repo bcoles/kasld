@@ -67,6 +67,13 @@
 // "Ignoring memory below PHYS_OFFSET"), so its own account of RAM starts
 // exactly at the anchor. The lowest observed physical RAM base names it.
 // arch/arm/include/asm/memory.h PHYS_OFFSET; arch/arm/kernel/setup.c
+
+// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
+// sets for itself, so a captured config NAMES the architecture rather than
+// being read for its shape.
+// arch/arm/Kconfig config ARM (default y)
+#define KASLD_KCONFIG_ID "ARM"
+
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_DRAM_BASE
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1

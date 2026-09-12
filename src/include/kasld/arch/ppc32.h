@@ -32,6 +32,14 @@
 // — which is also where DRAM starts on the platforms that build that way.
 // Either way the lowest observed physical RAM base names the anchor.
 // arch/powerpc/include/asm/page.h MEMORY_START; arch/powerpc/kernel/prom.c
+
+// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
+// sets for itself, so a captured config NAMES the architecture rather than
+// being read for its shape.
+// arch/powerpc/Kconfig config PPC (default y). A ppc64 kernel sets it
+// too, which is why ppc64 identifies by CONFIG_PPC64 instead.
+#define KASLD_KCONFIG_ID "PPC"
+
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_DRAM_BASE
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1

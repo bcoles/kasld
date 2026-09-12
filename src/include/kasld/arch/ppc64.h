@@ -53,6 +53,14 @@
 // physical 0 maps to the linear-map base and the compile-time PHYS_OFFSET
 // is the anchor.
 // arch/powerpc/include/asm/page.h (#ifdef CONFIG_PPC64: MEMORY_START 0UL)
+
+// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
+// sets for itself, so a captured config NAMES the architecture rather than
+// being read for its shape.
+// arch/powerpc/platforms/Kconfig.cputype config PPC64. A 64-bit kernel
+// sets CONFIG_PPC as well, so the narrower symbol is the identifier.
+#define KASLD_KCONFIG_ID "PPC64"
+
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1

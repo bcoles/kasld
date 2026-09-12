@@ -63,6 +63,13 @@
 // maps to the linear-map base, so the anchor is the compile-time
 // PHYS_OFFSET (0) whatever the VMSPLIT moves PAGE_OFFSET to.
 // arch/x86/include/asm/page_32.h __va()
+
+// KASLD_KCONFIG_ID: the Kconfig symbol a kernel built for this architecture
+// sets for itself, so a captured config NAMES the architecture rather than
+// being read for its shape.
+// arch/x86/Kconfig config X86_32 (def_bool y, depends on !64BIT)
+#define KASLD_KCONFIG_ID "X86_32"
+
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1

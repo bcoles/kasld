@@ -294,6 +294,22 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
 #define LM_ANCHOR_DRAM_BASE 2
 #define LM_ANCHOR_UNKNOWABLE 3
 
+/* Every architecture KASLD models, named by the Kconfig symbol the kernel sets
+ * for itself: a kernel built for architecture X sets CONFIG_X=y. Several
+ * headers share an identifier because the kernel does — mips32 and mips64 are
+ * both CONFIG_MIPS — so this is the set of identifiers, not of headers, and
+ * the address width is what separates a shared pair.
+ *
+ * It is a list rather than just each header's own answer because it is used to
+ * recognise an architecture that is NOT this build's. Recognising only this
+ * build's identifier would have to read its absence as proof, and a captured
+ * config can be truncated. */
+#define KASLD_KCONFIG_IDS(X)                                                   \
+  X("X86_64")                                                                  \
+  X("X86_32")                                                                  \
+  X("ARM64") X("ARM") X("MIPS") X("PPC64") X("PPC") X("RISCV") X("LOONGARCH")  \
+      X("S390")
+
 #if defined(__x86_64__) || defined(__amd64__)
 #include "arch/x86_64.h"
 #elif defined(__i386__)
@@ -488,6 +504,10 @@ __extension__ _Static_assert((unsigned long)PAGE_OFFSET <
                              "TEXT_WINDOW_EXCLUSIVE claims the text window "
                              "holds only the image and modules, but the linear "
                              "map begins inside it");
+#endif
+#ifndef KASLD_KCONFIG_ID
+#error                                                                         \
+    "arch header must define KASLD_KCONFIG_ID (the kernel's own CONFIG_ symbol for this architecture, from KASLD_KCONFIG_IDS)"
 #endif
 #ifndef MODULES_ANCHOR
 #error                                                                         \

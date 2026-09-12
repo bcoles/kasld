@@ -1,0 +1,162 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-target-model — the analysis is declined when this build does not model
+# the captured kernel, and is NOT declined when it does.
+#
+# Every other fixture harness pairs a capture with its matching binary:
+# tests/replay and extra/validate-bundle both read the arch out of the capture
+# and run the build for it, so between them they prove a great deal about
+# correct pairings and nothing at all about wrong ones. The wrong pairing is the
+# one that produces a guaranteed window which cannot contain the base — the
+# model comes from the analysing binary's own architecture — so it needs a
+# harness that deliberately constructs it.
+#
+# The host's native binary is pointed at every committed fixture. Fixtures for
+# the host's own architecture must run; the rest must be refused with exit 3,
+# but only where the capture carries something that PROVES the mismatch. That
+# expectation is computed per fixture from the capture itself rather than
+# assumed, so "cannot tell" is a documented outcome and not a silent pass:
+#
+#   a kallsyms address column of a different width, or
+#   a release-keyed /boot/config declaring a different architecture.
+#
+# A capture carrying neither is counted and reported. That count is the guard's
+# real coverage, and printing it is the point: it moves with the corpus.
+#
+# Usage: tests/check-target-model   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+BIN=$(host_kasld)
+if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
+  printf '%scheck-target-model: SKIP%s (no native kasld under build/; run make first)\n' \
+    "$GREEN" "$RESET"
+  exit 0
+fi
+
+# The architecture the native binary models, asked of the binary rather than
+# assembled from the host triple: it is the build's own answer that decides
+# every verdict below.
+HOST_FIXTURE_ARCH=$(basename "$(dirname "$BIN")")
+HOST_FIXTURE_ARCH=${HOST_FIXTURE_ARCH%%-*}
+case "$HOST_FIXTURE_ARCH" in
+x86_64) HOST_FIXTURE_ARCH=x86_64 ;;
+i686 | i586) HOST_FIXTURE_ARCH=x86_32 ;;
+aarch64) HOST_FIXTURE_ARCH=arm64 ;;
+arm | armv7 | armeb) HOST_FIXTURE_ARCH=arm32 ;;
+riscv64) HOST_FIXTURE_ARCH=riscv64 ;;
+riscv32) HOST_FIXTURE_ARCH=riscv32 ;;
+s390x) HOST_FIXTURE_ARCH=s390 ;;
+loongarch64) HOST_FIXTURE_ARCH=loongarch64 ;;
+powerpc64 | powerpc64le) HOST_FIXTURE_ARCH=ppc64 ;;
+powerpc | powerpcle) HOST_FIXTURE_ARCH=ppc32 ;;
+mips64 | mips64el) HOST_FIXTURE_ARCH=mips64 ;;
+mips | mipsel) HOST_FIXTURE_ARCH=mips32 ;;
+*)
+  printf '%scheck-target-model: SKIP%s (no fixture arch for build dir %s)\n' \
+    "$GREEN" "$RESET" "$(basename "$(dirname "$BIN")")"
+  exit 0
+  ;;
+esac
+
+# The width this build models, in kallsyms hex-column digits.
+case "$HOST_FIXTURE_ARCH" in
+x86_32 | arm32 | mips32 | ppc32 | riscv32) HOST_DIGITS=8 ;;
+*) HOST_DIGITS=16 ;;
+esac
+HOST_ID=$(sed -n 's/^#define KASLD_KCONFIG_ID "\(.*\)"$/\1/p' \
+  "$ROOT/src/include/kasld/arch/$HOST_FIXTURE_ARCH.h")
+[ -n "$HOST_ID" ] || {
+  printf '%scheck-target-model: FAIL%s (no KASLD_KCONFIG_ID in arch/%s.h)\n' \
+    "$RED" "$RESET" "$HOST_FIXTURE_ARCH" >&2
+  exit 1
+}
+
+fails=0
+matched=0
+refused=0
+undetectable=0
+
+for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
+  [ -d "$sysroot" ] || continue
+  arch=$(basename "$(dirname "$(dirname "$sysroot")")")
+  name=$arch/$(basename "$(dirname "$sysroot")")
+
+  rc=0
+  KASLD_SYSROOT=$sysroot "$BIN" -j >/dev/null 2>&1 || rc=$?
+
+  if [ "$arch" = "$HOST_FIXTURE_ARCH" ]; then
+    # The capture this build does model: whatever else happens, it is analysed.
+    matched=$((matched + 1))
+    if [ "$rc" -eq 3 ]; then
+      printf '%scheck-target-model: FAIL%s — %s: refused a capture of its own architecture\n' \
+        "$RED" "$RESET" "$name" >&2
+      fails=$((fails + 1))
+    fi
+    continue
+  fi
+
+  # A foreign capture. Does it carry proof of that, and did the guard use it?
+  provable=no
+  if [ -f "$sysroot/proc/kallsyms" ]; then
+    d=$(head -1 "$sysroot/proc/kallsyms" | grep -oE '^[0-9a-fA-F]+' | tr -d '\n' | wc -c)
+    [ "$d" -ne 0 ] && [ "$d" -ne "$HOST_DIGITS" ] && provable=yes
+  fi
+  if [ "$provable" = no ]; then
+    for cfg in "$sysroot"/boot/config-*; do
+      [ -f "$cfg" ] || continue
+      grep -qE "^CONFIG_$HOST_ID=y\$" "$cfg" && continue
+      grep -qE '^CONFIG_(X86_64|X86_32|ARM64|ARM|MIPS|PPC64|PPC|RISCV|LOONGARCH|S390)=y$' \
+        "$cfg" && provable=yes
+    done
+  fi
+
+  if [ "$provable" = yes ]; then
+    refused=$((refused + 1))
+    if [ "$rc" -ne 3 ]; then
+      printf '%scheck-target-model: FAIL%s — %s: exit %s, want 3 (capture states its architecture)\n' \
+        "$RED" "$RESET" "$name" "$rc" >&2
+      fails=$((fails + 1))
+    fi
+  else
+    # Neither signal is present. Declining here would mean declining on absence,
+    # which would refuse captures that were never wrong.
+    undetectable=$((undetectable + 1))
+    if [ "$rc" -eq 3 ]; then
+      printf '%scheck-target-model: FAIL%s — %s: refused on a capture that proves nothing\n' \
+        "$RED" "$RESET" "$name" >&2
+      fails=$((fails + 1))
+    fi
+  fi
+done
+
+# An inert guard passes every assertion above. One real refusal is the floor.
+if [ "$refused" -eq 0 ]; then
+  printf '%scheck-target-model: FAIL%s (no foreign capture was refused — the guard is inert)\n' \
+    "$RED" "$RESET" >&2
+  fails=$((fails + 1))
+fi
+
+if [ "$fails" -ne 0 ]; then
+  printf '%scheck-target-model: FAIL%s (%d case(s))\n' "$RED" "$RESET" "$fails" >&2
+  exit 1
+fi
+
+printf '%scheck-target-model: OK%s (%s build: %d own-arch analysed, %d foreign refused, %d state nothing)\n' \
+  "$GREEN" "$RESET" "$HOST_FIXTURE_ARCH" "$matched" "$refused" "$undetectable"
