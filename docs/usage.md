@@ -472,7 +472,7 @@ or not applicable to the arch/run renders the sentinel `na` (never a
 fabricated, defaulted, or leaked value):
 
 ```
-arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) slots=1 ptext=[0x1000000..0x3ffdefff] pstext=na pslide=na pslots=480 dmap=0xffff800000000000 vmalloc=na vmemmap=na module=[0xffffffffc0000000..0xffffffffc0400000] vabits=na dram=[0x0..0x3ffdefff] results=27 replay=no
+arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) slots=1 ptext=[0x1000000..0x3ffdefff] pstext=na pslide=na pslots=480 dmap=0xffff800000000000 vmalloc=na vmemmap=na module=[0xffffffffc0000000..0xffffffffc0400000] vabits=na pagesize=4096 structpage=64 dram=[0x0..0x3ffdefff] results=27 replay=no
 ```
 
 | Key | Meaning |
@@ -492,6 +492,8 @@ arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(56832819
 | `vmemmap` | vmemmap base, same |
 | `module` | module region base, same |
 | `vabits` | address-space size in bits (the paging level): the value once one candidate remains, otherwise the candidates as a comma list (`48,57`). `na` where the architecture admits only one size, so nothing is unknown |
+| `pagesize` | kernel page size in bytes, decimal. A **fact**, not a resolved unknown: it states a value the run knows — from the architecture where it admits a single page size, from a probe where it admits several — so `na` means only that nothing established it, never that it was pinned all along |
+| `structpage` | `sizeof(struct page)` in bytes, decimal, on the same terms. `na` without BTF, which is the only thing that reports it |
 | `dram` | physical DRAM extent, `[0xLO..0xHI]`. The span's size is not printed beside it: it is derivable from the edges, and a bracketed size carried a space, which made this the one value a whitespace tokenizer could not split into a key and a value |
 | `results` | count of merged result records (not the raw component count) |
 | `replay` | `yes` \| `no` — whether the facts were read from a captured tree (`KASLD_SYSROOT`) rather than the running system. A replayed line names the captured kernel throughout, so nothing else on it separates a capture from a live snapshot |

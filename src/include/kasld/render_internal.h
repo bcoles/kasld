@@ -285,6 +285,66 @@ resolve_text_order(enum kasld_confidence *conf_out) {
   return best;
 }
 
+/* The target's page size, in bytes, or 0 where this run cannot state one.
+ *
+ * Two sources, in order. Where the architecture admits exactly one page size
+ * the constant IS the answer and no probe is needed -- which is what makes this
+ * answerable under a capture, where the live probe is deliberately absent.
+ * Where it admits several, only an observation can say, and without one the
+ * answer is nothing rather than a default: the sizes differ by a factor of
+ * sixteen, so a guess is not an approximation.
+ *
+ * The architecture's own constant describes the binary reading the capture, as
+ * `arch=` and every window in the output already do; replaying one
+ * architecture's capture with another's binary is a rendering convenience, not
+ * a soundness-bearing mode.
+ */
+static inline unsigned long resolve_page_size(enum kasld_confidence *conf_out) {
+#if PAGE_SIZE_KNOWN_AT_BUILD
+  if (conf_out)
+    *conf_out = CONF_PARSED;
+  return (unsigned long)PAGE_SIZE_MIN;
+#else
+  unsigned long best = 0;
+  enum kasld_confidence bc = CONF_UNKNOWN;
+  for (int i = 0; i < num_scalar_facts; i++) {
+    if (scalar_facts[i].fact != SF_PAGE_SIZE || scalar_facts[i].value == 0)
+      continue;
+    if (!best || scalar_facts[i].conf > bc) {
+      best = scalar_facts[i].value;
+      bc = scalar_facts[i].conf;
+    }
+  }
+  if (conf_out)
+    *conf_out = bc;
+  return best;
+#endif
+}
+
+/* sizeof(struct page) for the target, or 0 where this run cannot state one.
+ *
+ * Unlike the page size this has no architectural answer: nothing outside the
+ * kernel's own BTF derives it, so it is the observation or nothing. A build
+ * without CONFIG_DEBUG_INFO_BTF therefore reports nothing here, which is the
+ * honest result and not a gap to be filled with the common value. */
+static inline unsigned long
+resolve_struct_page_bytes(enum kasld_confidence *conf_out) {
+  unsigned long best = 0;
+  enum kasld_confidence bc = CONF_UNKNOWN;
+  for (int i = 0; i < num_scalar_facts; i++) {
+    if (scalar_facts[i].fact != SF_STRUCT_PAGE_BYTES ||
+        scalar_facts[i].value == 0)
+      continue;
+    if (!best || scalar_facts[i].conf > bc) {
+      best = scalar_facts[i].value;
+      bc = scalar_facts[i].conf;
+    }
+  }
+  if (conf_out)
+    *conf_out = bc;
+  return best;
+}
+
 /* The compile-time default as a remark on the resolved image base, or NULL when
  * there is nothing to say. Shared by every format that reports a base with no
  * slide, so the same bounds always produce the same sentence. Defined in

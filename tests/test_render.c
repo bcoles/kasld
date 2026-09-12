@@ -3301,6 +3301,44 @@ static void test_render_oneline_set_value_is_not_hex(void) {
   }
 }
 
+/* The geometry keys are always present, decimal or `na`, never hex. They are
+ * facts rather than resolved unknowns, so unlike the quantity keys they carry a
+ * value precisely where the architecture pins one -- on an arch admitting a
+ * single page size, `pagesize` states it with no observation at all. */
+static void test_render_oneline_page_geometry_present(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  const char *keys[] = {" pagesize=", " structpage="};
+  for (int k = 0; k < 2; k++) {
+    const char *v = strstr(render_cap, keys[k]);
+    TH_CHECK(v != NULL); /* fixed key set: present on every line */
+    v += strlen(keys[k]);
+    TH_CHECK(strncmp(v, "0x", 2) != 0); /* a count, not an address */
+    TH_CHECK((*v >= '0' && *v <= '9') || strncmp(v, "na", 2) == 0);
+  }
+}
+
+/* Where the architecture admits exactly one page size, the value is knowable
+ * with no probe, so the key must state it rather than report `na`. That is the
+ * whole reason the axis is consulted before the observation. */
+static void test_render_oneline_page_size_from_the_axis(void) {
+#if PAGE_SIZE_KNOWN_AT_BUILD
+  struct summary s;
+  char want[32];
+  set_rich_render_state(&s);
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  snprintf(want, sizeof want, " pagesize=%lu", (unsigned long)PAGE_SIZE_MIN);
+  TH_CHECK(strstr(render_cap, want) != NULL);
+#endif
+}
+
 static void test_render_oneline_tokens_are_key_value(void) {
   struct summary s;
   char *tok, *save, buf[RENDER_CAP_BUF];
@@ -5829,6 +5867,8 @@ int main(void) {
   RUN(test_render_excluded_ranges_are_disclosed);
   RUN(test_render_directmap_residual_has_a_denominator);
   RUN(test_render_oneline_set_value_is_not_hex);
+  RUN(test_render_oneline_page_geometry_present);
+  RUN(test_render_oneline_page_size_from_the_axis);
   RUN(test_render_oneline_tokens_are_key_value);
   RUN(test_render_oneline_region_key_needs_one_candidate);
   RUN(test_render_oneline_dmap_is_base_not_interior);

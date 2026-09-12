@@ -56,6 +56,14 @@
 //   module    module region base, same
 //   vabits    address-space size in bits (the paging level): the value once one
 //             candidate remains, else the candidates as a comma list
+//   pagesize  kernel page size in bytes, decimal; `na` where this run cannot
+//             state one. NOT a quantity key: it reports a value the run KNOWS,
+//             from the architecture where it admits a single size and from an
+//             observation where it admits several -- so unlike the keys above
+//             it says nothing about what was uncertain, and `na` means only
+//             that nothing established it
+//   structpage  sizeof(struct page) in bytes, decimal, on the same terms;
+//             `na` without BTF, which is the only thing that reports it
 //   dram      physical DRAM extent: [0xLO..0xHI]
 //   results   count of merged result records (post-merge wire records — not
 //             the raw component count, nor a distinct "leaks" tally)
@@ -284,6 +292,30 @@ void render_oneline(const struct summary *s) {
                  {Q_VA_BITS, "vabits"}};
     for (size_t i = 0; i < sizeof(extra) / sizeof(extra[0]); i++)
       oneline_quantity(extra[i].key, kasld_report_find(rep, extra[i].q));
+  }
+
+  /* Page geometry. These two are FACTS, not resolved unknowns, and the
+   * distinction is the point: a consumer computing a `struct page` address
+   * needs the values, not an account of whether they were ever in doubt. Both
+   * print a decimal or `na`, and `na` here means only that nothing established
+   * the value -- never that the quantity was pinned all along.
+   *
+   * Published because the tool knows them and nothing else could: the page size
+   * follows from the architecture on every arch admitting one size, and from a
+   * probe on the rest, and sizeof(struct page) comes from BTF. A consumer left
+   * to assume 4 KiB and 64 bytes is wrong by a factor of sixteen on a 64 KiB
+   * kernel, silently. */
+  {
+    unsigned long ps = resolve_page_size(NULL);
+    unsigned long sp = resolve_struct_page_bytes(NULL);
+    if (ps)
+      printf(" pagesize=%lu", ps);
+    else
+      printf(" pagesize=na");
+    if (sp)
+      printf(" structpage=%lu", sp);
+    else
+      printf(" structpage=na");
   }
 
   /* Physical DRAM extent, in the same bracket form every other span uses. Gate

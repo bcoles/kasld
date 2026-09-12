@@ -876,6 +876,27 @@ void render_json(const struct summary *s) {
 
   printf("\n  },\n");
 
+  /* Page geometry: facts about the target, not unknowns the run resolved.
+   * Emitted as keys with an explicit null where unestablished, per this
+   * format's rule that a machine consumer keys on presence-of-key. The page
+   * size follows from the architecture where it admits a single size and from
+   * a probe where it admits several; sizeof(struct page) comes from BTF alone,
+   * so a kernel built without it reports null rather than the common value. */
+  {
+    unsigned long ps = resolve_page_size(NULL);
+    unsigned long sp = resolve_struct_page_bytes(NULL);
+    printf("  \"page_geometry\": {\n");
+    if (ps)
+      printf("    \"page_size\": %lu,\n", ps);
+    else
+      printf("    \"page_size\": null,\n");
+    if (sp)
+      printf("    \"struct_page_bytes\": %lu\n", sp);
+    else
+      printf("    \"struct_page_bytes\": null\n");
+    printf("  },\n");
+  }
+
   /* groups — the canonical section order first, then anything outside it, with
    * each (type, section) split into one group per region it carries. */
   const char *const *section_order = kasld_render_sections;
