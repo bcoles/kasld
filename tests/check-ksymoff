@@ -177,6 +177,20 @@ errs 'loongarch64 page mode needs a shift' \
 eq 'ppc64le phys2virt needs no shift'  'c000000034600000' \
    "$(printf 'arch=ppc64le dmap=0xc000000000000000\n' | "$KSYMOFF" --phys2virt 0x34600000 2>/dev/null)"
 
+# Manual mode -- every base named on the command line, nothing piped -- states
+# the layout by hand and consults no `arch=`, so both defaults apply: the anchor
+# stays 0 and the shift stays 12. Documented rather than gated, on the same
+# terms for both, and asserted here because the gates above fire only on the
+# piped path and nothing else covers the hand-named one.
+eq 'manual mode: anchor defaults to 0'  'ffff9e8034600000' \
+   "$("$KSYMOFF" --page-offset "$PO" --phys2virt 0x34600000 </dev/null 2>/dev/null)"
+eq 'manual mode: shift defaults to 12'  'ffffea0000d18000' \
+   "$("$KSYMOFF" --vmemmap "$VM" --phys2page 0x34600000 </dev/null 2>/dev/null)"
+# The same machine refuses the moment a line names it, which is the whole
+# difference between the two paths and the reason the defaults are documented.
+errs 'piped aarch64 refuses the shift' \
+   sh -c "printf 'arch=aarch64 vmemmap=$VM\n' | '$KSYMOFF' --vmemmap-offset 0 --phys2page 0x34600000"
+
 # A machine that does not anchor at 0 must refuse, not answer.
 errs 'riscv64 refuses without an anchor' \
    sh -c "printf 'arch=riscv64 dmap=$RPO\n' | '$KSYMOFF' --phys2virt 0x80200000"

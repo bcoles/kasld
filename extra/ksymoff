@@ -124,6 +124,12 @@
 # along the array, so a piped line naming one of those refuses until
 # --page-shift states it. `getconf PAGESIZE` on the target reports it.
 #
+# That refusal reaches as far as the evidence does, on the same terms as the
+# anchor: the machine is known only from a piped line's `arch=`. Naming the
+# bases on the command line states the layout by hand, consults no `arch=`, and
+# leaves the shift at 12 -- so on a 16 KiB or 64 KiB target the shift has to be
+# stated there, since nothing is left to notice it was not.
+#
 # sizeof(struct page) follows from nothing outside the kernel's own BTF, so it
 # cannot be gated the same way -- a check that can never pass would remove the
 # mode rather than make it honest. --struct-page-size defaults to 64, which is

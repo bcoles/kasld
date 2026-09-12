@@ -243,6 +243,14 @@ states it.
 .I PAGESIZE
 on the target reports it.
 .PP
+That refusal reaches as far as the evidence does, on the same terms as the
+anchor: the machine is known only from a piped line's
+.IR arch= .
+Naming the bases on the command line states the layout by hand, consults no
+.IR arch= ,
+and leaves the shift at 12 \(em so on a 16 KiB or 64 KiB target the shift has
+to be stated there, since nothing is left to notice it was not.
+.PP
 .I sizeof(struct page)
 follows from nothing outside the kernel's own BTF, so it cannot be gated the
 same way \(em a check that can never pass would remove the mode rather than
