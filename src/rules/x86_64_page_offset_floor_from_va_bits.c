@@ -6,7 +6,7 @@
 // is the CPU CAPABILITY: on an LA57-capable part booted 4-level it reports 57
 // and so emits the L5 floor 0xff11000000000000 — a sound but loose lower bound
 // on the true (L4) page_offset. Once the ACTIVE level is resolved (Q_VA_BITS,
-// pinned from the mmap probe by x86_64_va_bits_from_scalar, or from a directmap
+// pinned from the mmap probe by va_bits_from_scalar, or from a directmap
 // leak), the tighter canonical floor for that level is known:
 //
 //   L4 (VA_BITS=48): virt_page_offset >= PAGE_OFFSET_BASE_MIN_L4

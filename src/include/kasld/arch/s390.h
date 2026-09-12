@@ -51,6 +51,16 @@
 #define PAGE_OFFSET 0ul
 
 // Continuous: __identity_base shifts at boot, so only the window is known.
+// Admissible kernel address-space widths. s390x sets the ASCE limit to exactly
+// one of two region-table sizes at boot -- _REGION2_SIZE (1 << 42, 3-level
+// paging) or _REGION1_SIZE (1 << 53, 4-level) -- per arch/s390/boot/startup.c,
+// with the shifts in arch/s390/include/asm/pgtable.h. _REGION3_SIZE (1 << 31)
+// is a table-entry size here, never an ASCE limit, so it is not a candidate.
+//
+// The mmap boundary probe distinguishes the two and publishes the width as
+// SF_VIRT_ADDR_BITS; va_bits_from_scalar pins Q_VA_BITS from it.
+#define VA_BITS_CANDIDATES {42ul, 53ul}
+
 // Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
 // is derived from the pair in api.h and gates pfn_to_phys(); a page-frame
 // number may only be converted with a compile-time constant where the two

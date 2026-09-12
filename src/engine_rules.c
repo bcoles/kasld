@@ -113,7 +113,7 @@ static const rule_fn k_rules[] = {
     rule_arm64_va_bits_from_vmemmap,
     rule_arm64_va47_modern_floor,
     rule_arm64_page_offset_from_va_bits,
-    rule_arm64_va_bits_from_scalar,
+    rule_va_bits_from_scalar,
     rule_arm64_text_phys_residue,
     rule_arm64_phys_text_residue,
 
@@ -121,7 +121,6 @@ static const rule_fn k_rules[] = {
     rule_riscv64_text_base,
     rule_riscv64_non_efi_phys_base,
     rule_riscv64_page_offset_from_vmalloc_vmemmap,
-    rule_riscv64_va_bits_pin,
 
     /* s390-specific */
     rule_s390_paging_level,
@@ -144,7 +143,6 @@ static const rule_fn k_rules[] = {
     rule_x86_64_la57_from_directmap,
     rule_x86_64_page_offset_from_vmalloc_vmemmap,
     rule_x86_64_randomize_memory_budget,
-    rule_x86_64_va_bits_from_scalar,
     rule_x86_64_page_offset_floor_from_va_bits,
 };
 

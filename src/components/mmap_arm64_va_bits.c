@@ -5,7 +5,7 @@
 // PROBING-phase component. On arm64 TASK_SIZE = 1<<VA_BITS, so a one-page probe
 // at (1<<c) - PAGE_SIZE is mappable iff c <= VA_BITS; probing the candidate
 // ladder largest-first and taking the first that maps yields the exact ACTIVE
-// VA_BITS. That is published as SF_VIRT_ADDR_BITS; arm64_va_bits_from_scalar
+// VA_BITS. That is published as SF_VIRT_ADDR_BITS; va_bits_from_scalar
 // pins Q_VA_BITS from it, and arm64_page_offset_from_va_bits then derives the
 // exact PAGE_OFFSET = -(1<<VA_BITS) (not randomized on arm64). Emitting the
 // width — rather than the direct PAGE_OFFSET — resolves Q_VA_BITS leak-free

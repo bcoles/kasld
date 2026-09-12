@@ -88,7 +88,7 @@
 
 /* Q_VA_BITS candidate set: SV39, SV48, SV57 (pgtable_l4_enabled /
  * pgtable_l5_enabled at boot select one). proc_cpuinfo emits
- * SF_VIRT_ADDR_BITS from /proc/cpuinfo "mmu" line; riscv64_va_bits_pin
+ * SF_VIRT_ADDR_BITS from /proc/cpuinfo "mmu" line; va_bits_from_scalar
  * narrows Q_VA_BITS to the single selected value. */
 #define VA_BITS_CANDIDATES {39ul, 48ul, 57ul}
 

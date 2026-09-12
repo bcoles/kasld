@@ -326,6 +326,7 @@ R(highmem_32bit_bound);
 
 /* virt_page_offset rules */
 R(page_offset_from_landmark);
+R(va_bits_from_scalar);
 R(page_offset_invariant_pin);
 R(page_offset_from_config);
 R(page_offset_from_leak);
@@ -390,7 +391,6 @@ R(arm64_va_bits_from_directmap);
 R(arm64_va_bits_from_vmemmap);
 R(arm64_va47_modern_floor);
 R(arm64_page_offset_from_va_bits);
-R(arm64_va_bits_from_scalar);
 R(arm64_text_phys_residue);
 R(arm64_phys_text_residue);
 
@@ -398,7 +398,6 @@ R(arm64_phys_text_residue);
 R(riscv64_text_base);
 R(riscv64_non_efi_phys_base);
 R(riscv64_page_offset_from_vmalloc_vmemmap);
-R(riscv64_va_bits_pin);
 
 /* s390-specific rules */
 R(s390_paging_level);
@@ -421,7 +420,6 @@ R(x86_64_vmemmap_base_bound);
 R(x86_64_la57_from_directmap);
 R(x86_64_page_offset_from_vmalloc_vmemmap);
 R(x86_64_randomize_memory_budget);
-R(x86_64_va_bits_from_scalar);
 R(x86_64_page_offset_floor_from_va_bits);
 
 /* Verdict rules */

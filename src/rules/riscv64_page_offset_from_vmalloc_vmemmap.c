@@ -24,7 +24,7 @@
 //     under any remaining mode ambiguity, since undersizing only loosens the
 //     derived lower bound (oversizing would push it past the true
 //     PAGE_OFFSET). Q_VA_BITS is also pinned independently by
-//     riscv64_va_bits_pin when /proc/cpuinfo is available.
+//     va_bits_from_scalar when /proc/cpuinfo is available.
 //
 // Tightens Q_PAGE_OFFSET from a different direction than
 // directmap_page_offset_bounds (which gives PAGE_OFFSET ≤ V_directmap); the

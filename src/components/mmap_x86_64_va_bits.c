@@ -10,7 +10,7 @@
 // LA57-capable CPU that booted 4-level (where /proc/cpuinfo still reports 57).
 //
 // The result is published as SF_VIRT_ADDR_BITS = 48 or 57, a statement of the
-// ACTIVE paging width (not the CPU capability). x86_64_va_bits_from_scalar pins
+// ACTIVE paging width (not the CPU capability). va_bits_from_scalar pins
 // Q_VA_BITS from it, which unlocks the RANDOMIZE_MEMORY budget bounds on
 // LA57-capable hardware that exposes no direct-map leak.
 //

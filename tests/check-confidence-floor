@@ -71,8 +71,15 @@ RULES=$ROOT/src/rules
 #                                 PAGE_OFFSET is not randomized; the pre-v5.4
 #                                 47/48 layout collision is gated on an
 #                                 independent proof of the modern layout
-#   arm64_va_bits_from_scalar     read: the cpuinfo/probe width itself, filtered
-#                                 to the arch's candidate set
+#   va_bits_from_scalar           read: the cpuinfo/probe width itself, filtered
+#                                 to the arch's own VA_BITS_CANDIDATES. The
+#                                 value is observed, never computed or
+#                                 defaulted, and a width the architecture does
+#                                 not admit yields no constraint at all --
+#                                 tested per arch, both halves. Architecture-
+#                                 independent: the admissible set comes from
+#                                 the arch header, so a new port is covered by
+#                                 declaring one.
 #   arm64_page_offset_from_va_bits  the width admits TWO linear-map bases --
 #                                 -(1<<va) on the flipped layout and
 #                                 -(1<<(va-1)) on the older one -- so the
@@ -178,7 +185,6 @@ RULES=$ROOT/src/rules
 #                                 OpenSBI load offset is a firmware convention.
 #                                 Likely window only
 #   riscv64_text_base             gated on a KASLR-disabled signal, conf-capped
-#   riscv64_va_bits_pin           read: the width implied by the parsed satp mode
 #   s390_image_base_from_config   parsed CONFIG_KERNEL_IMAGE_BASE on KASLR-off
 #   s390_phys_segment_mod         computed: the image base's residue mod the
 #                                 segment size. s390 declares no head gap, so the
@@ -195,14 +201,12 @@ RULES=$ROOT/src/rules
 #                                 keeps every L5 directmap address below the L4
 #                                 floor, and L4 randomization only moves the base
 #                                 up, so the two ranges cannot meet
-#   x86_64_va_bits_from_scalar    read: the cpuinfo/probe width itself, published
-#                                 only where it states the ACTIVE level
 ALLOW="arm64_efi_kimg_align
 arm64_page_offset_from_va_bits
 arm64_phys_text_residue
 arm64_text_phys_residue
 arm64_va_bits_from_directmap
-arm64_va_bits_from_scalar
+va_bits_from_scalar
 arm64_va_bits_from_vmemmap
 base_align_cross_validate
 boot_params_kaslr_align
@@ -227,7 +231,6 @@ ram_map_phys_exclude
 randomize_memory_page_offset
 riscv64_non_efi_phys_base
 riscv64_text_base
-riscv64_va_bits_pin
 s390_image_base_from_config
 s390_phys_segment_mod
 s390_text_segment_mod
@@ -235,7 +238,7 @@ text_pin_from_observation
 virt_kaslr_disabled_pin
 x86_64_efi_phys_seed_zero
 x86_64_la57_from_directmap
-x86_64_va_bits_from_scalar"
+"
 
 if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')

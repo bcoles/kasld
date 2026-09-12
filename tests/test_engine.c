@@ -2510,27 +2510,6 @@ static void test_cmdline_mem_virt_ceiling_no_highmem_wrap(void) {
 #endif
 }
 
-/* riscv64_va_bits_pin: SF_VIRT_ADDR_BITS (mmu : svN) -> C_EQUALS Q_VA_BITS. */
-static void test_riscv64_va_bits_pin(void) {
-  struct engine e;
-  engine_init(&e);
-  struct observation o = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
-  evidence_add(&e.ev, &o);
-  const rule_fn rules[] = {rule_riscv64_va_bits_pin};
-  engine_run(&e, rules, 1);
-#if defined(__riscv) && __riscv_xlen == 64
-  int found = 0;
-  for (int i = 0; i < e.n_constraints; i++)
-    if (e.constraints[i].q == Q_VA_BITS && e.constraints[i].op == C_EQUALS &&
-        e.constraints[i].value == 48)
-      found = 1;
-  TH_CHECK(found);
-#else
-  for (int i = 0; i < e.n_constraints; i++)
-    TH_CHECK(e.constraints[i].q != Q_VA_BITS); /* inert off riscv64 */
-#endif
-}
-
 /* vmsplit_text_base (arm32, no KASLR): a virtual kernel-text witness snaps to
  * its 1 GiB VMSPLIT boundary, pinning Q_PAGE_OFFSET to that boundary and
  * FLOORING Q_VIRT_IMAGE_BASE at boundary + IMAGE_BASE_OFFSET (a lower bound,
@@ -4648,6 +4627,55 @@ __attribute__((unused)) static int finset_is(const struct estimate *est,
   return want != 0 && est->lo == want;
 }
 
+/* va_bits_from_scalar is architecture-INDEPENDENT: it validates the observed
+ * width against whatever set the arch header declares, so the contract to test
+ * is that contract, not one architecture's flavour of it.
+ *
+ * A width the architecture admits pins the quantity. The width comes from the
+ * arch's own candidate table rather than a literal, so this runs unchanged on
+ * every architecture that declares one -- including any added later. */
+static void test_va_bits_from_scalar_admits_a_declared_width(void) {
+  const struct quantity_def *qd = &quantities[Q_VA_BITS];
+  if (qd->n_candidates < 2)
+    return; /* no set declared here; the rule is inert by design */
+
+  unsigned long want = qd->candidates[0];
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_scalar(SF_VIRT_ADDR_BITS, want, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_va_bits_from_scalar};
+  engine_run(&e, rules, 1);
+
+  int found = 0;
+  for (int i = 0; i < e.n_constraints; i++)
+    if (e.constraints[i].q == Q_VA_BITS && e.constraints[i].op == C_EQUALS &&
+        e.constraints[i].value == want)
+      found = 1;
+  TH_CHECK(found);
+  TH_CHECK(finset_is(&e.est[Q_VA_BITS], want));
+}
+
+/* A width the architecture does NOT admit yields no constraint at all. 63 is
+ * not a candidate anywhere -- no architecture admits a 63-bit address space --
+ * so a reading that nonsensical must fall through rather than reach the meet.
+ * This is the half that keeps a parse slip or a hostile /proc from pinning. */
+static void test_va_bits_from_scalar_rejects_an_undeclared_width(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_scalar(SF_VIRT_ADDR_BITS, 63, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_va_bits_from_scalar};
+  engine_run(&e, rules, 1);
+
+  for (int i = 0; i < e.n_constraints; i++)
+    TH_CHECK(e.constraints[i].q != Q_VA_BITS);
+
+  struct estimate top;
+  quantities[Q_VA_BITS].init_top(&top);
+  TH_CHECK(e.est[Q_VA_BITS].lo == top.lo); /* estimate untouched */
+}
+
 /* The VA_BITS candidate set carries the declared/undeclared distinction in its
  * VALUES, not in a flag beside them: an architecture that declares no set gets
  * a lone 0, and no address space is 0 bits wide, so nothing can read it as a
@@ -5078,35 +5106,6 @@ static void test_arm64_page_offset_admits_preflip_base(void) {
 #endif
 }
 
-/* x86_64_va_bits_from_scalar: SF_VIRT_ADDR_BITS (the active paging width, from
- * the mmap probe or the 48-gated cpuinfo read) pins Q_VA_BITS on x86_64. */
-
-static void test_x86_64_va_bits_from_scalar(void) {
-  struct engine e;
-  const rule_fn rules[] = {rule_x86_64_va_bits_from_scalar};
-
-  engine_init(&e);
-  struct observation s = mk_scalar(SF_VIRT_ADDR_BITS, 57, CONF_INFERRED);
-  evidence_add(&e.ev, &s);
-  engine_run(&e, rules, 1);
-#if defined(__x86_64__)
-  TH_CHECK(finset_is(&e.est[Q_VA_BITS], 57)); /* active 5-level pinned */
-#else
-  struct estimate t0;
-  quantities[Q_VA_BITS].init_top(&t0);
-  TH_CHECK(e.est[Q_VA_BITS].lo == t0.lo); /* inert off x86_64 */
-#endif
-
-  /* Out-of-range width -> inert (fresh state on the same engine). */
-  engine_init(&e);
-  struct observation bad = mk_scalar(SF_VIRT_ADDR_BITS, 39, CONF_INFERRED);
-  evidence_add(&e.ev, &bad);
-  engine_run(&e, rules, 1);
-  struct estimate top;
-  quantities[Q_VA_BITS].init_top(&top);
-  TH_CHECK(e.est[Q_VA_BITS].lo == top.lo);
-}
-
 /* x86_64_page_offset_floor_from_va_bits: a resolved level raises the directmap
  * floor to that level's canonical value (tightening the loose L5 floor
  * proc_cpuinfo emits on an LA57-capable part booted 4-level). */
@@ -5137,16 +5136,16 @@ static void test_x86_64_page_offset_floor_from_va_bits(void) {
 #endif
 }
 
-/* arm64_va_bits_from_scalar + arm64_page_offset_from_va_bits chain: the mmap
+/* va_bits_from_scalar + arm64_page_offset_from_va_bits chain: the mmap
  * probe's active-width scalar resolves Q_VA_BITS, which derives PAGE_OFFSET —
  * the leak-free path that replaces the direct page_offset landmark. */
 
-static void test_arm64_va_bits_from_scalar(void) {
+static void test_va_bits_pin_chains_to_arm64_page_offset(void) {
   struct engine e;
   engine_init(&e);
   struct observation s = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_INFERRED);
   evidence_add(&e.ev, &s);
-  const rule_fn rules[] = {rule_arm64_va_bits_from_scalar,
+  const rule_fn rules[] = {rule_va_bits_from_scalar,
                            rule_arm64_page_offset_from_va_bits};
   engine_run(&e, rules, 2);
 #if defined(__aarch64__)
@@ -5159,9 +5158,14 @@ static void test_arm64_va_bits_from_scalar(void) {
   TH_CHECK(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xffff000000000000ul);
   TH_CHECK(po_hi(&e.est[Q_PAGE_OFFSET]) <= 0xffff800000000000ul);
 #else
+  /* va_bits_from_scalar is architecture-independent, and 48 is admissible
+   * wherever a set is declared, so the WIDTH may well pin here. What belongs to
+   * arm64 alone is the chaining below it: arm64_page_offset_from_va_bits stays
+   * inert, so the base is untouched. */
   struct estimate t;
-  quantities[Q_VA_BITS].init_top(&t);
-  TH_CHECK(e.est[Q_VA_BITS].lo == t.lo); /* inert off arm64 */
+  quantities[Q_PAGE_OFFSET].init_top(&t);
+  TH_CHECK(e.est[Q_PAGE_OFFSET].lo == t.lo);
+  TH_CHECK(e.est[Q_PAGE_OFFSET].hi == t.hi);
 #endif
 }
 #endif /* __SIZEOF_LONG__ >= 8 (la57 / arm64 va_bits) */
@@ -9066,7 +9070,8 @@ int main(void) {
   RUN(test_cmdline_mem_phys_ceiling_no_signal);
   RUN(test_cmdline_mem_virt_ceiling);
   RUN(test_cmdline_mem_virt_ceiling_no_highmem_wrap);
-  RUN(test_riscv64_va_bits_pin);
+  RUN(test_va_bits_from_scalar_admits_a_declared_width);
+  RUN(test_va_bits_from_scalar_rejects_an_undeclared_width);
   RUN(test_vmsplit_text_base);
   RUN(test_vmsplit_text_base_unlisted_split_admitted);
   RUN(test_vmsplit_text_base_nondefault_offset);
@@ -9215,9 +9220,8 @@ int main(void) {
   RUN(test_va_bits_arm64_unambiguous_va48_pins);
   RUN(test_arm64_page_offset_from_va_bits);
   RUN(test_arm64_page_offset_admits_preflip_base);
-  RUN(test_x86_64_va_bits_from_scalar);
   RUN(test_x86_64_page_offset_floor_from_va_bits);
-  RUN(test_arm64_va_bits_from_scalar);
+  RUN(test_va_bits_pin_chains_to_arm64_page_offset);
 
   BEGIN_CATEGORY("riscv64-specific rules");
   RUN(test_riscv64_non_efi_phys_base);
