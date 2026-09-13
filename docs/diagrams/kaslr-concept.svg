@@ -1,0 +1,106 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="771" viewBox="0 0 1020 771">
+<rect width="1020" height="771" fill="#ffffff"/>
+<g transform="scale(0.7285714285714285)">
+<text x="60" y="68" font-family="sans-serif" font-size="33" font-weight="bold" fill="#263238">KASLR — the kernel lands somewhere different every boot</text>
+<text x="60" y="106" font-family="sans-serif" font-size="19" fill="#546e7a">Same kernel image, same binary. The base is chosen at boot from a window of aligned slots inside the kernel&#8217;s region.</text>
+<text x="230" y="148" font-family="sans-serif" font-size="16" fill="#90a4ae" text-anchor="middle">user space</text>
+<text x="840" y="148" font-family="sans-serif" font-size="16" fill="#1976d2" text-anchor="middle">kernel region</text>
+<text x="60" y="195" font-family="sans-serif" font-size="19" fill="#37474f">boot 1</text>
+<rect x="160.0" y="160" width="140.0" height="54" rx="3" fill="#eceff1" stroke="#cfd8dc"/>
+<path d="M 314 164 l 11 12 l -11 13 l 11 13 l -11 12" fill="none" stroke="#90a4ae" stroke-width="2"/>
+<path d="M 327 164 l 11 12 l -11 13 l 11 13 l -11 12" fill="none" stroke="#90a4ae" stroke-width="2"/>
+<rect x="340.0" y="160" width="1000.0" height="54" rx="3" fill="#e3f2fd" stroke="#90caf9"/>
+<line x1="411.4" y1="168" x2="411.4" y2="206" stroke="#90caf9"/>
+<line x1="482.9" y1="168" x2="482.9" y2="206" stroke="#90caf9"/>
+<line x1="554.3" y1="168" x2="554.3" y2="206" stroke="#90caf9"/>
+<line x1="625.7" y1="168" x2="625.7" y2="206" stroke="#90caf9"/>
+<line x1="697.1" y1="168" x2="697.1" y2="206" stroke="#90caf9"/>
+<line x1="768.6" y1="168" x2="768.6" y2="206" stroke="#90caf9"/>
+<line x1="840.0" y1="168" x2="840.0" y2="206" stroke="#90caf9"/>
+<line x1="911.4" y1="168" x2="911.4" y2="206" stroke="#90caf9"/>
+<line x1="982.9" y1="168" x2="982.9" y2="206" stroke="#90caf9"/>
+<line x1="1054.3" y1="168" x2="1054.3" y2="206" stroke="#90caf9"/>
+<line x1="1125.7" y1="168" x2="1125.7" y2="206" stroke="#90caf9"/>
+<line x1="1197.1" y1="168" x2="1197.1" y2="206" stroke="#90caf9"/>
+<line x1="1268.6" y1="168" x2="1268.6" y2="206" stroke="#90caf9"/>
+<rect x="482.9" y="154" width="142.9" height="66" rx="4" fill="#1565c0"/>
+<text x="554.3" y="193" font-family="sans-serif" font-size="16" font-weight="bold" fill="#ffffff" text-anchor="middle">kernel</text>
+<text x="60" y="283" font-family="sans-serif" font-size="19" fill="#37474f">boot 2</text>
+<rect x="160.0" y="248" width="140.0" height="54" rx="3" fill="#eceff1" stroke="#cfd8dc"/>
+<path d="M 314 252 l 11 12 l -11 13 l 11 13 l -11 12" fill="none" stroke="#90a4ae" stroke-width="2"/>
+<path d="M 327 252 l 11 12 l -11 13 l 11 13 l -11 12" fill="none" stroke="#90a4ae" stroke-width="2"/>
+<rect x="340.0" y="248" width="1000.0" height="54" rx="3" fill="#e3f2fd" stroke="#90caf9"/>
+<line x1="411.4" y1="256" x2="411.4" y2="294" stroke="#90caf9"/>
+<line x1="482.9" y1="256" x2="482.9" y2="294" stroke="#90caf9"/>
+<line x1="554.3" y1="256" x2="554.3" y2="294" stroke="#90caf9"/>
+<line x1="625.7" y1="256" x2="625.7" y2="294" stroke="#90caf9"/>
+<line x1="697.1" y1="256" x2="697.1" y2="294" stroke="#90caf9"/>
+<line x1="768.6" y1="256" x2="768.6" y2="294" stroke="#90caf9"/>
+<line x1="840.0" y1="256" x2="840.0" y2="294" stroke="#90caf9"/>
+<line x1="911.4" y1="256" x2="911.4" y2="294" stroke="#90caf9"/>
+<line x1="982.9" y1="256" x2="982.9" y2="294" stroke="#90caf9"/>
+<line x1="1054.3" y1="256" x2="1054.3" y2="294" stroke="#90caf9"/>
+<line x1="1125.7" y1="256" x2="1125.7" y2="294" stroke="#90caf9"/>
+<line x1="1197.1" y1="256" x2="1197.1" y2="294" stroke="#90caf9"/>
+<line x1="1268.6" y1="256" x2="1268.6" y2="294" stroke="#90caf9"/>
+<rect x="1054.3" y="242" width="142.9" height="66" rx="4" fill="#1565c0"/>
+<text x="1125.7" y="281" font-family="sans-serif" font-size="16" font-weight="bold" fill="#ffffff" text-anchor="middle">kernel</text>
+<text x="60" y="371" font-family="sans-serif" font-size="19" fill="#37474f">boot 3</text>
+<rect x="160.0" y="336" width="140.0" height="54" rx="3" fill="#eceff1" stroke="#cfd8dc"/>
+<path d="M 314 340 l 11 12 l -11 13 l 11 13 l -11 12" fill="none" stroke="#90a4ae" stroke-width="2"/>
+<path d="M 327 340 l 11 12 l -11 13 l 11 13 l -11 12" fill="none" stroke="#90a4ae" stroke-width="2"/>
+<rect x="340.0" y="336" width="1000.0" height="54" rx="3" fill="#e3f2fd" stroke="#90caf9"/>
+<line x1="411.4" y1="344" x2="411.4" y2="382" stroke="#90caf9"/>
+<line x1="482.9" y1="344" x2="482.9" y2="382" stroke="#90caf9"/>
+<line x1="554.3" y1="344" x2="554.3" y2="382" stroke="#90caf9"/>
+<line x1="625.7" y1="344" x2="625.7" y2="382" stroke="#90caf9"/>
+<line x1="697.1" y1="344" x2="697.1" y2="382" stroke="#90caf9"/>
+<line x1="768.6" y1="344" x2="768.6" y2="382" stroke="#90caf9"/>
+<line x1="840.0" y1="344" x2="840.0" y2="382" stroke="#90caf9"/>
+<line x1="911.4" y1="344" x2="911.4" y2="382" stroke="#90caf9"/>
+<line x1="982.9" y1="344" x2="982.9" y2="382" stroke="#90caf9"/>
+<line x1="1054.3" y1="344" x2="1054.3" y2="382" stroke="#90caf9"/>
+<line x1="1125.7" y1="344" x2="1125.7" y2="382" stroke="#90caf9"/>
+<line x1="1197.1" y1="344" x2="1197.1" y2="382" stroke="#90caf9"/>
+<line x1="1268.6" y1="344" x2="1268.6" y2="382" stroke="#90caf9"/>
+<rect x="697.1" y="330" width="142.9" height="66" rx="4" fill="#1565c0"/>
+<text x="768.6" y="369" font-family="sans-serif" font-size="16" font-weight="bold" fill="#ffffff" text-anchor="middle">kernel</text>
+<line x1="340.0" y1="440" x2="1340.0" y2="440" stroke="#1976d2"/>
+<line x1="340.0" y1="440" x2="340.0" y2="431" stroke="#1976d2"/>
+<line x1="1340.0" y1="440" x2="1340.0" y2="431" stroke="#1976d2"/>
+<text x="840" y="466" font-family="sans-serif" font-size="17" text-anchor="middle" fill="#1976d2">KASLR window: every slot the base may occupy</text>
+<text x="340" y="466" font-family="sans-serif" font-size="14" fill="#90a4ae" text-anchor="start">lower address</text>
+<text x="1340" y="466" font-family="sans-serif" font-size="14" fill="#90a4ae" text-anchor="end">higher address</text>
+<text x="230" y="466" font-family="sans-serif" font-size="14" fill="#90a4ae" text-anchor="middle">not to scale</text>
+<rect x="60" y="546" width="620" height="368" rx="6" fill="#e3f2fd" stroke="#1976d2"/>
+<text x="92" y="590" font-family="sans-serif" font-size="21" font-weight="bold" fill="#263238">How many places? The architecture sets the window</text>
+<text x="92" y="622" font-family="sans-serif" font-size="17" fill="#37474f">x86_64 as an example — one source tree, two real build configurations:</text>
+<text x="92" y="662" font-family="sans-serif" font-size="16" font-weight="bold" fill="#546e7a">x86_64 build</text>
+<text x="400" y="662" font-family="sans-serif" font-size="16" font-weight="bold" fill="#546e7a">slots</text>
+<text x="520" y="662" font-family="sans-serif" font-size="16" font-weight="bold" fill="#546e7a">entropy</text>
+<line x1="92" y1="672" x2="648" y2="672" stroke="#cfd8dc"/>
+<text x="92" y="702" font-family="sans-serif" font-size="17" fill="#37474f">2 MiB alignment (default)</text>
+<text x="400" y="702" font-family="monospace" font-size="17" fill="#263238">505</text>
+<text x="520" y="702" font-family="monospace" font-size="17" fill="#263238">~9 bits</text>
+<text x="92" y="736" font-family="sans-serif" font-size="17" fill="#37474f">16 MiB alignment</text>
+<text x="400" y="736" font-family="monospace" font-size="17" fill="#263238">64</text>
+<text x="520" y="736" font-family="monospace" font-size="17" fill="#263238">6 bits</text>
+<text x="92" y="782" font-family="sans-serif" font-size="15" fill="#546e7a">Coarser alignment does not shrink the window; it thins the slots inside it.</text>
+<text x="92" y="826" font-family="sans-serif" font-size="15" fill="#546e7a">Every architecture with KASLR behaves this way; only the window, alignment</text>
+<text x="92" y="848" font-family="sans-serif" font-size="15" fill="#546e7a">and slot count differ — from ~8 bits to ~30 bits. Some architectures have</text>
+<text x="92" y="870" font-family="sans-serif" font-size="15" fill="#546e7a">no KASLR, and the load address is then the bootloader&#8217;s choice.</text>
+<rect x="720" y="546" width="620" height="368" rx="6" fill="#f3e5f5" stroke="#7b1fa2"/>
+<text x="752" y="590" font-family="sans-serif" font-size="21" font-weight="bold" fill="#263238">Why it matters</text>
+<text x="752" y="628" font-family="sans-serif" font-size="17" fill="#37474f">Every kernel address an exploit uses derives from</text>
+<text x="752" y="652" font-family="sans-serif" font-size="17" fill="#37474f">the base, whichever strategy it takes:</text>
+<text x="752" y="700" font-family="sans-serif" font-size="17" fill="#37474f"><tspan fill="#7b1fa2">&#183;</tspan> <tspan font-weight="bold">control-flow reuse</tspan> — the gadget and function</text>
+<text x="770" y="724" font-family="sans-serif" font-size="17" fill="#37474f">addresses a ROP chain calls</text>
+<text x="752" y="772" font-family="sans-serif" font-size="17" fill="#37474f"><tspan fill="#7b1fa2">&#183;</tspan> <tspan font-weight="bold">data-only</tspan> — the address of a global to</text>
+<text x="770" y="796" font-family="sans-serif" font-size="17" fill="#37474f">overwrite, such as modprobe_path or core_pattern</text>
+<text x="752" y="844" font-family="sans-serif" font-size="17" fill="#37474f">The image moves as one block, so one leaked</text>
+<text x="752" y="868" font-family="sans-serif" font-size="17" fill="#37474f">address resolves every symbol at once.</text>
+<text x="60" y="982" font-family="sans-serif" font-size="14" fill="#90a4ae">The block is the kernel image; its left edge is the base address KASLR chooses. Slot counts are upper bounds:</text>
+<text x="60" y="1004" font-family="sans-serif" font-size="14" fill="#90a4ae">placements where the image would extend past the end of the window are refused. Where KASLR is disabled or</text>
+<text x="60" y="1026" font-family="sans-serif" font-size="14" fill="#90a4ae">randomisation fails at boot, the image lands at a fixed or firmware-chosen position instead.</text>
+</g>
+</svg>

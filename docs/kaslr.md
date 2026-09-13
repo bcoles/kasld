@@ -3,6 +3,11 @@
 Reference material on how Linux KASLR works, what it randomizes, and how
 the kernel virtual address space is laid out across architectures.
 
+KASLR chooses the kernel's base address at boot from a window of aligned slots
+inside the kernel's own region of the address space:
+
+![KASLR concept: three boots of the same kernel image, each landing at a different aligned slot inside the kernel region of the address space, with user space drawn to its left across a break and marked not to scale. A bracket under the slots marks the KASLR window, every slot the base may occupy, running from lower to higher address. An x86_64 example contrasts a 2 MiB-aligned default build (505 slots, ~9 bits) with a 16 MiB-aligned build (64 slots, 6 bits), noting that coarser alignment thins the slots inside the window rather than shrinking it, and that every architecture with KASLR behaves the same way with only the window, alignment and slot count differing -- from ~8 bits to ~30 bits, with some architectures having no KASLR at all. A second panel explains that every kernel address an exploit uses derives from the base, whether for control-flow reuse (the gadget and function addresses a ROP chain calls) or data-only (the address of a global to overwrite), and that the image moves as one block so one leaked address resolves every symbol at once](diagrams/kaslr-concept.svg)
+
 ## Table of Contents
 
 - [Linux KASLR history and implementation](#linux-kaslr-history-and-implementation)
