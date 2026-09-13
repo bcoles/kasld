@@ -997,6 +997,24 @@ static inline unsigned long kasld_page_offset_if_known(void) {
 #define KASLR_VIRT_ALIGN IMAGE_ALIGN
 #endif
 
+/* The validation range must contain the honest top. quantities.c seeds
+ * Q_VIRT_IMAGE_BASE from [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX_WIDE],
+ * while coupling_validate rejects a text observation outside
+ * [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX]. If the validation range is the
+ * narrower of the two, addresses exist that the engine searches for yet
+ * discards on sight: a true text leak landing there is curated out, no pin
+ * fires, and the window never narrows. Widening the honest top to cover a
+ * second text-base layout therefore has to carry the validation range with it.
+ */
+#if KERNEL_VIRT_TEXT_MIN > KASLR_VIRT_TEXT_MIN_WIDE
+#error                                                                         \
+    "KERNEL_VIRT_TEXT_MIN is above the honest-top floor KASLR_VIRT_TEXT_MIN_WIDE"
+#endif
+#if KERNEL_VIRT_TEXT_MAX < KASLR_VIRT_TEXT_MAX_WIDE
+#error                                                                         \
+    "KERNEL_VIRT_TEXT_MAX is below the honest-top ceiling KASLR_VIRT_TEXT_MAX_WIDE"
+#endif
+
 /* image_base_grid_align soundness gate. The rule snaps a resolved virtual
  * image-base bound to the KASLR grid, which is sound only if _text's residue
  * modulo KASLR_VIRT_ALIGN is an architectural constant (=

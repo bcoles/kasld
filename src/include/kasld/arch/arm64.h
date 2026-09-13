@@ -165,11 +165,12 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 
 // 48 va bits (CONFIG_ARM64_VA_BITS_48) is a common configuration;
 // but an unsafe assumption since introduction of CONFIG_ARM64_VA_BITS_48_52.
-// older kernels may use 0xffff000008000000ul
 //
-// Validation range for the modern layout (compile-time default).
-// Older arm64 layouts (pre-v5.4, below _PAGE_END) fall outside this range.
-#define KERNEL_VIRT_TEXT_MIN 0xffff800008000000ul
+// The validation range spans BOTH image layouts, so it floors at the pre-flip
+// KIMAGE_VADDR rather than the modern one: a text address between the two is
+// real on a pre-v5.4 kernel, and a floor at the modern KIMAGE_VADDR would
+// discard that leak as implausible while the estimate still searched for it.
+#define KERNEL_VIRT_TEXT_MIN 0xffff000008000000ul
 #define KERNEL_VIRT_TEXT_MAX 0xffffffffff000000ul
 
 // Module region — VALIDATION UNION across all in-scope kernel versions.

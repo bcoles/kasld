@@ -212,14 +212,16 @@
  * the bottom of RAM, _stext at IMAGE_BASE_OFFSET = 0x100000). With no narrowing
  * leak (the unprivileged/hardened case) flooring Q_VIRT_IMAGE_BASE at the
  * modern KASLR_VIRT_TEXT_MIN would report a window EXCLUDING that low
- * identity-mapped text base — unsound. Widen the floor to 0 (the identity-map
- * base) so the honest window admits both the identity-mapped and the high
- * relocated layouts. Widen-only — never narrows — so it cannot eliminate a true
- * leak; a real text or module leak narrows Q_VIRT_IMAGE_BASE back up. The
- * trade-off is a very loose unresolved window ([0, ASCE limit]); soundness
- * across kernels without trusting version numbers takes priority over
+ * identity-mapped text base — unsound. The floor is the identity-mapped link
+ * address so the honest window admits both that layout and the high relocated
+ * one. 0x100000 is the lowest text address any s390 configuration can produce:
+ * the linker script places the image there unconditionally, and where
+ * CONFIG_KERNEL_IMAGE_BASE is configurable its Kconfig range floors at the same
+ * value. A real text or module leak narrows Q_VIRT_IMAGE_BASE back up. The
+ * trade-off is a very loose unresolved window ([0x100000, ASCE limit]);
+ * soundness across kernels without trusting version numbers takes priority over
  * tightness. */
-#define KASLR_VIRT_TEXT_MIN_WIDE 0ul
+#define KASLR_VIRT_TEXT_MIN_WIDE 0x100000ul
 
 /* Honest-top floor for Q_PHYS_IMAGE_BASE. Without an explicit floor the generic
  * chain sets KASLR_PHYS_MIN = KERNEL_PHYS_MIN + IMAGE_BASE_OFFSET = 0x100000 —
