@@ -1797,6 +1797,12 @@ static void test_render_static_base_prefers_engine_window(void) {
   /* Grid-aligned so the readout's own edge snapping is a no-op and the printed
    * edges are the ones set here. */
   unsigned long b = (layout.virt_image_base_min + al - 1) & ~(al - 1);
+  /* The "below" case uses b itself as the compile-time default, and a default
+     of 0 is the renderer's "no default known" sentinel. Where the arch floors
+     text at 0 (s390), start a grid step up so the case still carries an
+     address. */
+  if (!b)
+    b = al;
   unsigned long lo = b + al * 2;
   unsigned long hi = b + al * 6;
   unsigned long inside = b + al * 4;

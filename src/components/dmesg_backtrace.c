@@ -103,8 +103,15 @@ static int in_directmap_range(unsigned long val) {
   if (val < PAGE_OFFSET) /* vacuous where PAGE_OFFSET is 0 (s390) */
     return 0;
 #endif
+#if KERNEL_VIRT_TEXT_MIN
   if (val >= KERNEL_VIRT_TEXT_MIN)
     return 0;
+#else
+  /* Text floors at 0 (s390): nothing sits below it, so there is no separable
+     direct-map window here -- the same outcome as the overlapping-map arches
+     noted above. */
+  return 0;
+#endif
 #if MODULES_START >= PAGE_OFFSET
   if (kasld_addr_is_module_band(val))
     return 0;
