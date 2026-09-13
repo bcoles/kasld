@@ -9,7 +9,7 @@
       <line x1="0" y1="0" x2="0" y2="8" stroke="#ef9a9a" stroke-width="1.5"/>
     </pattern>
     <style>
-      .title { font-size: 22px; font-weight: 700; fill: #1b5e20; }
+      .title { font-size: 22px; font-weight: 700; fill: #263238; }
       .sub   { font-size: 13px; fill: #546e7a; }
       .op    { font-family: monospace; font-size: 12.5px; fill: #1b5e20; }
       .rule  { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }
@@ -63,11 +63,11 @@
   <rect x="540" y="330" width="90"  height="22" fill="url(#hatch)" stroke="#c62828" stroke-dasharray="3 2"/>
 
   <!-- seam panel -->
-  <line x1="32" y1="372" x2="928" y2="372" stroke="#e0a0a0" stroke-width="1"/>
+  <line x1="32" y1="372" x2="928" y2="372" stroke="#ef9a9a" stroke-width="1"/>
   <text x="32" y="394" class="seam">Store-vs-read seam (LK_INTERVAL domain)</text>
 
   <text x="32" y="424" class="op" fill="#b71c1c">STORED: convex hull, end-trim only</text>
-  <rect x="191" y="430" width="529" height="22" rx="3" fill="#f8d7da" stroke="#c62828"/>
+  <rect x="191" y="430" width="529" height="22" rx="3" fill="#ffcdd2" stroke="#c62828"/>
   <rect x="540" y="430" width="90"  height="22" fill="url(#hatch)" stroke="#c62828" stroke-dasharray="3 2"/>
   <text x="735" y="445" class="small">hole stays in the hull</text>
 

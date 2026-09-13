@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="548" viewBox="0 0 960 548" font-family="sans-serif">
   <defs>
     <style>
-      .title { font-size: 22px; font-weight: 700; fill: #1b5e20; }
+      .title { font-size: 22px; font-weight: 700; fill: #263238; }
       .sub   { font-size: 13px; fill: #546e7a; }
       .hd    { font-size: 14px; font-weight: 700; fill: #37474f; }
       .lbl   { font-size: 12.5px; font-weight: 700; }

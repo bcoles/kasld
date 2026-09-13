@@ -7,7 +7,7 @@
       <path d="M0 0 L10 5 L0 10 z" fill="#2e7d32"/>
     </marker>
     <style>
-      .title { font-size: 22px; font-weight: 700; fill: #1b5e20; }
+      .title { font-size: 22px; font-weight: 700; fill: #263238; }
       .sub   { font-size: 13px; fill: #546e7a; }
       .lbl   { font-size: 16px; font-weight: 700; }
       .mono  { font-family: monospace; font-size: 12px; fill: #37474f; }

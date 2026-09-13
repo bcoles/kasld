@@ -73,8 +73,8 @@
   <text x="576" y="426" class="ts">full entropy &#183; uniform over valid_slots &#183; needs a leak / side channel</text>
 
   <!-- callout: the load-bearing distinction -->
-  <line x1="32" y1="462" x2="928" y2="462" stroke="#e0a86a" stroke-width="1"/>
-  <text x="32" y="484" class="note" fill="#b65c00" font-weight="700">Disabled vs Randomization-failed &#8212; same dmesg prefix, different landing.</text>
+  <line x1="32" y1="462" x2="928" y2="462" stroke="#ffcc80" stroke-width="1"/>
+  <text x="32" y="484" class="note" fill="#ef6c00" font-weight="700">Disabled vs Randomization-failed &#8212; same dmesg prefix, different landing.</text>
   <text x="32" y="502" class="note">Both log <tspan class="mono">KASLR disabled</tspan>, but Disabled sits at the link-time default (safe to pin) while Failed sits at a firmware position (must NOT be pinned to default).</text>
   <text x="32" y="520" class="note">KASLD emits distinct facts &#8212; <tspan class="mono">SF_*_KASLR_DISABLED</tspan> vs <tspan class="mono">SF_*_KASLR_RANDOMIZATION_FAILED</tspan> &#8212; and the latter never sets <tspan class="mono">kaslr.disabled</tspan>.</text>
 </svg>

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="763" viewBox="0 0 960 763" font-family="sans-serif">
   <style>
-      .title { font-size: 22px; font-weight: 700; fill: #37474f; }
+      .title { font-size: 22px; font-weight: 700; fill: #263238; }
       .sub   { font-size: 13px; fill: #546e7a; }
       .band  { font-size: 13px; font-weight: 700; fill: #455a64; }
       .hdr   { font-family: monospace; font-size: 12px; font-weight: 700; }

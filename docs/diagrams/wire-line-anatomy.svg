@@ -60,7 +60,7 @@
   <text x="150" y="370" class="val">lo= &#160; hi= &#160; sample= &#160; base_align=  &#160;&#160;(hex). A bounded extent carries both lo= and hi=.</text>
 
   <!-- variants panel -->
-  <rect x="32" y="412" width="896" height="222" rx="8" fill="#eef3f8" stroke="#b0bec5"/>
+  <rect x="32" y="412" width="896" height="222" rx="8" fill="#eceff1" stroke="#b0bec5"/>
   <text x="48" y="436" class="panel">The six emitter outputs</text>
   <text x="48" y="462" class="mono">kasld_result_base     &#8594;  V &lt;region&gt; pos=base conf=&lt;c&gt; lo=0x..</text>
   <text x="48" y="484" class="mono">kasld_result_top      &#8594;  V &lt;region&gt; pos=top conf=&lt;c&gt; hi=0x..</text>
