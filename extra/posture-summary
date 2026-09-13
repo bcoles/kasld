@@ -6,10 +6,12 @@
 # instead of reading N separate reports.
 #
 # Input is one `kasld -j` file per host, passed as arguments. The host label is
-# the file's basename (minus a .json suffix), because `kasld -j` deliberately
-# carries no hostname — identity comes from how the file is named at collection
-# time. This tool does NO collection and NO transport: the caller's own fan-out
-# supplies the snapshots. A reference loop:
+# the file's basename (minus a .json suffix) rather than the document's own
+# `host` field: the label belongs to the operator, whose asset id need not be
+# the machine's UTS name, and a replayed snapshot states no host at all — so the
+# filename is the one identity present for every input. This tool does NO
+# collection and NO transport: the caller's own fan-out supplies the snapshots.
+# A reference loop:
 #
 #   for h in $(cat hosts); do ssh "$h" 'kasld -j' > "snap/$h.json"; done
 #   posture-summary snap/*.json

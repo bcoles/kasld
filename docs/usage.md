@@ -955,12 +955,14 @@ Each row carries only the boot-stable posture — the fact source, KASLR state,
 guaranteed residual entropy (virtual/physical), leaks succeeded/total, how many
 distinct hardening controls were observed foiling a leak, unpatched CVE-class
 count, and the most load-bearing hardening action still available. The host
-label is the snapshot's filename (`-j` carries no hostname), so each file must
-be named after its host at collection time; this tool does no collection or
-transport itself. Output is an aligned text table by default, or `--markdown`
-(issue trackers), `--csv` (spreadsheets), or `--json` (further tooling). A file
-that is not a valid `kasld -j` snapshot is skipped with a warning rather than
-aborting the report.
+label is the snapshot's filename, so each file must be named after its host at
+collection time; this tool does no collection or transport itself. The filename
+rather than the document's own `host` field, because the label is the
+operator's to choose — a fleet's asset id need not be the machine's UTS name —
+and because a replayed snapshot states no host of its own. Output is an aligned
+text table by default, or `--markdown` (issue trackers), `--csv`
+(spreadsheets), or `--json` (further tooling). A file that is not a valid
+`kasld -j` snapshot is skipped with a warning rather than aborting the report.
 
 `src` is the snapshot's fact source — `live`, `replay`, or `?` for a snapshot
 predating the field. It qualifies every column to its right: a replay reaches
