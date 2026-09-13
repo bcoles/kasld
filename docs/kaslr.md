@@ -105,6 +105,11 @@ image base and shows `_stext` as a derived line only when the two differ; a
 leaked `_stext` (e.g. from `/proc/kallsyms`) is normalized back to the image
 base when it is consumed, so the slide is always measured against `_text`.
 
+How much entropy that randomisation is worth spans an order of magnitude across
+the set — from five bits to thirty-nine, and none at all on three architectures:
+
+![KASLR entropy by architecture: a horizontal bar per architecture spanning the worst and best case across configurations, with KASLR enabled, at the architecture's own slot granularity. s390 spans 17 to 39 bits and arm64 18 to 30, then PowerPC32 12 to 15, MIPS32 and MIPS64 8 to 14, LoongArch 8 to 12, RISC-V64 a flat ~9, x86_64 6 to 9 and x86_32 5 to 8; arm32, PowerPC64 and RISC-V32 have no KASLR in mainline and carry no bar. A bar marks a single figure where only one is documented and spans the range where the figure has two ends, so position reads as the entropy and length as the width of the range. Bits are logarithmic, so each additional bit doubles the number of placements the base can take](diagrams/kaslr-entropy-by-arch.svg)
+
 | Architecture | Default text base | Derivation | Min alignment | Grain | KASLR slots | Entropy |
 |---|---|---|---|---|---|---|
 | x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 2 MiB⁶ | 504² | ~9 bits |
