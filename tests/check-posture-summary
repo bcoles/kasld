@@ -74,6 +74,12 @@ EOF
 # A snapshot from before `-j` carried the fact source: the roll-up cannot say
 # how it was taken, and must say THAT rather than guess "live".
 jq 'del(.replay)' "$TMP/web01.json" >"$TMP/legacy.json"
+# A host on a kasld whose document format this tool does not read. One fleet
+# member mid-roll-out must cost its own row and nothing else -- the whole point
+# of skipping rather than refusing. A higher MINOR is additive and still read.
+jq '.schema_version = "2.0"' "$TMP/web01.json" >"$TMP/future.json"
+jq '.schema_version = "1.9"' "$TMP/db02.json" >"$TMP/minor.json"
+
 # An action carrying the markdown cell delimiter. The host label is a filename
 # and the fix text is free-form, so a `|` reaches the table from either; both
 # run through the same escape.
@@ -124,6 +130,22 @@ row_bars=$(printf '%s\n' "$md" | sed -n '3p' | sed 's/\\|//g' | tr -cd '|' | wc 
 # The bad file is reported as skipped on stderr.
 "$TOOL" "$TMP/web01.json" "$TMP/broken.json" 2>"$TMP/err" >/dev/null
 grep -q 'skipping' "$TMP/err" || fail "bad snapshot not reported as skipped"
+
+# An unreadable format MAJOR costs that host its row and says so, while the
+# rest of the fleet still reports. A higher MINOR costs nothing.
+if out=$("$TOOL" "$TMP/db02.json" "$TMP/future.json" 2>"$TMP/err"); then
+  echo "$out" | grep -q '^db02 ' || fail "a future-schema host sank the whole run"
+  echo "$out" | grep -q '^future ' && fail "a future-schema host was rowed anyway"
+  grep -q 'schema 2.x' "$TMP/err" ||
+    fail "the skipped future-schema host does not name the version"
+else
+  fail "one future-schema host among two made the roll-up exit non-zero"
+fi
+if out=$("$TOOL" "$TMP/minor.json" 2>/dev/null); then
+  echo "$out" | grep -q '^minor ' || fail "a higher schema MINOR was skipped"
+else
+  fail "a higher schema MINOR made the roll-up exit non-zero"
+fi
 
 # --json: a 2-element array of objects, labelled by filename.
 n=$("$TOOL" --json "$TMP/web01.json" "$TMP/db02.json" 2>/dev/null | jq 'length')

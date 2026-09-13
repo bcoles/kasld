@@ -91,6 +91,57 @@ for f in "$base" "$cur"; do
   }
 done
 
+# The document format this tool reads, as the MAJOR a consumer dispatches on.
+# A MINOR bump is additive, so a higher one is read as it stands; a MAJOR bump
+# means a key was renamed or a value's meaning changed, and a posture verdict
+# computed from fields that no longer mean what the queries below assume is not
+# a wrong number, it is an answer to a different question. Refused for the same
+# reason a mismatched fact source is.
+#
+# Which side is stale depends on the direction, and the message has to say
+# which: a snapshot NEWER than this tool means the tool is behind the kasld that
+# wrote it, while an older one means the snapshot predates the format this tool
+# reads. Telling someone to update the wrong half of the pair is worse than
+# saying nothing.
+SCHEMA_MAJOR=1
+
+schema_major() {
+  jq -r 'if (.schema_version | type) == "string"
+         then (.schema_version | split(".") | .[0])
+         else "unstated" end' "$1"
+}
+
+for f in "$base" "$cur"; do
+  v=$(schema_major "$f") || exit 2
+  case "$v" in
+  unstated)
+    # A snapshot from before the field existed. Warned about rather than
+    # refused, exactly as an absent .replay is: refusing would reject every
+    # capture taken before this release, and the fields read below were the
+    # same then.
+    echo "$prog: warning: $f states no schema_version string, so its format" \
+      "cannot be checked; it predates the field" >&2
+    ;;
+  "$SCHEMA_MAJOR") ;;
+  *[!0-9]*)
+    echo "$prog: $f states an unreadable schema_version" >&2
+    exit 2
+    ;;
+  *)
+    echo "$prog: $f is schema $v.x; this tool reads $SCHEMA_MAJOR.x" >&2
+    if [ "$v" -gt "$SCHEMA_MAJOR" ]; then
+      echo "$prog: the snapshot is newer than this tool; use the posture-diff" \
+        "shipped with the kasld that wrote it" >&2
+    else
+      echo "$prog: the snapshot predates this tool's format; recapture with" \
+        "the current kasld, or read it with the posture-diff of its own" \
+        "release" >&2
+    fi
+    exit 2
+    ;;
+  esac
+done
+
 # Both snapshots have to have been taken the same way. A replay reads a
 # captured tree and skips every live probe, so it reaches a different set of
 # leaks than a live run of the same host does: the residual entropy and the

@@ -310,6 +310,30 @@ fi
 # Catch the case where JSON exists but is unparsable.
 jq empty "$JSON" 2>/dev/null || die "kasld JSON is malformed"
 
+# The document format this script reads. Unlike the snapshot tools, the document
+# here was produced moments ago by $BIN -- so a mismatch is never a stale file,
+# it is this script and that binary coming from different releases, which is
+# what $BIN pointing outside the tree makes possible. Every extraction below
+# names fields by path, and a MAJOR bump is exactly the licence to rename one:
+# the containment verdict would then be computed from whatever those paths
+# happen to hit. A MINOR bump is additive and read as it stands; a binary from
+# before the field states nothing to check.
+SCHEMA_MAJOR=1
+sv=$(jq -r 'if (.schema_version | type) == "string"
+            then (.schema_version | split(".") | .[0])
+            else "unstated" end' "$JSON" 2>/dev/null)
+case "$sv" in
+unstated | "$SCHEMA_MAJOR") ;;
+*[!0-9]*) die "kasld states an unreadable schema_version" ;;
+*)
+  echo "$PROG: $BIN emits schema $sv.x; this script reads $SCHEMA_MAJOR.x" >&2
+  if [ "$sv" -gt "$SCHEMA_MAJOR" ]; then
+    die "the binary is newer than this script; use the validate-bundle shipped with it"
+  fi
+  die "the binary predates this script's format; use a kasld from the same release"
+  ;;
+esac
+
 # ---------------------------------------------------------------------------
 # Extract ground truth from the bundle.
 # ---------------------------------------------------------------------------

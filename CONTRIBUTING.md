@@ -40,6 +40,7 @@ To report a security vulnerability in this project, use the private process in
   - [Why the axes are separate questions](#why-the-axes-are-separate-questions)
   - [Choosing each answer](#choosing-each-answer)
   - [Wiring it up, and proving it](#wiring-it-up-and-proving-it)
+- [Changing the JSON document](#changing-the-json-document)
 - [API reference](#api-reference)
 
 ---
@@ -943,6 +944,39 @@ do not by themselves establish that a narrowing answer was right. State what
 makes each restrictive answer sound, in the header, next to the answer.
 
 ---
+
+## Changing the JSON document
+
+`-j` is a published contract. [`docs/kasld.schema.json`](docs/kasld.schema.json)
+describes it, consumers validate against it and generate types from it, and
+`tests/check-json-schema` fails the build if the schema and the emitter drift
+apart — so a key added to `src/render/json.c` or `src/render/hardening.c` is
+three edits, not one.
+
+**Declare the key in the schema.** An emitted key the schema does not name
+fails the guard. Every object is `additionalProperties: false`, which is what
+makes that possible.
+
+**Decide `required` from the emitter, not from a test run.** A key printed
+inside an `if` is optional however reliably it shows up: `groups[].hi` appears
+in every document the corpus produces and is still conditional. The guard
+cannot catch this one — a wrongly-required key passes until it reaches the
+machine that omits it, and by then the schema has told a consumer the key is
+guaranteed. Roughly two fifths of the document's key paths are
+absent from at least one architecture, so `required` is the intersection across
+all of them, never what this host emits.
+
+**Bump `KASLD_JSON_SCHEMA_VERSION`** in `src/include/kasld/internal.h`, and the
+matching `const` in the schema. Adding a key is additive: bump the MINOR. Bump
+the MAJOR only when a key is removed or renamed, a value's type or meaning
+changes, or a key that was unconditional becomes conditional — and then the
+three shipped consumers in `extra/` need their `SCHEMA_MAJOR` raised with it,
+which the guard checks. Nothing enforces the bump itself; it is a judgement
+about what changed, which is why it is written down here.
+
+A key that no fixture can reach — live-only evidence, a speculative sub-window
+— goes in the guard's unexercised list with the others, and is removed again if
+the corpus ever starts producing it.
 
 ## API reference
 

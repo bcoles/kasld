@@ -90,6 +90,26 @@ case "$bump" in
   ;;
 esac
 
+# The shipped consumers read the document by path and each declares the MAJOR
+# its queries assume. They cannot share one definition — every one of them is
+# documented as a standalone program, run from a checkout or copied to a host —
+# so the property held here is that the duplicates agree with the emitter, the
+# same shape check-validators applies to the four copies of its validator. A
+# consumer left on the old MAJOR after a bump refuses every document the tool
+# produces, which is the failure a version gate is supposed to prevent.
+c_major=${c_ver%%.*}
+for consumer in posture-diff posture-summary validate-bundle; do
+  [ -r "$ROOT/extra/$consumer" ] || continue
+  v=$(sed -n 's/^SCHEMA_MAJOR=\([0-9][0-9]*\).*/\1/p' "$ROOT/extra/$consumer" |
+    head -1)
+  [ -n "$v" ] || {
+    note "extra/$consumer reads the -j document but declares no SCHEMA_MAJOR"
+    continue
+  }
+  [ "$v" = "$c_major" ] ||
+    note "extra/$consumer reads schema $v.x, the emitter writes $c_major.x"
+done
+
 # ---------------------------------------------------------------------------
 # Corpus
 # ---------------------------------------------------------------------------

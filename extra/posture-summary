@@ -92,6 +92,10 @@ command -v jq >/dev/null 2>&1 || {
 # Per-host posture object. Boot-stable fields only; the resolved base address /
 # slide are never read. Missing blocks (older -j, KASLR off) coalesce safely.
 # $host is a jq variable (bound with --arg below), not shell expansion.
+# The document format MAJOR the row query below assumes. See docs/usage.md,
+# JSON envelope, for what a MAJOR bump is allowed to change.
+SCHEMA_MAJOR=1
+
 # shellcheck disable=SC2016
 row='{
   host:   $host,
@@ -121,6 +125,23 @@ for f in "$@"; do
     skipped=$((skipped + 1))
     continue
   fi
+  # A document whose format MAJOR this tool does not read joins the skipped
+  # pile rather than sinking the run: every other row still describes its host,
+  # and one fleet member on a newer kasld is the ordinary way a roll-out looks
+  # midway through. A MINOR bump is additive and read as it stands; a snapshot
+  # from before the field says nothing to check, and its columns were the same
+  # then. SCHEMA_MAJOR is the MAJOR the row query below assumes.
+  v=$(jq -r 'if (.schema_version | type) == "string"
+             then (.schema_version | split(".") | .[0])
+             else "unstated" end' "$f" 2>/dev/null)
+  case "$v" in
+  unstated | "$SCHEMA_MAJOR") ;;
+  *)
+    echo "$prog: skipping (schema $v.x; this tool reads $SCHEMA_MAJOR.x): $f" >&2
+    skipped=$((skipped + 1))
+    continue
+    ;;
+  esac
   host=$(basename "$f" .json)
   jq -c --arg host "$host" "$row" "$f" >>"$tmp"
 done

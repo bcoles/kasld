@@ -46,6 +46,7 @@ trap 'rm -rf "$TMP"' EXIT
 base=$TMP/baseline.json
 cat >"$base" <<'EOF'
 {
+  "schema_version": "1.0",
   "replay": false,
   "arch": "x86_64",
   "kaslr": {
@@ -84,6 +85,16 @@ mk otherarch '.arch = "aarch64"'
 # A snapshot naming no architecture -- the pair cannot be checked, and is still
 # compared rather than refused.
 mk noarch 'del(.arch)'
+# Format version. A MAJOR this tool does not read means a key may have been
+# renamed under it, so the verdict would be computed from paths that no longer
+# mean what the queries assume: refused. A higher MINOR is additive and read as
+# it stands. A snapshot from before the field states nothing to check and is
+# still compared, exactly as one stating no fact source is.
+mk newmajor  '.schema_version = "2.0"'
+mk oldmajor  '.schema_version = "0.9"'
+mk newminor  '.schema_version = "1.7"'
+mk badschema '.schema_version = "x"'
+mk noschema  'del(.schema_version)'
 # A posture state outside the ranked set. Reported when it changes, silent when
 # it does not; never scored as the best state, which would pass a real move.
 mk unranked '.hardening.kaslr_posture.state = "quarantined"'
@@ -109,6 +120,21 @@ want() {
   fi
 }
 
+# Which side is stale is the whole content of the message: telling someone to
+# update the wrong half of the pair sends them to change the thing that was
+# already right. Asserted on the text, since the exit code is the same either
+# way.
+say() {
+  _f=$1
+  _want=$2
+  _desc=$3
+  if ! "$TOOL" "$base" "$_f" 2>&1 >/dev/null | grep -q "$_want"; then
+    printf '%scheck-posture-diff: FAIL%s — %s: message does not say "%s"\n' \
+      "$RED" "$RESET" "$_desc" "$_want" >&2
+    fails=$((fails + 1))
+  fi
+}
+
 # 0 = no regression
 want 0 "$base" "$base" "identical snapshots"
 want 0 "$base" "$TMP/reboot.json" "reboot (re-randomized address, same posture)"
@@ -130,6 +156,14 @@ want 0 "$base" "$TMP/noarch.json" "current states no architecture"
 want 2 "$base" "$TMP/replayed.json" "live baseline against a replayed current"
 want 2 "$TMP/replayed.json" "$base" "replayed baseline against a live current"
 want 2 "$base" "$TMP/otherarch.json" "snapshots describe different architectures"
+want 0 "$base" "$TMP/newminor.json" "current states a higher schema MINOR"
+want 0 "$base" "$TMP/noschema.json" "current states no schema_version"
+want 2 "$base" "$TMP/newmajor.json" "current states a schema MAJOR this tool does not read"
+want 2 "$base" "$TMP/oldmajor.json" "current predates this tool's schema MAJOR"
+want 2 "$base" "$TMP/badschema.json" "current states an unreadable schema_version"
+
+say "$TMP/newmajor.json" "newer than this tool" "a newer snapshot names the tool as stale"
+say "$TMP/oldmajor.json" "predates this tool" "an older snapshot names itself as stale"
 want 2 "$base" "$TMP/broken.json" "invalid JSON input"
 want 2 "$base" "$TMP/notkasld.json" "valid JSON but not a kasld snapshot"
 want 2 "$base" "$TMP/nonexistent.json" "missing input file"
@@ -139,5 +173,5 @@ if [ "$fails" -ne 0 ]; then
   exit 1
 fi
 
-printf '%scheck-posture-diff: OK%s (20 cases; reboot ignored, regressions caught)\n' \
+printf '%scheck-posture-diff: OK%s (27 cases; reboot ignored, regressions caught)\n' \
   "$GREEN" "$RESET"
