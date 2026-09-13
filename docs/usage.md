@@ -513,11 +513,37 @@ addition: it appends each component's raw stdout `output` lines.) See
 [docs/exploitation.md](exploitation.md) for how the JSON plugs into an exploit —
 control-flow and data-only strategies, a pwntools template, and `ksymoff`.
 
-A top-level `replay` boolean says whether the facts were read from a captured
-tree (via `KASLD_SYSROOT`) rather than from the running system. It is always
-present. A replayed document names the captured kernel in every field, so
-nothing else in it separates a capture from a live snapshot — a fleet or CI
-layer that handles both should key on this rather than infer it.
+A JSON Schema for the document ships as
+[docs/kasld.schema.json](kasld.schema.json) — validate an ingested document
+against it, or generate types from it, rather than working from the prose here.
+`tests/check-json-schema` holds the two in step over every captured
+architecture, so the schema cannot fall behind the emitter.
+
+#### Envelope
+
+Five top-level fields identify the document before anything it measured, so a
+stored blob is routable without parsing the analysis.
+
+| Key | Meaning |
+| --- | --- |
+| `schema_version` | the **format's** version, `MAJOR.MINOR` — see the compatibility rule below |
+| `version` | the kasld binary's version. A `-dev` suffix is not unique to a commit |
+| `replay` | whether the facts were read from a captured tree (`KASLD_SYSROOT`) rather than from the running system. A replayed document names the captured kernel in every field, so nothing else in it separates a capture from a live snapshot — a fleet or CI layer that handles both keys on this rather than inferring it |
+| `host` | the machine the facts describe, as it names itself; inside a UTS namespace, the container's name. `null` on a replay: a capture states no name of its own, and the analysing host's would name a machine that was never measured |
+| `generated_utc` | when the document was written, `YYYY-MM-DDTHH:MM:SSZ`. On a live run that is also when the facts were read; on a replay `replay` says the facts are older, and the capture's own time stays with its bundle. `null` where the clock could not be read |
+
+**Compatibility rule.** `schema_version` is deliberately separate from
+`version`: the tool's version changes for reasons that leave the document alone,
+so a consumer keying on it has to re-test against releases that changed nothing
+it reads. MINOR increments are additive only — a new key, a new member of an
+open vocabulary, or a conditional key becoming unconditional. MAJOR increments
+where a key is removed or renamed, a value's type or meaning changes, or an
+unconditional key becomes conditional. So: dispatch on MAJOR, ignore unknown
+keys, and do not reject a higher MINOR. `make bump-version` does not touch it.
+
+The shipped schema describes exactly one version and pins it as a `const`, so it
+rejects a document of any other; the schema for an earlier release ships with
+that release.
 
 The KASLR object reports two windows plus a headline base. The key names
 differ from the text labels; the mapping is:

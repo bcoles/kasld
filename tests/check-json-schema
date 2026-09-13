@@ -1,0 +1,365 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-json-schema — docs/kasld.schema.json and the `-j` emitter describe the
+# same document.
+#
+# A schema is trusted harder than prose. A consumer validates against it,
+# generates types from it, and stops reading the documentation — so a schema
+# that has fallen behind the emitter is worse than no schema at all, and nothing
+# about a renamed key announces itself: the renderer still produces valid JSON,
+# every other test still passes, and the only thing that changed is that the
+# published contract is now a lie.
+#
+# Two halves, and the split is deliberate.
+#
+#   1. KEY-SET DRIFT, both directions. Pure python3 standard library, so it
+#      never skips. Every key any document emits must be declared; every key the
+#      schema declares must either be reached by the corpus or be named in the
+#      UNEXERCISED list below. The second direction is what catches a rename:
+#      the emitter's new spelling fails the first check and the orphaned old
+#      spelling fails the second, so one rename trips both.
+#
+#   2. FULL VALIDATION — types, enums, patterns, required. Needs a real JSON
+#      Schema validator (python3 `jsonschema`); soft-skips without one, and CI
+#      installs it. Deliberately not reimplemented here: the point of publishing
+#      a schema is that somebody else's validator reads it, so the check that
+#      matters is the one run by the same semantics they will use, not by a
+#      subset of them written to agree with this tree.
+#
+# The corpus is every fixture paired with a binary built for ITS architecture —
+# native where the host runs that architecture, qemu-user otherwise — plus the
+# flag combinations that change the document's shape. Pairing matters: the
+# arch-conditional keys are exactly the ones a single-architecture sweep would
+# leave undeclared, and `required` is a claim about all of them.
+#
+# The UNEXERCISED list is not a waiver. It names what the corpus cannot reach —
+# a derived-confidence record, a speculative sub-window, a truncated group list
+# — and holding it exact in both directions is what keeps it from rotting into
+# one. A key that starts being exercised is removed from it.
+#
+# Usage: tests/check-json-schema   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
+# shellcheck source=tests/lib/qemu-target.sh
+. "$ROOT/tests/lib/qemu-target.sh"
+
+SCHEMA=$ROOT/docs/kasld.schema.json
+HDR=$ROOT/src/include/kasld/internal.h
+
+[ -r "$SCHEMA" ] || { guard_fail "no docs/kasld.schema.json"; exit 1; }
+
+rc=0
+note() {
+  printf '  %sFAIL%s %s\n' "$RED" "$RESET" "$1" >&2
+  rc=1
+}
+
+# ---------------------------------------------------------------------------
+# The version the emitter states and the version the schema describes.
+# ---------------------------------------------------------------------------
+# Pure text, so it runs on a tree that was never built. The schema pins the
+# version as a `const`, which means a document of any other version fails to
+# validate against it — so the two disagreeing is not a cosmetic mismatch, it is
+# the published schema rejecting every document the tool produces.
+c_ver=$(sed -n 's/^#define KASLD_JSON_SCHEMA_VERSION "\([^"]*\)".*/\1/p' "$HDR")
+s_ver=$(sed -n '/"schema_version"/,/}/s/.*"const": "\([^"]*\)".*/\1/p' "$SCHEMA" |
+  head -1)
+[ -n "$c_ver" ] || note "no KASLD_JSON_SCHEMA_VERSION in src/include/kasld/internal.h"
+[ -n "$s_ver" ] || note "schema declares no const for schema_version"
+if [ -n "$c_ver" ] && [ -n "$s_ver" ] && [ "$c_ver" != "$s_ver" ]; then
+  note "emitter states schema_version $c_ver, schema describes $s_ver"
+fi
+
+# The format version is independent of the tool's, which is the whole reason it
+# exists: a consumer keying compatibility off VERSION has to re-test against
+# releases that changed nothing it reads. `make bump-version` must therefore
+# leave it alone, and the recipe naming neither the macro nor the schema is what
+# says so.
+bump=$(sed -n '/^bump-version :/,/^$/p' "$ROOT/Makefile")
+case "$bump" in
+*KASLD_JSON_SCHEMA_VERSION* | *kasld.schema.json*)
+  note "make bump-version touches the schema version; the two versions are independent"
+  ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Corpus
+# ---------------------------------------------------------------------------
+if ! command -v python3 >/dev/null 2>&1; then
+  guard_skip "needs python3"
+  exit "$rc"
+fi
+
+BIN=$(host_kasld)
+if [ -z "$BIN" ]; then
+  guard_skip "no native kasld build under $ROOT/build; run make first"
+  exit "$rc"
+fi
+
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+docs=0
+arches=
+qemu_used=0
+native_fx=
+
+for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
+  [ -d "$sysroot" ] || continue
+  fxdir=$(dirname "$sysroot")
+  arch=$(basename "$(dirname "$fxdir")")
+  host=$(basename "$fxdir")
+
+  # A capture is only meaningful under a binary built for its architecture, and
+  # the machine string it records is the authority — "mips" names both byte
+  # orders, so the bundle's endianness field supplies what the string cannot.
+  m=$(sed -n 's/^uname_m_raw: *//p' "$fxdir/meta.txt" 2>/dev/null)
+  e=$(sed -n 's/^endianness: *//p' "$fxdir/meta.txt" 2>/dev/null)
+  [ -n "$m" ] || continue
+  triple=$(target_triple_for "$(effective_machine "$m" "$e")")
+  [ -n "$triple" ] || continue
+
+  bin= ; run=
+  for cand in "$ROOT"/build/"$triple"*/kasld; do
+    [ -x "$cand" ] || continue
+    bin=$cand
+    break
+  done
+  [ -n "$bin" ] || continue
+
+  if host_runs_arch "${triple%%-*}"; then
+    [ -n "$native_fx" ] || native_fx=$sysroot
+  else
+    run=$(resolve_qemu "$(qemu_for "$triple")") || continue
+    [ -n "$run" ] || continue
+    qemu_used=1
+  fi
+
+  KASLD_SYSROOT="$sysroot" $run "$bin" -j -H > "$TMP/$arch--$host.json" 2>/dev/null
+  [ -s "$TMP/$arch--$host.json" ] || continue
+  docs=$((docs + 1))
+  case " $arches " in *" $arch "*) ;; *) arches="$arches $arch" ;; esac
+done
+
+# Flag combinations, on one native capture. They change the document's SHAPE
+# rather than its architecture: --verbose is the one documented addition
+# (components[].output), -x admits the experimental components, and skipping
+# everything leaves the arrays empty — the state in which a separator keyed on a
+# loop index rather than on what was emitted produces malformed JSON.
+if [ -n "$native_fx" ]; then
+  # Globbing off for the loop: the skip-everything pattern is a literal `*`,
+  # and an unquoted expansion of it is the directory listing instead.
+  set -f
+  for flags in "-j" "-j -v -H" "-j -x -H" "-j -s *"; do
+    tag=$(printf '%s' "$flags" | tr -cd 'a-zA-Z')
+    # shellcheck disable=SC2086
+    KASLD_SYSROOT="$native_fx" "$BIN" $flags > "$TMP/zz-$tag.json" 2>/dev/null
+    [ -s "$TMP/zz-$tag.json" ] || continue
+    docs=$((docs + 1))
+  done
+  set +f
+fi
+
+if [ "$docs" -eq 0 ]; then
+  guard_skip "no fixture produced a document; run make cross for the foreign-arch sweep"
+  exit "$rc"
+fi
+
+# ---------------------------------------------------------------------------
+# 1. Key-set drift, both directions (standard library only)
+# ---------------------------------------------------------------------------
+# Declared but not reachable from the corpus. Each line says what the corpus
+# lacks, not what the schema got wrong.
+cat > "$TMP/unexercised" <<'EOF'
+components.[].disposition.gate
+derived.[].addr
+derived.[].addr_hi
+derived.[].label
+derived.[].pos
+derived.[].section
+derived.[].type
+derived.[].via
+environment.groups_truncated
+hardening.confirmed_mitigations.[].component
+hardening.confirmed_mitigations.[].gate
+hardening.confirmed_mitigations.[].message
+hardening.hardware_side_channels.[].component
+hardening.hardware_side_channels.[].discloses
+hardening.hardware_side_channels.[].hardware
+hardening.hardware_side_channels.[].succeeded
+kaslr.inferred.excluded
+kaslr.inferred.excluded.[].max
+kaslr.inferred.excluded.[].min
+kaslr.inferred.excluded_total
+kaslr.memory_kaslr.virt_page_offset_base.likely
+kaslr.memory_kaslr.virt_page_offset_base.likely.max
+kaslr.memory_kaslr.virt_page_offset_base.likely.min
+kaslr.memory_kaslr.virt_page_offset_base.likely.slots
+kaslr.memory_kaslr.virt_page_offset_base.likely.speculative
+kaslr.memory_kaslr.virt_vmalloc_base.likely
+kaslr.memory_kaslr.virt_vmalloc_base.likely.max
+kaslr.memory_kaslr.virt_vmalloc_base.likely.min
+kaslr.memory_kaslr.virt_vmalloc_base.likely.slots
+kaslr.memory_kaslr.virt_vmalloc_base.likely.speculative
+kaslr.memory_kaslr.virt_vmemmap_base.entropy_bits_initial
+kaslr.memory_kaslr.virt_vmemmap_base.likely
+kaslr.memory_kaslr.virt_vmemmap_base.likely.max
+kaslr.memory_kaslr.virt_vmemmap_base.likely.min
+kaslr.memory_kaslr.virt_vmemmap_base.likely.slots
+kaslr.memory_kaslr.virt_vmemmap_base.likely.speculative
+kaslr.memory_kaslr.virt_vmemmap_base.slots_initial
+kaslr.module_base.likely
+kaslr.module_base.likely.max
+kaslr.module_base.likely.min
+kaslr.module_base.likely.slots
+kaslr.module_base.likely.speculative
+kaslr.physical.speculative
+kaslr.physical.stext
+kaslr.va_bits.likely
+kaslr.va_bits.likely.candidates
+kaslr.va_bits.likely.speculative
+kaslr.va_bits.likely.values
+kaslr.virtual.speculative
+kaslr.virtual.stext
+EOF
+
+python3 - "$SCHEMA" "$TMP/unexercised" "$TMP"/*.json <<'PYEOF' || rc=1
+import json, sys
+
+schema_path, waived_path = sys.argv[1], sys.argv[2]
+docs = sys.argv[3:]
+
+
+def resolve(node, root):
+    """Follow local $refs to the schema object they name."""
+    for _ in range(16):
+        if not (isinstance(node, dict) and '$ref' in node):
+            return node
+        ref = node['$ref']
+        if not ref.startswith('#/'):
+            return node
+        cur = root
+        for part in ref[2:].split('/'):
+            cur = cur[part]
+        node = cur
+    return node
+
+
+def declared(node, root, path, out, depth=0):
+    """Every property path the schema names, as a tuple. '*' is an open map,
+    '[]' an array element."""
+    node = resolve(node, root)
+    if not isinstance(node, dict) or depth > 40:
+        return
+    for combinator in ('oneOf', 'anyOf', 'allOf'):
+        for sub in node.get(combinator, []):
+            declared(sub, root, path, out, depth + 1)
+    for key, sub in node.get('properties', {}).items():
+        out.add(path + (key,))
+        declared(sub, root, path + (key,), out, depth + 1)
+    extra = node.get('additionalProperties')
+    if isinstance(extra, dict):
+        out.add(path + ('*',))
+        declared(extra, root, path + ('*',), out, depth + 1)
+    items = node.get('items')
+    if isinstance(items, dict):
+        declared(items, root, path + ('[]',), out, depth + 1)
+
+
+def observe(doc, path, decl, hit, unknown):
+    """Walk a document BESIDE the declared set, so a key whose own name
+    contains a dot or a slash — every /boot oracle path does — is one step of
+    the walk rather than a string to be split apart afterwards."""
+    if isinstance(doc, dict):
+        for key, val in doc.items():
+            literal, star = path + (key,), path + ('*',)
+            nxt = literal if literal in decl else star if star in decl else None
+            if nxt is None:
+                unknown.add('.'.join(path + (key,)))
+                continue
+            hit.add(nxt)
+            observe(val, nxt, decl, hit, unknown)
+    elif isinstance(doc, list):
+        for element in doc:
+            observe(element, path + ('[]',), decl, hit, unknown)
+
+
+schema = json.load(open(schema_path))
+decl = set()
+declared(schema, schema, (), decl)
+
+hit, unknown = set(), set()
+for name in docs:
+    try:
+        observe(json.load(open(name)), (), decl, hit, unknown)
+    except ValueError as exc:
+        print(f'  not JSON: {name}: {exc}', file=sys.stderr)
+        sys.exit(1)
+
+waived = {l.strip() for l in open(waived_path) if l.strip()}
+unexercised = {'.'.join(p) for p in decl - hit}
+
+fail = False
+for path in sorted(unknown):
+    print(f'  emitted but not declared in the schema: {path}', file=sys.stderr)
+    fail = True
+for path in sorted(unexercised - waived):
+    print(f'  declared but no document emits it: {path}', file=sys.stderr)
+    fail = True
+for path in sorted(waived - unexercised):
+    print(f'  listed as unexercised but the corpus now emits it: {path}',
+          file=sys.stderr)
+    fail = True
+sys.exit(1 if fail else 0)
+PYEOF
+
+# ---------------------------------------------------------------------------
+# 2. Full validation, where a validator is installed
+# ---------------------------------------------------------------------------
+validated=skipped
+if python3 -c 'import jsonschema' 2>/dev/null; then
+  if python3 - "$SCHEMA" "$TMP"/*.json <<'PYEOF'
+import json, os, sys
+from jsonschema import Draft202012Validator
+
+schema = json.load(open(sys.argv[1]))
+Draft202012Validator.check_schema(schema)
+validator = Draft202012Validator(schema)
+
+bad = 0
+for name in sys.argv[2:]:
+    errors = sorted(validator.iter_errors(json.load(open(name))),
+                    key=lambda e: list(e.absolute_path))
+    if not errors:
+        continue
+    bad += 1
+    for err in errors[:5]:
+        where = '/'.join(str(p) for p in err.absolute_path) or '<root>'
+        print(f'  {os.path.basename(name)}: {where}: {err.message}',
+              file=sys.stderr)
+sys.exit(1 if bad else 0)
+PYEOF
+  then
+    validated=ok
+  else
+    rc=1
+    validated=failed
+  fi
+fi
+
+[ "$rc" -eq 0 ] || { guard_fail "schema and emitter disagree"; exit 1; }
+
+scope="$docs documents,$arches"
+[ "$qemu_used" -eq 1 ] || scope="$scope (native only; run make cross for the foreign-arch sweep)"
+case "$validated" in
+ok) guard_ok "$scope; keys agree both ways and every document validates" ;;
+*) guard_ok "$scope; keys agree both ways (full validation skipped: no python3 jsonschema)" ;;
+esac

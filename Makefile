@@ -1100,6 +1100,7 @@ lint :
 	    $(TEST_DIR)/check-host-build \
 	    $(TEST_DIR)/check-env-switches \
 	    $(TEST_DIR)/check-json-partial-skip \
+	    $(TEST_DIR)/check-json-schema \
 	    $(TEST_DIR)/check-asm-syntax \
 	    $(TEST_DIR)/check-clang-build \
 	    $(TEST_DIR)/check-hash-parity \

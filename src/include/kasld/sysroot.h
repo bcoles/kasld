@@ -282,7 +282,9 @@ kasld_uname_from_proc_version(struct utsname *u) {
  *
  * With neither set (normal runs) => exact uname() pass-through. .machine is
  * never overridden: it is the emulated arch under qemu, and compile-time on
- * native. */
+ * native. .nodename follows the release: it names the machine the facts came
+ * from, so a capture leaves it empty rather than holding the analysing
+ * host's. */
 __attribute__((unused)) static int kasld_uname(struct utsname *u) {
   int rc = uname(u);
   if (rc == 0) {
@@ -308,6 +310,17 @@ __attribute__((unused)) static int kasld_uname(struct utsname *u) {
       if (!have_rel)
         rc = -1;
     }
+
+    /* .nodename names the machine the facts describe, and a capture states no
+     * name of its own -- there is no /proc path carrying it and the bundle's
+     * own metadata sits outside the sysroot. So it is cleared for the same
+     * reason as the release above, and unconditionally: the release can be
+     * recovered from the captured /proc/version, a name cannot, so there is no
+     * case where uname(2)'s answer is the captured machine's. Left holding the
+     * analysing host's, a replayed report would name a machine that was never
+     * measured. Consumers read it as absent. */
+    if (kasld_fact_source() == KASLD_FACTS_CAPTURE)
+      memset(u->nodename, 0, sizeof(u->nodename));
 
     if (have_rel) {
       size_t n = sizeof(u->release) - 1;

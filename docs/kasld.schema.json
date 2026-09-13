@@ -1,0 +1,876 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/bcoles/kasld/master/docs/kasld.schema.json",
+  "title": "KASLD JSON report",
+  "description": "The document `kasld -j` writes: one self-contained posture snapshot of a target's kernel address-space layout.\n\nVERSIONING. The document carries `schema_version` as MAJOR.MINOR, distinct from `version`, which is the tool's. MINOR increments are additive only - a new key, a new member of an open vocabulary, or a conditional key becoming unconditional. MAJOR increments where a key is removed or renamed, a value's type or meaning changes, or an unconditional key becomes conditional. A consumer dispatches on MAJOR, ignores keys it does not know, and must not reject a higher MINOR. This file describes exactly one version and pins it as a const, so a document of another version does not validate against it; the schema for an earlier release ships with that release.\n\nCOMPLETENESS. Every block is present whatever the flags were, so a consumer keys on presence-of-key rather than on how the collector was invoked. `--verbose` adds `components[].output` and nothing else. A key is absent only where the target has no such unknown - never because a run learned less. An un-narrowed quantity states the architectural window, which is itself an answer.\n\nWINDOWS. `inferred` / `inferred_physical` are the guaranteed windows, resolved at the sound floor and containing the true base. `likely` / `likely_physical` are speculative subsets of them and may be wrong; both are self-marked with `speculative`. A window's range_min/range_max are its convex HULL: the engine carves sub-ranges out of the interior, `slots` already counts only what survives, and `excluded` lists the carved ranges the report retains with `excluded_total` saying how many there were.\n\nVOCABULARIES. Fields a consumer switches on carry an enum. Region, section and method names do not: they are table-driven and grow with the tool, and pinning them here would turn every new region into a version question. Treat them as open strings.\n\nADDRESSES are hex strings, never numbers - a 64-bit kernel address does not survive a JSON number in every parser.",
+
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "version",
+    "replay",
+    "host",
+    "generated_utc",
+    "arch",
+    "kernel",
+    "environment",
+    "discarded",
+    "layout",
+    "kaslr",
+    "page_geometry",
+    "groups",
+    "derived",
+    "component_stats",
+    "components",
+    "excluded_components",
+    "hardening"
+  ],
+
+  "properties": {
+    "schema_version": {
+      "description": "Format version of this document, MAJOR.MINOR. Not the tool's version.",
+      "const": "1.0"
+    },
+    "version": {
+      "description": "The kasld binary's version. A `-dev` suffix is not unique to a commit.",
+      "type": "string"
+    },
+    "replay": {
+      "description": "true where the facts were read from a captured tree (KASLD_SYSROOT) rather than the running system. A replayed document names the captured kernel throughout, so nothing else in it separates a capture from a live snapshot.",
+      "type": "boolean"
+    },
+    "host": {
+      "description": "The machine the facts describe, as it names itself. Inside a UTS namespace that is the container's name. null on a replay: a capture states no name of its own, and the analysing host's would name a machine that was never measured.",
+      "type": ["string", "null"]
+    },
+    "generated_utc": {
+      "description": "When this document was written, in UTC. On a live run that is also when the facts were read; on a replay `replay` says the facts are older, and the capture's own time stays with its bundle. null where the clock could not be read.",
+      "type": ["string", "null"],
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "arch": {
+      "description": "uname machine string, or \"unknown\".",
+      "type": "string"
+    },
+
+    "kernel": {
+      "description": "The kernel the facts come from. Empty where uname could not be read; a capture that states no /proc/version leaves `version` null rather than holding the analysing host's.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "release": { "type": "string" },
+        "version": { "type": ["string", "null"] },
+        "machine": { "type": "string" }
+      }
+    },
+
+    "environment": {
+      "description": "The recon vantage: what this process is and what it can reach. null means the value could not be read here, which is not the same as its being absent - an enforcing policy commonly hides its own state.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "container",
+        "seccomp",
+        "lsm",
+        "selinux",
+        "security_context",
+        "mac_enforcing",
+        "uid",
+        "euid",
+        "gid",
+        "egid",
+        "groups",
+        "group_gated_sources",
+        "capabilities",
+        "no_new_privs",
+        "readable_oracles",
+        "cap_reachable_leaks"
+      ],
+      "properties": {
+        "container": { "type": ["string", "null"] },
+        "seccomp": { "enum": ["none", "strict", "filter", "unknown", null] },
+        "lsm": { "type": ["string", "null"] },
+        "selinux": { "enum": ["enforcing", "permissive", null] },
+        "security_context": { "type": ["string", "null"] },
+        "mac_enforcing": {
+          "description": "The only one of the four that asserts anything: true only where a policy was observed actively confining this process.",
+          "type": "boolean"
+        },
+        "uid": { "type": ["integer", "null"] },
+        "euid": { "type": ["integer", "null"] },
+        "gid": { "type": ["integer", "null"] },
+        "egid": { "type": ["integer", "null"] },
+        "groups": {
+          "description": "null where unreadable. The four ids above are null together - 0 is a real uid, so no value in the field can say \"unknown\".",
+          "type": ["array", "null"],
+          "items": { "type": "integer" }
+        },
+        "groups_truncated": {
+          "description": "Present and true only where the process holds more groups than the report keeps.",
+          "const": true
+        },
+        "group_gated_sources": {
+          "description": "Those of the process's groups that kasld knows gate a source it reads.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["gid", "name", "gates"],
+            "properties": {
+              "gid": { "type": "integer" },
+              "name": { "type": "string" },
+              "gates": { "type": "string" }
+            }
+          }
+        },
+        "capabilities": { "type": ["string", "null"] },
+        "no_new_privs": { "type": ["boolean", "null"] },
+        "readable_oracles": {
+          "description": "The leak sources probed for readability, keyed by path. The /boot System.map and config paths include the running kernel release, so the key set is not fixed. `readable` is false for all three non-readable states; `status` says which.",
+          "type": "object",
+          "propertyNames": { "pattern": "^/" },
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["readable", "status"],
+            "properties": {
+              "readable": { "type": "boolean" },
+              "status": { "enum": ["readable", "denied", "absent", "unknown"] }
+            }
+          }
+        },
+        "cap_reachable_leaks": {
+          "description": "Capability-gated leak sources reachable from this process's effective capabilities.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["capability", "source"],
+            "properties": {
+              "capability": { "type": "string" },
+              "source": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+
+    "discarded": {
+      "description": "What this run threw away. Present whatever happened, empty array included, so \"nothing was discarded\" is distinguishable from \"this build does not report discards\". It bears on every number below it: a run that discarded evidence resolved from a subset of what was available.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["total", "kinds", "truncated", "entries"],
+      "properties": {
+        "total": { "type": "integer" },
+        "kinds": {
+          "description": "Distinct (reason, source) pairs in the breakdown.",
+          "type": "integer"
+        },
+        "truncated": {
+          "description": "true where total and kinds disagree because the ledger filled.",
+          "type": "boolean"
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["reason", "source", "count"],
+            "properties": {
+              "reason": {
+                "enum": ["bounds", "conflict", "curated", "parse", "capacity", "unknown"]
+              },
+              "source": { "type": ["string", "null"] },
+              "count": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+
+    "layout": {
+      "description": "The architectural model: compile-time bounds from the arch header plus the engine-resolved edges. Constants here are what a build of this architecture knows, not measurements of the target.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "virt_kernel_vas_start",
+        "virt_kernel_vas_end",
+        "virt_page_offset",
+        "virt_page_offset_unrandomized",
+        "virt_image_base_min",
+        "virt_image_base_max",
+        "image_align",
+        "virt_image_base_default",
+        "phys_image_base_default",
+        "phys_kaslr_text_min",
+        "phys_kaslr_text_max",
+        "phys_kaslr_align",
+        "modules_start",
+        "modules_end",
+        "text_tracks_directmap",
+        "directmap_static"
+      ],
+      "properties": {
+        "virt_kernel_vas_start": { "$ref": "#/$defs/address" },
+        "virt_kernel_vas_end": { "$ref": "#/$defs/address" },
+        "virt_page_offset": { "$ref": "#/$defs/address" },
+        "virt_page_offset_unrandomized": {
+          "description": "Where the direct map would sit un-randomized, for the paging level the engine resolved. virt_page_offset minus this is the RANDOMIZE_MEMORY slide, which a consumer cannot otherwise recover. Zero where the level is unresolved or the architecture randomizes no region bases.",
+          "$ref": "#/$defs/address"
+        },
+        "virt_image_base_min": { "$ref": "#/$defs/address" },
+        "virt_image_base_max": { "$ref": "#/$defs/address" },
+        "image_align": { "$ref": "#/$defs/address" },
+        "virt_image_base_default": {
+          "description": "Where a build of this architecture links the kernel absent any relocation. A build constant, not a finding: containment in the resolved window is not corroboration, so that comparison is the consumer's to make.",
+          "$ref": "#/$defs/address"
+        },
+        "phys_image_base_default": { "$ref": "#/$defs/addressOrNull" },
+        "phys_kaslr_text_min": { "$ref": "#/$defs/addressOrNull" },
+        "phys_kaslr_text_max": { "$ref": "#/$defs/addressOrNull" },
+        "phys_kaslr_align": { "$ref": "#/$defs/addressOrNull" },
+        "modules_start": { "$ref": "#/$defs/address" },
+        "modules_end": { "$ref": "#/$defs/address" },
+        "text_tracks_directmap": {
+          "description": "true where kernel text sits at a fixed offset within the linear map, so a physical leak reveals the virtual text base.",
+          "type": "boolean"
+        },
+        "directmap_static": {
+          "description": "true where the linear-map base does not move at runtime. Orthogonal to text_tracks_directmap.",
+          "type": "boolean"
+        }
+      }
+    },
+
+    "kaslr": {
+      "description": "What remains unknown about the layout, and how much. Which members appear is a property of the machine: an architecture that does not randomize a region has no such unknown and reports none.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["disabled", "unsupported", "randomization_failed"],
+      "properties": {
+        "disabled": { "type": "boolean" },
+        "unsupported": { "type": "boolean" },
+        "randomization_failed": {
+          "description": "Distinct from `disabled`: the boot stub ran and relocated the image, only the randomness was missing, so placement is firmware-determined rather than at the link-time default.",
+          "type": "boolean"
+        },
+        "virtual": { "$ref": "#/$defs/basePoint" },
+        "physical": { "$ref": "#/$defs/basePoint" },
+        "inferred": { "$ref": "#/$defs/guaranteedWindow" },
+        "inferred_physical": { "$ref": "#/$defs/guaranteedWindow" },
+        "likely": { "$ref": "#/$defs/likelyWindow" },
+        "likely_physical": { "$ref": "#/$defs/likelyWindow" },
+        "module_base": {
+          "description": "Where the module region can START - not `layout.modules_start`, which spans every address a module may occupy. Present because the machine has the quantity, not because this run narrowed it.",
+          "$ref": "#/$defs/edgeWindow"
+        },
+        "memory_kaslr": {
+          "description": "Region bases the architecture randomizes independently of kernel text (on x86_64, the CONFIG_RANDOMIZE_MEMORY chain). Only the regions this machine randomizes are named.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "virt_page_offset_base": { "$ref": "#/$defs/edgeWindow" },
+            "virt_vmalloc_base": { "$ref": "#/$defs/edgeWindow" },
+            "virt_vmemmap_base": { "$ref": "#/$defs/edgeWindow" }
+          }
+        },
+        "va_bits": {
+          "description": "The address-space size in bits: a finite set of admissible sizes rather than a window, so it carries values instead of endpoints. Present only where the architecture admits more than one size. A single entry in `values` IS the resolution; there is no separate resolved flag.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["values", "candidates", "entropy_bits"],
+          "properties": {
+            "values": { "type": "array", "items": { "type": "integer" } },
+            "candidates": { "type": "integer" },
+            "candidates_initial": {
+              "description": "The set the count is measured against: the sizes the architecture admits. Named candidates rather than slots because a paging level sits on no grid.",
+              "type": "integer"
+            },
+            "entropy_bits": { "type": "integer" },
+            "likely": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["values", "candidates", "speculative"],
+              "properties": {
+                "values": { "type": "array", "items": { "type": "integer" } },
+                "candidates": { "type": "integer" },
+                "speculative": { "const": true }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "page_geometry": {
+      "description": "Facts about the target rather than unknowns the run resolved. The page size follows from the architecture where it admits one size and from a probe where it admits several; struct page's size comes from BTF alone, so a kernel built without it reports null rather than the common value.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["page_size", "struct_page_bytes"],
+      "properties": {
+        "page_size": { "type": ["integer", "null"] },
+        "struct_page_bytes": { "type": ["integer", "null"] }
+      }
+    },
+
+    "groups": {
+      "description": "The leak evidence, one entry per (type, section, region) - the same split the text readout prints as separate blocks. A group's aggregate describes only the region it names: several regions routinely share one section, so `section` is not a unique key and `region` is what tells the groups apart.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "type",
+          "section",
+          "region",
+          "display",
+          "consensus",
+          "consensus_method",
+          "consensus_sources",
+          "conflicts",
+          "interior_only",
+          "lo",
+          "results"
+        ],
+        "properties": {
+          "type": { "enum": ["V", "P"] },
+          "section": { "type": "string" },
+          "region": { "type": "string" },
+          "display": { "type": "string" },
+          "consensus": {
+            "description": "The most base-like address in the group. Where `interior_only` is true this is the lowest sample, not a resolved base.",
+            "$ref": "#/$defs/address"
+          },
+          "consensus_method": { "type": "string" },
+          "consensus_sources": { "type": "integer" },
+          "conflicts": { "type": "integer" },
+          "interior_only": {
+            "description": "The group carries only interior samples and no edge, so lo/hi bound the corroborated span rather than a resolved base, and `conflicts` is 0 because interior samples do not compete.",
+            "type": "boolean"
+          },
+          "lo": { "$ref": "#/$defs/address" },
+          "hi": { "$ref": "#/$defs/address" },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "raw",
+                "aligned",
+                "pos",
+                "region",
+                "name",
+                "origins",
+                "method",
+                "methods",
+                "valid"
+              ],
+              "properties": {
+                "raw": { "$ref": "#/$defs/address" },
+                "aligned": { "$ref": "#/$defs/address" },
+                "pos": { "enum": ["base", "top", "interior", "extent", "unknown"] },
+                "region": { "type": "string" },
+                "name": {
+                  "description": "The specific instance where known - a kernel symbol, a module name, an ACPI table id.",
+                  "type": "string"
+                },
+                "origins": {
+                  "description": "The components that produced this record.",
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "method": {
+                  "description": "The single strongest method, for consumers that want one; `methods` carries the set.",
+                  "type": "string"
+                },
+                "methods": { "type": "array", "items": { "type": "string" } },
+                "valid": {
+                  "description": "Whether the record passes the layout bounds check.",
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+
+    "derived": {
+      "description": "Records the engine derived rather than read, one per observation at derived confidence.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "section", "addr", "label", "pos", "via"],
+        "properties": {
+          "type": { "enum": ["V", "P"] },
+          "section": { "type": "string" },
+          "addr": { "$ref": "#/$defs/address" },
+          "addr_hi": {
+            "description": "Present only where the record states both edges.",
+            "$ref": "#/$defs/address"
+          },
+          "label": { "type": "string" },
+          "pos": { "enum": ["base", "top", "interior", "extent", "unknown"] },
+          "via": { "type": "string" }
+        }
+      }
+    },
+
+    "component_stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "total",
+        "succeeded",
+        "unavailable",
+        "access_denied",
+        "timed_out",
+        "crashed",
+        "not_started",
+        "no_result"
+      ],
+      "properties": {
+        "total": { "type": "integer" },
+        "succeeded": { "type": "integer" },
+        "unavailable": { "type": "integer" },
+        "access_denied": { "type": "integer" },
+        "timed_out": { "type": "integer" },
+        "crashed": { "type": "integer" },
+        "not_started": { "type": "integer" },
+        "no_result": { "type": "integer" }
+      }
+    },
+
+    "components": {
+      "description": "One record per component that RAN. What the run held back is in `excluded_components`, so the two together account for every component discovered.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "exit_code", "outcome"],
+        "properties": {
+          "name": { "type": "string" },
+          "exit_code": { "type": "integer" },
+          "outcome": {
+            "enum": [
+              "success",
+              "timeout",
+              "access_denied",
+              "unavailable",
+              "no_result",
+              "crashed",
+              "not_started",
+              "unknown"
+            ]
+          },
+          "disposition": {
+            "description": "Why a component produced no tagged result, refining the coarse outcome. Present only where the component could classify its own null result. A `mitigation` names the control it confirmed in `gate`; `absent` means an attacker prerequisite is missing on this host and says nothing about the target's KASLR; `disabled` is a deliberate opt-out; `inconclusive` is an honest \"ran, no clean signal, cannot prove why\" and is never counted as hardening evidence.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["category"],
+            "properties": {
+              "category": {
+                "enum": ["mitigation", "absent", "disabled", "inconclusive"]
+              },
+              "gate": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          },
+          "explain": {
+            "description": "The technique explanation embedded in the component binary.",
+            "type": "string"
+          },
+          "meta": {
+            "description": "The component's parsed KASLD_META, published as declared. An open key set: a component may carry keys this schema does not name, and a key declared more than once becomes an array. `discloses` states what the technique leaks, as distinct from what this run observed.",
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                { "type": "string" },
+                { "type": "array", "items": { "type": "string" } }
+              ]
+            }
+          },
+          "output": {
+            "description": "The component's raw stdout lines. The sole addition made by --verbose.",
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "excluded_components": {
+      "description": "What the run held back and why. Present whatever happened, empty where everything ran, so a component this build does not have is distinguishable from one this run chose not to run - and what -x would add is answerable without running it.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "reason"],
+        "properties": {
+          "name": { "type": "string" },
+          "reason": {
+            "enum": ["skip_pattern", "live_under_capture", "experimental"]
+          }
+        }
+      }
+    },
+
+    "hardening": {
+      "description": "The hardening assessment. Present whatever the flags were; -H is what appends it to the HUMAN formats.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "exposure",
+        "confirmed_mitigations",
+        "text_order",
+        "kaslr_posture",
+        "active_defenses",
+        "lockdown",
+        "available_hardening",
+        "patched_vulnerabilities",
+        "compile_time_surface",
+        "hardware_side_channels",
+        "no_mitigation"
+      ],
+      "properties": {
+        "exposure": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["succeeded", "total", "note"],
+          "properties": {
+            "succeeded": { "type": "integer" },
+            "total": { "type": "integer" },
+            "note": { "type": "string" }
+          }
+        },
+        "confirmed_mitigations": {
+          "description": "Controls a component observed to defeat its leak this run. Runtime observation, distinct from the sysctl gates in active_defenses, which are read from their values.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["gate", "component"],
+            "properties": {
+              "gate": { "type": "string" },
+              "component": { "type": "string" },
+              "message": { "type": "string" }
+            }
+          }
+        },
+        "text_order": {
+          "description": "Kernel-text function ordering, which gates System.map symbol resolution. Where the order is reordered (LTO / AutoFDO / Propeller / FG-KASLR), a leaked address no longer resolves the rest of the symbols via a generic System.map.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["class", "source", "symbol_resolution"],
+          "properties": {
+            "class": {
+              "enum": ["canonical", "reordered_static", "reordered_dynamic", "unknown"]
+            },
+            "source": { "enum": ["config", "kallsyms heuristic", "none"] },
+            "symbol_resolution": {
+              "enum": ["generic_ok", "exact_build_only", "none", "unknown"]
+            }
+          }
+        },
+        "kaslr_posture": {
+          "description": "`state` is mutually exclusive, prioritised unsupported > disabled > randomization_failed > active, so a consumer can switch on it directly. `detected_by` lists the randomization-failure witnesses regardless of the resolved state.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "state",
+            "slot_entropy_zero",
+            "kernel_at_link_time_default",
+            "detected_by"
+          ],
+          "properties": {
+            "state": {
+              "enum": ["unsupported", "disabled", "randomization_failed", "active"]
+            },
+            "slot_entropy_zero": { "type": "boolean" },
+            "kernel_at_link_time_default": { "type": "boolean" },
+            "detected_by": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "active_defenses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "gate",
+              "surface",
+              "value",
+              "threshold",
+              "active",
+              "components_gated",
+              "components_blocked",
+              "components_bypassed"
+            ],
+            "properties": {
+              "gate": { "type": "string" },
+              "surface": { "type": "string" },
+              "value": { "type": "integer" },
+              "threshold": { "type": "integer" },
+              "active": { "type": "boolean" },
+              "components_gated": { "type": "array", "items": { "type": "string" } },
+              "components_blocked": { "type": "array", "items": { "type": "string" } },
+              "components_bypassed": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "lockdown": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "active"],
+          "properties": {
+            "mode": {
+              "enum": ["none", "integrity", "confidentiality", "unavailable"]
+            },
+            "active": { "type": "boolean" }
+          }
+        },
+        "available_hardening": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["action", "surface", "impact", "detail"],
+            "properties": {
+              "action": { "type": "string" },
+              "surface": { "type": "string" },
+              "impact": { "type": "integer" },
+              "detail": { "type": "string" },
+              "silences": { "type": "integer" },
+              "projected": {
+                "description": "What omitting this one suggestion forfeits, measured against applying all of them.",
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "virt_base_entropy_if_omitted_bits",
+                  "virt_base_entropy_forfeited",
+                  "phys_base_entropy_if_omitted_bits",
+                  "phys_base_entropy_forfeited"
+                ],
+                "properties": {
+                  "virt_base_entropy_if_omitted_bits": { "type": "integer" },
+                  "virt_base_entropy_forfeited": { "type": "integer" },
+                  "phys_base_entropy_if_omitted_bits": { "type": "integer" },
+                  "phys_base_entropy_forfeited": { "type": "integer" }
+                }
+              }
+            }
+          }
+        },
+        "projected_posture": {
+          "description": "Current guaranteed residual entropy and the ceiling with every suggestion applied. Absent where the engine is compiled out.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["current", "all_suggestions_applied"],
+          "properties": {
+            "current": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["virt_base_entropy_bits", "phys_base_entropy_bits"],
+              "properties": {
+                "virt_base_entropy_bits": { "type": "integer" },
+                "phys_base_entropy_bits": { "type": "integer" }
+              }
+            },
+            "all_suggestions_applied": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "virt_base_entropy_bits",
+                "phys_base_entropy_bits",
+                "components_silenced"
+              ],
+              "properties": {
+                "virt_base_entropy_bits": { "type": "integer" },
+                "phys_base_entropy_bits": { "type": "integer" },
+                "components_silenced": { "type": "integer" }
+              }
+            }
+          }
+        },
+        "patched_vulnerabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["total", "likely_patched", "possibly_unpatched"],
+          "properties": {
+            "total": { "type": "integer" },
+            "likely_patched": { "type": "integer" },
+            "possibly_unpatched": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["component"],
+                "properties": {
+                  "component": { "type": "string" },
+                  "cve": { "type": "string" },
+                  "patch": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "compile_time_surface": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["component", "config", "discloses"],
+            "properties": {
+              "component": { "type": "string" },
+              "config": { "type": "string" },
+              "discloses": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "hardware_side_channels": {
+          "description": "Microarchitectural leaks. `succeeded` marks the ones that fired on this CPU; the rest are gated by an active CPU mitigation or an inapplicable attack.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["component", "hardware", "discloses", "succeeded"],
+            "properties": {
+              "component": { "type": "string" },
+              "hardware": { "type": "string" },
+              "discloses": { "type": ["string", "null"] },
+              "succeeded": { "type": "boolean" }
+            }
+          }
+        },
+        "no_mitigation": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["component", "discloses"],
+            "properties": {
+              "component": { "type": "string" },
+              "discloses": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    }
+  },
+
+  "$defs": {
+    "address": {
+      "description": "A kernel address as a lower-case hex string.",
+      "type": "string",
+      "pattern": "^0x[0-9a-f]+$"
+    },
+    "addressOrNull": {
+      "description": "An address, or null where no bound is claimed. null is not the address zero: a consumer reading a missing bound as 0x0 concludes the window starts at the bottom of the address space.",
+      "type": ["string", "null"],
+      "pattern": "^0x[0-9a-f]+$"
+    },
+    "excludedRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "$ref": "#/$defs/address" },
+        "max": { "$ref": "#/$defs/address" }
+      }
+    },
+    "basePoint": {
+      "description": "A single headline base address. `speculative` is present and true where the base came from a sub-sound-floor leak while the guaranteed window is still a range - a best guess, not proven; the guaranteed window is then also emitted.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "image_base",
+        "slide_bytes",
+        "entropy_bits",
+        "slots",
+        "slots_upper_bound"
+      ],
+      "properties": {
+        "image_base": { "$ref": "#/$defs/address" },
+        "stext": { "$ref": "#/$defs/address" },
+        "slide_bytes": {
+          "description": "This base measured against the corresponding compile-time default in `layout`.",
+          "type": "integer"
+        },
+        "entropy_bits": { "type": "integer" },
+        "slots_initial": { "type": "integer" },
+        "entropy_bits_initial": { "type": "integer" },
+        "slots": { "type": "integer" },
+        "slots_upper_bound": {
+          "description": "true where the counts are ceilings rather than exact: the grain they stand on is a lower bound wherever the engine resolved alignment without anything capping it, so a more coarsely aligned kernel sits on fewer placements than `slots` states.",
+          "type": "boolean"
+        },
+        "speculative": { "const": true }
+      }
+    },
+    "guaranteedWindow": {
+      "description": "A window resolved at the sound floor: the true value is inside it. range_min/range_max are the convex hull, and `slots` already excludes the carved interior.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["range_min", "range_max"],
+      "properties": {
+        "range_min": { "$ref": "#/$defs/addressOrNull" },
+        "range_max": { "$ref": "#/$defs/addressOrNull" },
+        "slots": { "type": "integer" },
+        "slots_initial": { "type": "integer" },
+        "entropy_bits": { "type": "integer" },
+        "entropy_bits_initial": { "type": "integer" },
+        "excluded_total": {
+          "description": "How many sub-ranges were carved. Compare against the length of `excluded` to tell a complete list from a truncated one.",
+          "type": "integer"
+        },
+        "excluded": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/excludedRange" }
+        }
+      }
+    },
+    "likelyWindow": {
+      "description": "A speculative subset of the corresponding guaranteed window, narrowed by sub-sound-floor signals. May be wrong. Emitted only where it says something the guaranteed window does not.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["range_min", "range_max", "slots", "entropy_bits", "speculative"],
+      "properties": {
+        "range_min": { "$ref": "#/$defs/addressOrNull" },
+        "range_max": { "$ref": "#/$defs/addressOrNull" },
+        "slots": { "type": "integer" },
+        "entropy_bits": { "type": "integer" },
+        "speculative": { "const": true }
+      }
+    },
+    "edgeWindow": {
+      "description": "A window stated as its two edges. An unstated edge is null, never the address zero. `slots` is hole-aware and cannot be derived from min/max: interior exclusions are carved at read time and never appear on the wire, so (max - min) / align is the hole-blind number.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": { "$ref": "#/$defs/addressOrNull" },
+        "max": { "$ref": "#/$defs/addressOrNull" },
+        "slots": { "type": "integer" },
+        "entropy_bits": { "type": "integer" },
+        "slots_upper_bound": { "type": "boolean" },
+        "slots_initial": { "type": "integer" },
+        "entropy_bits_initial": { "type": "integer" },
+        "likely": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["min", "max", "speculative"],
+          "properties": {
+            "min": { "$ref": "#/$defs/address" },
+            "max": { "$ref": "#/$defs/address" },
+            "slots": { "type": "integer" },
+            "speculative": { "const": true }
+          }
+        }
+      }
+    }
+  }
+}

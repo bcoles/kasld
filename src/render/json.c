@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/utsname.h>
+#include <time.h>
 
 void json_print_escaped(const char *s) {
   putchar('"');
@@ -407,16 +408,63 @@ static void render_environment_json(void) {
   printf("  },\n");
 }
 
+/* The envelope: who wrote this document, about what, and when. It precedes
+ * everything the run measured, so a consumer can identify and route a stored
+ * document without parsing the analysis it carries.
+ *
+ * Every field is unconditional. A key that appears only sometimes is the thing
+ * an ingesting consumer has to write defensive code around, which is what
+ * publishing an envelope at all is meant to spare it. */
+static void render_envelope_json(void) {
+  const struct kasld_report *rep = render_report();
+
+  /* Format version first, so a consumer that dispatches on it can do so
+   * without parsing the rest. Distinct from the tool's own version, which
+   * changes for reasons that leave the document shape alone -- the
+   * compatibility rule is stated at KASLD_JSON_SCHEMA_VERSION. */
+  printf("  \"schema_version\": \"%s\",\n", KASLD_JSON_SCHEMA_VERSION);
+  printf("  \"version\": \"%s\",\n", VERSION);
+  /* Provenance, always present: a replay names the captured kernel throughout,
+   * so nothing else in the document distinguishes it from a live snapshot. */
+  printf("  \"replay\": %s,\n", (rep && rep->replay) ? "true" : "false");
+
+  /* The machine the facts describe, as it names itself -- inside a UTS
+   * namespace that is the container's name, which is the right answer: the
+   * document describes this vantage. A capture states no name of its own, so
+   * kasld_uname() leaves it empty there and this is null; the analysing host's
+   * name would name a machine that was never measured. */
+  printf("  \"host\": ");
+  if (kasld_env.have_uts && kasld_env.uts.nodename[0])
+    json_print_escaped(kasld_env.uts.nodename);
+  else
+    printf("null");
+
+  /* When this document was written, not when the facts were captured: on a
+   * live run those are the same moment, and on a replay `replay` says the
+   * facts are older while the capture's own time stays with its bundle.
+   * null where the clock cannot be read -- whatever it says otherwise is
+   * reported as it stands, since a wrong clock is a fact about the host. */
+  printf(",\n  \"generated_utc\": ");
+  {
+    time_t now = time(NULL);
+    const struct tm *tm_utc = (now == (time_t)-1) ? NULL : gmtime(&now);
+    char stamp[sizeof("YYYY-MM-DDTHH:MM:SSZ")];
+    if (tm_utc != NULL &&
+        strftime(stamp, sizeof(stamp), "%Y-%m-%dT%H:%M:%SZ", tm_utc) > 0)
+      json_print_escaped(stamp);
+    else
+      printf("null");
+  }
+  printf(",\n");
+}
+
 void render_json(const struct summary *s) {
   struct utsname u = kasld_env.uts;
   int have_uname = kasld_env.have_uts;
   const struct kasld_report *rep = render_report();
 
   printf("{\n");
-  printf("  \"version\": \"%s\",\n", VERSION);
-  /* Provenance, always present: a replay names the captured kernel throughout,
-   * so nothing else in the document distinguishes it from a live snapshot. */
-  printf("  \"replay\": %s,\n", (rep && rep->replay) ? "true" : "false");
+  render_envelope_json();
   printf("  \"arch\": \"%s\",\n", have_uname ? u.machine : "unknown");
 
   /* kernel */

@@ -26,6 +26,22 @@
 #define VERSION "unknown"
 #endif
 
+/* Format version of the `-j` document, as MAJOR.MINOR. Independent of VERSION:
+ * the tool's version changes for reasons that leave the document shape alone,
+ * so a consumer keying compatibility off it has to re-test against releases
+ * that changed nothing it reads.
+ *
+ * MINOR increments are additive only -- a new key, a new member of an open
+ * vocabulary, or a conditional key becoming unconditional. MAJOR increments
+ * where a key is removed or renamed, a value's type or meaning changes, or an
+ * unconditional key becomes conditional. A consumer dispatches on MAJOR,
+ * ignores keys it does not know, and must not reject a higher MINOR.
+ *
+ * docs/kasld.schema.json describes exactly this version and pins it as a
+ * `const`, so the two cannot disagree; tests/check-json-schema compares them.
+ */
+#define KASLD_JSON_SCHEMA_VERSION "1.0"
+
 /* =========================================================================
  * Constants
  * =========================================================================

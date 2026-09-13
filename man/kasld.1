@@ -49,7 +49,11 @@ formats are selected with the options below.
 .SS Output format (mutually exclusive)
 .TP
 .BR \-j ", " \-\-json
-Machine-readable JSON output.
+Machine-readable JSON output. The document carries a
+.B schema_version
+distinct from the tool's version, and a JSON Schema describing it is installed
+as
+.IR <prefix>/share/doc/kasld/docs/kasld.schema.json .
 .TP
 .BR \-1 ", " \-\-oneline
 Single-line summary output.
@@ -293,6 +297,13 @@ relative to it.
 .TP
 .I <prefix>/share/doc/kasld/
 Installed documentation.
+.TP
+.I <prefix>/share/doc/kasld/docs/kasld.schema.json
+JSON Schema for the
+.B \-j
+document, describing the
+.B schema_version
+this build emits.
 .SH EXAMPLES
 .PP
 Default text readout:

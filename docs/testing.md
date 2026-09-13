@@ -195,6 +195,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-clang-build` | a compiler whose assembler is not GNU as builds every component too. The tree is built with gcc everywhere, so `check-components-built` attests gcc alone; this builds the whole tree with clang into a scratch directory and asks the same question of the result. Skips when no clang is installed † |
 | `check-asm-syntax` | no inline asm switches the assembler's syntax. An Intel-syntax region receives the compiler's operands `%`-prefixed, which only GNU as accepts; elsewhere the component fails to compile and its target is removed, so the build reports success with the component absent |
 | `check-json-partial-skip` | `-j` stays well-formed when SOME components are held back, and says which and why. The guards that pair `-j` with a skip all use `-s '*'`, where an empty array is well-formed either way; the partial case is the one an index-keyed array separator breaks |
+| `check-json-schema` | `docs/kasld.schema.json` and the `-j` emitter describe the same document. Every fixture is replayed under a binary built for ITS architecture, and each emitted key must be declared while each declared key must be reached by that corpus or named in the guard's unexercised list — so a rename trips both directions. Where python3 `jsonschema` is installed the documents are also validated in full, against the same semantics a consumer's validator applies † |
 | `check-env-switches` | a `KASLD_` environment variable is bound to a pointer, never tested directly. A switch is read with `kasld_env_enabled()`, which treats `NAME=0` as off; a value (a path, a release) is bound and checked by its caller, since `0` is legitimate there. Testing `getenv()` asks only whether the name is set, which turns `NAME=0` into ON |
 | `check-bundle-prepare` | one program restores a captured bundle to a runnable sysroot — `extra/prepare-bundle`. A harness carrying its own copy of the restore builds a tree short a file length, and a run over it resolves one bound fewer with nothing to show for it |
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
@@ -339,6 +340,35 @@ cannot pass while the real build fails, and into a scratch `BUILD_DIR` rather
 than `./build`, so the guards that sweep `build/*/` do not silently gain a
 target as a side effect of this one running. Roughly ten seconds; skips when no
 clang is installed, and CI installs one for `check-fuzz-harnesses` already.
+
+**`check-json-schema`** — A schema is trusted harder than the prose it
+replaces: a consumer validates against it, generates types from it, and stops
+reading the documentation. So a schema that has fallen behind the emitter is
+worse than no schema, and nothing about a renamed key announces itself — the
+renderer still produces well-formed JSON and every other test still passes.
+
+The guard is two halves. The key-set comparison is pure standard library and
+never skips, because it is the half that holds the contract: every key a
+document emits must be declared, and every key the schema declares must be
+reached by the corpus or named in the guard's unexercised list. One rename
+trips both directions at once — the new spelling is undeclared, the old one is
+orphaned. Full validation of types, enums and `required` needs a real JSON
+Schema validator and soft-skips without one; reimplementing a subset here would
+check the schema against semantics no consumer runs.
+
+The corpus pairs every fixture with a binary built for ITS architecture, native
+or under qemu-user. That pairing is what makes `required` a claim worth making:
+roughly two fifths of the document's key paths are absent from at least one
+architecture, so a single-architecture sweep would leave them undeclared and a
+`required` set authored from one machine would be wrong on the rest. Which keys
+are required is therefore read from the emitter's own conditionals, not from
+what the corpus happens to contain — a key emitted under an `if` can be present
+in all sixty-odd documents and still not be guaranteed.
+
+The unexercised list names what fixtures cannot reach: a derived-confidence
+record, the speculative sub-windows, and the live-only evidence — a confirmed
+mitigation, a hardware side channel that fired. Holding it exact in both
+directions is what stops it becoming a waiver.
 
 **`check-property-arches`** — Every supported architecture has BOTH
 whole-engine property tests — `test_full_engine_property_<arch>` and

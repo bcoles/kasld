@@ -21,9 +21,11 @@ jobs:
       #   libxml2-utils         check-diagram-data (xmllint over the SVGs)
       #   device-tree-compiler  check-fdt-unflatten (builds a DTB with dtc)
       #   python3               check-fdt-unflatten / hardening-fixtures helpers
+      #   python3-jsonschema    check-json-schema (full validation half; the
+      #                         key-set half needs only the standard library)
       #   clang                 check-fuzz-harnesses (a -fsanitize=fuzzer compiler)
       #   groff                 check-manpages (roff lint of the man pages)
-      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck jq libxml2-utils device-tree-compiler python3 clang groff
+      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck jq libxml2-utils device-tree-compiler python3 python3-jsonschema clang groff
 
     # -Werror here and not in the Makefile: the repository gets a warning
     # regression failing the pull request, in front of whoever introduced it,
