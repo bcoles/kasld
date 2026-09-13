@@ -39,7 +39,7 @@
 #                                # (cells where the likely window beats guaranteed)
 #   tests/vm/run chart           # render the matrix as an SVG range chart, one
 #                                # row per arch, to stdout:
-#                                #   tests/vm/run chart > docs/diagrams/entropy-by-arch.svg
+#                                #   tests/vm/run chart > docs/diagrams/residual-entropy-by-arch.svg
 #   tests/vm/run table --with-timing        # include timing/side-channel rows in
 #   tests/vm/run spec-table --with-timing   # the speculative-narrowing table
 #                                # (excluded by default — see SPEC_INCLUDE_TIMING)
@@ -1451,7 +1451,7 @@ cmd_table() {
   cmd_spec_table
 }
 
-# Render the results matrix as an SVG range chart (docs/diagrams/entropy-by-arch.svg).
+# Render the results matrix as an SVG range chart (docs/diagrams/residual-entropy-by-arch.svg).
 # Reads cmd_table's own rows rather than the boot logs, so the chart and the
 # matrix cannot disagree: one extraction path, two renderings. One row per
 # architecture, spanning every kernel line and configuration tested — the spread

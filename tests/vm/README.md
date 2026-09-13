@@ -89,7 +89,7 @@ generated this way.
 
 `tests/vm/run chart` renders the same rows as an SVG range chart, one row per
 architecture, written to stdout — the committed copy is
-`docs/diagrams/entropy-by-arch.svg`. It reads `cmd_table`'s output rather than
+`docs/diagrams/residual-entropy-by-arch.svg`. It reads `cmd_table`'s output rather than
 the boot logs, so the chart and the matrix cannot disagree.
 
 The speculative-narrowing table excludes microarchitectural side-channel

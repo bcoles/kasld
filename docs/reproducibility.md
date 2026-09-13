@@ -251,7 +251,7 @@ machine: every cell contains the truth on every boot, on any host.
 The shape of the result, one row per architecture. `tests/vm/run chart` renders
 it from the same rows as the table below, so the two cannot disagree:
 
-![Residual KASLR entropy by architecture: a horizontal range bar per architecture spanning the guaranteed residual across every kernel line and configuration tested, from s390x at 17-39 bits and aarch64 at 15-32 down to x86_64 at 0-9 and i686 at 5-8; a ring at zero marks the architectures where perf-open recovers the base exactly, the three MIPS architectures are drawn apart because perf-open gains nothing there, and five architectures boot with KASLR off on every kernel](diagrams/entropy-by-arch.svg)
+![Residual KASLR entropy by architecture: a horizontal range bar per architecture spanning the guaranteed residual across every kernel line and configuration tested, from s390x at 17-39 bits and aarch64 at 15-32 down to x86_64 at 0-9 and i686 at 5-8; a ring at zero marks the architectures where perf-open recovers the base exactly, the three MIPS architectures are drawn apart because perf-open gains nothing there, and five architectures boot with KASLR off on every kernel](diagrams/residual-entropy-by-arch.svg)
 
 A bar spans every kernel line and configuration tested rather than naming one
 number, because the spread is real: a different VA width or kernel line is a
