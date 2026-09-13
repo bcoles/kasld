@@ -339,7 +339,16 @@ static inline unsigned long arch_default_phys_text_base(void) {
  * default. Real kernels built with smaller CONFIG_PHYSICAL_START are now
  * admitted. The physical_start_lower_bound rule pushes the floor back up
  * at the right confidence (CONF_PARSED when learned, CONF_HEURISTIC
- * otherwise) — so default-config kernels still see a tight window. */
+ * otherwise) — so default-config kernels still see a tight window.
+ *
+ * The 2 MiB minimum is Kconfig-enforced only where PHYSICAL_ALIGN carries a
+ * 64-bit-specific range (0x200000 to 0x1000000 if X86_64). Kernels predating
+ * that split admit an 8 KiB alignment, so a build combining it with a
+ * CONFIG_PHYSICAL_START below 2 MiB places _text under this floor -- as low as
+ * __START_KERNEL_map + 1 MiB, the lowest address a PC can load an image at.
+ * RANDOMIZE_BASE postdates the split, so no kernel that randomises is affected;
+ * a non-randomising one built that way reports a text address below the
+ * window. */
 #define KASLR_VIRT_TEXT_MIN_WIDE                                               \
   (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START_MIN_PRACTICAL)
 #define KASLR_PHYS_MIN_WIDE PHYSICAL_START_MIN_PRACTICAL

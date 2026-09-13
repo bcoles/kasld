@@ -58,6 +58,12 @@
 #define KERNEL_VIRT_VAS_START 0x8000000000000000ul
 #define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
+// Text floors at CKSEG0, the segment the modelled platforms link into, even
+// though the VAS above opens at XKPHYS. Single-vendor SoC and legacy
+// workstation ports link the image into XKPHYS instead -- Mobileye EyeQ at
+// 0xa800000808000000, SGI IP27/IP28/IP30 lower still -- and place _text below
+// this floor. Those platform layouts are outside the set modelled here, so a
+// target running one reports a text address this floor rejects.
 #define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
 // Above this, addresses fall in the module region.
 #define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
