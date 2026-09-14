@@ -80,10 +80,10 @@
   <text class="val" x="423.5" y="354" text-anchor="end">11 bits on 7.0</text>
   <text class="val" x="476.5" y="354">13 bits on 5.15</text>
   <text class="arch" x="112" y="388" text-anchor="end">x86_64</text>
-  <line x1="362.5" y1="384" x2="412.5" y2="384" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <circle cx="362.5" cy="384" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <line x1="350.0" y1="384" x2="412.5" y2="384" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="350.0" cy="384" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
   <circle cx="412.5" cy="384" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
-  <text class="val" x="348.5" y="388" text-anchor="end">5 bits on 5.15</text>
+  <text class="val" x="336.0" y="388" text-anchor="end">4 bits on 4.19</text>
   <text class="val" x="426.5" y="388">9 bits on 7.0</text>
   <text class="arch" x="112" y="422" text-anchor="end">i686</text>
   <line x1="394.5" y1="418" x2="405.5" y2="418" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>

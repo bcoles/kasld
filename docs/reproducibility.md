@@ -251,7 +251,7 @@ machine: every cell contains the truth on every boot, on any host.
 The shape of the result, one row per architecture. `tests/vm/run chart` renders
 it from the same rows as the table below, so the two cannot disagree:
 
-![Residual KASLR entropy in the virtual image base: one horizontal span per architecture between the guaranteed residual at the default vantage on its oldest and newest kernel line tested, a grey dot at the older figure and a green one at the newer, each end labelled with its own release — s390x 17 bits on 5.15 to 39 on 7.0, loongarch64 11 on 6.6 to 16 on 7.0, riscv64 0 on 6.6 to 16 on 7.0, mips64el 8 on 5.15 to 14 on 7.0, mips and mipsel 8 on 5.15 to 13 on 7.0, x86_64 5 on 5.15 to 9 on 7.0, i686 8 bits on both. On aarch64 and ppc32 the grey dot falls to the right of the green one, the newer kernel leaving less standing: 31 bits on 7.0 against 32 on 4.19, and 11 on 7.0 against 13 on 5.15. Five architectures are not plotted, KASLR being off on every kernel booted for them](diagrams/residual-entropy-by-arch.svg)
+![Residual KASLR entropy in the virtual image base: one horizontal span per architecture between the guaranteed residual at the default vantage on its oldest and newest kernel line tested, a grey dot at the older figure and a green one at the newer, each end labelled with its own release — s390x 17 bits on 5.15 to 39 on 7.0, loongarch64 11 on 6.6 to 16 on 7.0, riscv64 0 on 6.6 to 16 on 7.0, mips64el 8 on 5.15 to 14 on 7.0, mips and mipsel 8 on 5.15 to 13 on 7.0, x86_64 4 on 4.19 to 9 on 7.0, i686 8 bits on both. On aarch64 and ppc32 the grey dot falls to the right of the green one, the newer kernel leaving less standing: 31 bits on 7.0 against 32 on 4.19, and 11 on 7.0 against 13 on 5.15. Five architectures are not plotted, KASLR being off on every kernel booted for them](diagrams/residual-entropy-by-arch.svg)
 
 Each architecture carries one span, between the residual on its oldest kernel
 line tested and on its newest, rather than a single number: a different kernel
@@ -384,12 +384,13 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | s390x | 6.6.144 | mainline | on | 17 bits / 16 bits | exact / exact |
 | s390x | 7.0.0 | mainline | on | 39 bits / 16 bits | exact / 10 bits |
 | x86_64 | 6.12.81-0-virt | alpine | on | 2 bits / 6 bits | exact / 6 bits |
+| x86_64 | 4.19.325 | mainline | on | 4 bits / 9 bits | exact / 9 bits |
 | x86_64 | 5.15.211 | mainline | on | 5 bits / 9 bits | exact / 9 bits |
 | x86_64 | 6.6.144 | mainline | on | 5 bits / 9 bits | exact / 9 bits |
 | x86_64 | 7.0.0 | mainline | on | 9 bits / 9 bits | exact / 9 bits |
 
 <details>
-<summary>Full results matrix — every scenario, 382 rows</summary>
+<summary>Full results matrix — every scenario, 390 rows</summary>
 
 | arch | release | source | scenario | KASLR | virt residual | phys residual |
 |------|---------|--------|----------|-------|---------------|---------------|
@@ -750,6 +751,14 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | x86_64 | 6.12.81-0-virt | alpine | hardened | on | 2 bits | 6 bits |
 | x86_64 | 6.12.81-0-virt | alpine | no5lvl | on | 2 bits | 6 bits |
 | x86_64 | 6.12.81-0-virt | alpine | la57 | on | 2 bits | 6 bits |
+| x86_64 | 4.19.325 | mainline | default | on | 4 bits | 9 bits |
+| x86_64 | 4.19.325 | mainline | kptr-hidden | on | 4 bits | 9 bits |
+| x86_64 | 4.19.325 | mainline | perf-open | on | exact | 9 bits |
+| x86_64 | 4.19.325 | mainline | dmesg-open | on | 4 bits | 9 bits |
+| x86_64 | 4.19.325 | mainline | bpf-open | on | 4 bits | 9 bits |
+| x86_64 | 4.19.325 | mainline | hardened | on | 4 bits | 9 bits |
+| x86_64 | 4.19.325 | mainline | no5lvl | on | 4 bits | 9 bits |
+| x86_64 | 4.19.325 | mainline | la57 | on | 4 bits | 9 bits |
 | x86_64 | 5.15.211 | mainline | default | on | 5 bits | 9 bits |
 | x86_64 | 5.15.211 | mainline | kptr-hidden | on | 5 bits | 9 bits |
 | x86_64 | 5.15.211 | mainline | perf-open | on | exact | 9 bits |

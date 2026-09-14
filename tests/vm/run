@@ -149,6 +149,7 @@ riscv64-alpine-6.18     | riscv64     | apk | riscv64      | riscv64     | -M vi
 loongarch64-alpine-6.18 | loongarch64 | apk | loongarch64  | loongarch64 | -M virt                | ttyS0
 ppc64le-alpine-6.12     | ppc64le     | lts | powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
 s390x-alpine-6.12       | s390x       | lts | s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+x86_64-mainline-4.19    | -           | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
 x86_64-mainline-5.15    | -           | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
 x86_64-mainline-6.6     | -           | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
 x86_64-mainline-7.0     | -           | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0

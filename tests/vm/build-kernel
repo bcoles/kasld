@@ -285,7 +285,19 @@ build_one() {
   # trigger is the relocation act (a nokaslr boot of the same kernel is fine), in
   # the MIPS exception path; fixed by 7.0 and absent in 5.15 — an upstream
   # regression. All three pinned versions were booted on all widths, so this is an
-  # exact exclusion of the version that breaks, not a guess at a range. A static
+  # exact exclusion of the version that breaks, not a guess at a range.
+  #
+  # The cause is upstream and named: "scripts/sorttable: Remove unneeded Elf_Rel"
+  # stopped clearing relocations against __ex_table, on the grounds that they
+  # were never used — but a relocatable MIPS kernel depended on exactly that.
+  # The exception table then points at unrelocated addresses, so a fault taken
+  # inside a user-copy cannot find its fixup and escalates from -EFAULT to a
+  # fatal kernel fault. "MIPS: Ignore relocs against __ex_table for relocatable
+  # kernel" restores it, landing in 6.14-rc5 and never backported, which is why
+  # 6.6 still carries the bug at 6.6.144 while 5.15 predates it and 7.0 has the
+  # fix. The oops upstream quotes is the one seen here, in __raw_copy_from_user.
+  # Re-checked under malta_kvm_defconfig, which reproduces it unchanged: the
+  # defconfig is not what decides this. A static
   # mips cell is still validated soundly (kasld cannot read RANDOMIZE_BASE
   # unprivileged, so it reports the conservative KASLR-possible window, which
   # contains the fixed base).
