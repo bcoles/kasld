@@ -1454,9 +1454,17 @@ cmd_table() {
 # Render the results matrix as an SVG range chart (docs/diagrams/residual-entropy-by-arch.svg).
 # Reads cmd_table's own rows rather than the boot logs, so the chart and the
 # matrix cannot disagree: one extraction path, two renderings. One row per
-# architecture, spanning every kernel line and configuration tested — the spread
-# is real (a different VA width or kernel line is a different window), so it is
-# drawn as a range rather than collapsed to a single number.
+# architecture, spanning every kernel line and configuration tested at the
+# default vantage — the spread is real (a different VA width or kernel line is a
+# different window), so it is drawn as a range rather than collapsed to a single
+# number.
+#
+# The bar varies along one axis only. Pooling vantages alongside configurations
+# would put a sparse, cell-specific profile into a figure whose rows are read
+# against each other: tracefs-open runs on a handful of cells, so an arch that
+# never ran it cannot show its effect, and an arch that did reaches lower for a
+# reason unrelated to its architecture. Every cell runs default, so every row is
+# measured the same way. Per-vantage figures are the matrix's job.
 cmd_chart() {
   cmd_table | awk -F'|' '
     function bits(s) {                 # "exact"->0, "N bits"->N, else -1
@@ -1465,81 +1473,104 @@ cmd_chart() {
       if (s ~ /^[0-9]+ bits$/) { sub(/ bits$/, "", s); return s + 0 }
       return -1
     }
+    function line(r,  q) { split(r, q, "."); return q[1] "." q[2] }
     NF > 6 {
-      a = $2; scen = $5; k = $6; v = bits($7)
-      gsub(/^ +| +$/, "", a); gsub(/^ +| +$/, "", scen); gsub(/^ +| +$/, "", k)
+      a = $2; rel = $3; scen = $5; k = $6; v = bits($7)
+      gsub(/^ +| +$/, "", a); gsub(/^ +| +$/, "", rel)
+      gsub(/^ +| +$/, "", scen); gsub(/^ +| +$/, "", k)
       if (k != "on" && k != "off") next   # header and |---| separator rows
       seen[a] = 1
-      if (!(a SUBSEP $3 in kseen)) { kseen[a SUBSEP $3] = 1; kcount[a]++ }
-      if (k != "on" || v < 0) next
+      if (!(a SUBSEP rel in kseen)) { kseen[a SUBSEP rel] = 1; kcount[a]++ }
+      if (k != "on" || v < 0 || scen != "default") next
+      if (rel ~ /\(/) next   # a config variant is not a kernel line of its own
       on[a] = 1
-      if (scen == "perf-open") {
-        if (!(a in pflo) || v < pflo[a]) pflo[a] = v
-        if (!(a in pfhi) || v > pfhi[a]) pfhi[a] = v
-      } else {
-        if (!(a in lo) || v < lo[a]) lo[a] = v
-        if (!(a in hi) || v > hi[a]) hi[a] = v
-      }
+      split(rel, q, "."); key = sprintf("%04d%04d", q[1] + 0, q[2] + 0)
+      if (!(a in okey) || key < okey[a]) { okey[a] = key; oval[a] = v; orel[a] = line(rel) }
+      if (!(a in nkey) || key > nkey[a]) { nkey[a] = key; nval[a] = v; nrel[a] = line(rel) }
     }
     END {
       for (a in seen)
-        if (a in on) printf "%s|%d|%d|%d|%d|%d\n", a, hi[a], lo[a], \
-             (a in pflo ? pflo[a] : -1), (a in pfhi ? pfhi[a] : -1), kcount[a]
-        else printf "%s|-1|-1|-1|-1|%d\n", a, kcount[a]
-    }' | LC_ALL=C sort -t'|' -k2,2nr -k1,1 | awk -F'|' '
-    BEGIN { L = 132; R = 830; TOP = 112; RH = 28; MAXB = 40; n = 0 }
-    { arch[n] = $1; hi[n] = $2 + 0; lo[n] = $3 + 0
-      pflo[n] = $4 + 0; pfhi[n] = $5 + 0; nk[n] = $6 + 0; n++ }
+        if (a in on)
+          printf "%d|%s|%d|%d|%s|%s|%d\n", (oval[a] > nval[a] ? oval[a] : nval[a]), \
+                 a, oval[a], nval[a], orel[a], nrel[a], kcount[a]
+        else printf "-1|%s|-1|-1|||%d\n", a, kcount[a]
+    }' | LC_ALL=C sort -t'|' -k1,1nr -k2,2 | awk -F'|' '
+    BEGIN { L = 300; R = 800; AX = 112; TOP = 112; RH = 34; MAXB = 40; n = 0 }
+    { arch[n] = $2; oval[n] = $3 + 0; nval[n] = $4 + 0
+      orel[n] = $5; nrel[n] = $6; nk[n] = $7 + 0; n++ }
     function X(b) { return L + (R - L) * b / MAXB }
+    # The bar spans the two measurements, never the axis origin: each end is a
+    # residual that was actually observed, and the length between them is how
+    # far the window moved across the kernel lines tested. Anchoring at zero
+    # would read as "somewhere between 0 and N" when the answer is N, and zero
+    # is not a default-vantage outcome -- it is what opening perf_event_paranoid
+    # buys, on a profile this chart does not plot.
+    function span(a, b, y, col,   x0, x1) {
+      x0 = X(a < b ? a : b); x1 = X(a < b ? b : a)
+      if (x1 < x0 + 11) { x0 -= 5.5; x1 = x0 + 11 }
+      printf "  <line x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\" stroke=\"%s\" stroke-width=\"11\" stroke-linecap=\"round\" opacity=\"0.85\"/>\n", x0, y, x1, y, col
+      return x1
+    }
+    function dot(v, y, col) {
+      printf "  <circle cx=\"%.1f\" cy=\"%d\" r=\"6.5\" fill=\"%s\" stroke=\"#ffffff\" stroke-width=\"1.5\"/>\n", X(v), y, col
+    }
     END {
-      H = TOP + RH * n + 74
+      non = 0
+      for (i = 0; i < n; i++) if (oval[i] >= 0) non++
+      H = TOP + RH * non + 158
       printf "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"960\" height=\"%d\"", H
       printf " viewBox=\"0 0 960 %d\" font-family=\"sans-serif\">\n", H
       print "  <style>"
-      print "      .title { font-size: 22px; font-weight: 700; fill: #1b5e20; }"
+      print "      .title { font-size: 22px; font-weight: 700; fill: #263238; }"
       print "      .sub   { font-size: 13px; fill: #546e7a; }"
       print "      .arch  { font-family: monospace; font-size: 13px; fill: #37474f; }"
-      print "      .val   { font-family: monospace; font-size: 11.5px; fill: #455a64; }"
+      print "      .val   { font-family: monospace; font-size: 11px; fill: #455a64; }"
       print "      .note  { font-size: 11.5px; fill: #607d8b; }"
       print "      .axis  { font-size: 11px; fill: #607d8b; }"
       print "      .guide { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }"
       print "  </style>"
       printf "  <rect width=\"960\" height=\"%d\" fill=\"#ffffff\"/>\n", H
-      print "  <text class=\"title\" x=\"24\" y=\"34\">Residual KASLR entropy by architecture</text>"
-      print "  <text class=\"sub\" x=\"24\" y=\"57\">Guaranteed window, virtual image base. The bar spans every kernel line and configuration tested;</text>"
-      print "  <text class=\"sub\" x=\"24\" y=\"75\">a longer bar means more entropy survived. Lower is weaker KASLR.</text>"
+      print "  <text class=\"title\" x=\"24\" y=\"34\">Residual KASLR entropy in the virtual image base</text>"
+      print "  <text class=\"sub\" x=\"24\" y=\"57\">Guaranteed window, virtual image base, at the default vantage. Each architecture shows its newest and</text>"
+      print "  <text class=\"sub\" x=\"24\" y=\"75\">oldest kernel line tested; a grey dot right of the green one means the newer kernel left less. Lower is weaker KASLR.</text>"
       for (t = 0; t <= MAXB; t += 5) {
-        printf "  <line class=\"guide\" x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\"/>\n", X(t), TOP-16, X(t), TOP+RH*n-10
+        printf "  <line class=\"guide\" x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\"/>\n", X(t), TOP-16, X(t), TOP+RH*non-12
         printf "  <text class=\"axis\" x=\"%.1f\" y=\"%d\" text-anchor=\"middle\">%d</text>\n", X(t), TOP-22, t
       }
-      printf "  <text class=\"axis\" x=\"%d\" y=\"%d\" text-anchor=\"end\">bits</text>\n", L-10, TOP-22
+      printf "  <text class=\"axis\" x=\"%d\" y=\"%d\" text-anchor=\"end\">bits</text>\n", AX, TOP-22
       for (i = 0; i < n; i++) {
-        y = TOP + i * RH
-        printf "  <text class=\"arch\" x=\"%d\" y=\"%d\" text-anchor=\"end\">%s</text>\n", L-12, y+4, arch[i]
-        if (hi[i] < 0) {
-          printf "  <line x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\" stroke=\"#eceff1\" stroke-width=\"11\" stroke-linecap=\"round\"/>\n", X(0), y, X(MAXB), y
-          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\" fill=\"#90a4ae\">KASLR off on %s</text>\n", X(0)+12, y+4, (nk[i] == 1 ? "its only kernel" : sprintf("all %d kernels", nk[i]))
-          continue
+        if (oval[i] < 0) { off = off (off ? ", " : "") sprintf("%s (%d)", arch[i], nk[i]); noff++; continue }
+        y = TOP + row * RH; row++
+        printf "  <text class=\"arch\" x=\"%d\" y=\"%d\" text-anchor=\"end\">%s</text>\n", AX, y+4, arch[i]
+        span(oval[i], nval[i], y, "#2e7d32")
+        dot(oval[i], y, "#b0bec5")
+        dot(nval[i], y, "#2e7d32")
+        lo_i = (oval[i] < nval[i] ? oval[i] : nval[i])
+        hi_i = (oval[i] < nval[i] ? nval[i] : oval[i])
+        lo_r = (oval[i] < nval[i] ? orel[i] : nrel[i])
+        hi_r = (oval[i] < nval[i] ? nrel[i] : orel[i])
+        if (oval[i] == nval[i]) {
+          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d bits on %s and %s</text>\n", \
+                 X(nval[i]) + 14, y + 4, nval[i], orel[i], nrel[i]
+        } else {
+          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\" text-anchor=\"end\">%d bits on %s</text>\n", \
+                 X(lo_i) - 14, y + 4, lo_i, lo_r
+          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d bits on %s</text>\n", \
+                 X(hi_i) + 14, y + 4, hi_i, hi_r
         }
-        x0 = X(lo[i]); x1 = X(hi[i]); if (x1 < x0 + 4) x1 = x0 + 4
-        resists = (pfhi[i] > 0)
-        col = resists ? "#e65100" : "#2e7d32"
-        printf "  <line x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\" stroke=\"%s\" stroke-width=\"11\" stroke-linecap=\"round\" opacity=\"0.85\"/>\n", x0, y, x1, y, col
-        lab = (lo[i] == hi[i]) ? sprintf("%d bits", lo[i]) : sprintf("%d-%d bits", lo[i], hi[i])
-        if (resists) lab = lab "  (perf-open gains nothing)"
-        printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\" fill=\"%s\">%s</text>\n", x1+10, y+4, resists ? col : "#455a64", lab
-        if (!resists && pflo[i] == 0)
-          printf "  <circle cx=\"%.1f\" cy=\"%d\" r=\"5.5\" fill=\"#ffffff\" stroke=\"#1b5e20\" stroke-width=\"2.5\"/>\n", X(0), y
       }
-      ly = TOP + RH * n + 20
+      ly = TOP + RH * non + 18
       printf "  <line x1=\"24\" y1=\"%d\" x2=\"936\" y2=\"%d\" stroke=\"#eceff1\" stroke-width=\"1\"/>\n", ly-14, ly-14
-      printf "  <rect x=\"24\" y=\"%d\" width=\"26\" height=\"9\" rx=\"4\" fill=\"#2e7d32\" opacity=\"0.85\"/>\n", ly
-      printf "  <text class=\"note\" x=\"58\" y=\"%d\">entropy surviving every profile except perf-open</text>\n", ly+8
-      printf "  <circle cx=\"352\" cy=\"%d\" r=\"5.5\" fill=\"#ffffff\" stroke=\"#1b5e20\" stroke-width=\"2.5\"/>\n", ly+4
-      printf "  <text class=\"note\" x=\"366\" y=\"%d\">perf-open recovers the base exactly</text>\n", ly+8
-      printf "  <rect x=\"610\" y=\"%d\" width=\"26\" height=\"9\" rx=\"4\" fill=\"#e65100\" opacity=\"0.85\"/>\n", ly
-      printf "  <text class=\"note\" x=\"644\" y=\"%d\">perf-open gains nothing</text>\n", ly+8
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">The MIPS kernels come from malta_defconfig, which does not enable CONFIG_PERF_EVENTS, so perf-open unlocks neither perf sampling nor the symbol table.</text>\n", ly+28
+      if (noff)
+        printf "  <text class=\"note\" x=\"24\" y=\"%d\">Not plotted: KASLR was off on every kernel booted (count in brackets): %s</text>\n", ly-22, off
+      printf "  <circle cx=\"32\" cy=\"%d\" r=\"5.5\" fill=\"#b0bec5\" stroke=\"#ffffff\" stroke-width=\"1.5\"/>\n", ly+4
+      printf "  <text class=\"note\" x=\"46\" y=\"%d\">oldest kernel line tested</text>\n", ly+8
+      printf "  <circle cx=\"232\" cy=\"%d\" r=\"5.5\" fill=\"#2e7d32\" stroke=\"#ffffff\" stroke-width=\"1.5\"/>\n", ly+4
+      printf "  <text class=\"note\" x=\"246\" y=\"%d\">newest kernel line tested</text>\n", ly+8
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">KASLR reached these architectures at different times, so the grey end is the oldest line tested rather than a baseline they share. The default</text>\n", ly+30
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">vantage is an unprivileged reader with nothing opened, the one profile every cell runs; opening a sysctl narrows the window further, and</text>\n", ly+47
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">lowering perf_event_paranoid recovers the base exactly wherever CONFIG_PERF_EVENTS is built in. Those figures are in the matrix.</text>\n", ly+64
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">Microarchitectural side channels (prefetch, entrybleed) narrow only the likely window, never the guaranteed one plotted here.</text>\n", ly+81
       print "</svg>"
     }'
 }

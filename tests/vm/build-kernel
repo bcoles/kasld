@@ -72,9 +72,15 @@ spec_for() {
   # powerpc64le, distinct from the BE powerpc64 gap arch.
   set -- "${1%%-*}"
   case "$1" in
-  mips)      echo "mips     mips    malta_defconfig    vmlinux be" ;;
-  mipsel)    echo "mipsel   mips    malta_defconfig    vmlinux le" ;;
-  mips64el)  echo "mips64el mips    malta_defconfig    vmlinux le" ;;
+  # malta_kvm rather than malta: same board, same CPU, same endianness base, but
+  # it carries CONFIG_PERF_EVENTS where the plain malta defconfig does not. The
+  # perf-open scenario writes perf_event_paranoid, which without PERF_EVENTS is
+  # not a file at all, so on malta every scenario returned the identical result
+  # and three of the matrix rows exercised no vantage. KVM itself is a module
+  # here and is never loaded; it is the perf symbol that is wanted.
+  mips)      echo "mips     mips    malta_kvm_defconfig vmlinux be" ;;
+  mipsel)    echo "mipsel   mips    malta_kvm_defconfig vmlinux le" ;;
+  mips64el)  echo "mips64el mips    malta_kvm_defconfig vmlinux le" ;;
   riscv32)   echo "riscv32  riscv   defconfig          Image   -" ;;
   ppc32)     echo "powerpc  powerpc mpc85xx_defconfig  vmlinux -" ;;
   powerpc64) echo "powerpc64 powerpc ppc64_defconfig  vmlinux -" ;;
@@ -205,7 +211,7 @@ build_one() {
   le) "$src/scripts/config" --file "$bdir/.config" -d CPU_BIG_ENDIAN -e CPU_LITTLE_ENDIAN ;;
   be) "$src/scripts/config" --file "$bdir/.config" -d CPU_LITTLE_ENDIAN -e CPU_BIG_ENDIAN ;;
   esac
-  # 64-bit MIPS on the malta board: the stock malta_defconfig is 32-bit, so
+  # 64-bit MIPS on the malta board: the stock malta defconfigs are 32-bit, so
   # promote its CPU to MIPS64 (selects 64BIT) for the mips64* targets.
   case "$base" in
   mips64 | mips64el)
@@ -289,7 +295,14 @@ build_one() {
     6.6*)
       echo "  [*] mips KASLR left off: MIPS $LINUX_VERSION relocation is broken (fixed by 7.0)" ;;
     *)
-      "$src/scripts/config" --file "$bdir/.config" -e RELOCATABLE -e RANDOMIZE_BASE ;;
+      # RELOCATION_TABLE_SIZE is appended to the image and sized at build time;
+      # the malta_kvm defconfig is large enough that the 1 MiB default overflows
+      # ("Relocations overflow available space", suggesting 0x0012b000). The
+      # Kconfig names raising it as the intended response, and upstream already
+      # carries `default 0x00200000 if CPU_LOONGSON64` for the same reason, so
+      # 2 MiB follows that precedent rather than pinning to one build's minimum.
+      "$src/scripts/config" --file "$bdir/.config" -e RELOCATABLE -e RANDOMIZE_BASE \
+        --set-val RELOCATION_TABLE_SIZE 0x00200000 ;;
     esac ;;
   esac
   # devtmpfs (console at init-exec) + initramfs support. BLK_DEV_INITRD/RD_GZIP

@@ -108,7 +108,15 @@ base when it is consumed, so the slide is always measured against `_text`.
 How much entropy that randomisation is worth spans an order of magnitude across
 the set — from five bits to thirty-nine, and none at all on three architectures:
 
-![KASLR entropy by architecture: a horizontal bar per architecture spanning the worst and best case across configurations, with KASLR enabled, at the architecture's own slot granularity. s390 spans 17 to 39 bits and arm64 18 to 30, then PowerPC32 12 to 15, MIPS32 and MIPS64 8 to 14, LoongArch 8 to 12, RISC-V64 a flat ~9, x86_64 6 to 9 and x86_32 5 to 8; arm32, PowerPC64 and RISC-V32 have no KASLR in mainline and carry no bar. A bar marks a single figure where only one is documented and spans the range where the figure has two ends, so position reads as the entropy and length as the width of the range. Bits are logarithmic, so each additional bit doubles the number of placements the base can take](diagrams/kaslr-entropy-by-arch.svg)
+![KASLR entropy in the virtual image base: a horizontal bar per architecture spanning the worst and best case across configurations, with KASLR enabled, at the architecture's own slot granularity. s390 spans 17 to 39 bits and arm64 13 to 30, then PowerPC32 12 to 15, MIPS32 and MIPS64 7 to 14, LoongArch 7 to 12, RISC-V64 a flat ~9, x86_64 6 to 9 and x86_32 5 to 8; arm32, PowerPC64 and RISC-V32 have no KASLR in mainline and carry no bar. A bar marks a single figure where only one is documented and spans the range where the figure has two ends, so position reads as the entropy and length as the width of the range. Bits are logarithmic, so each additional bit doubles the number of placements the base can take](diagrams/kaslr-entropy-by-arch.svg)
+
+These are the placements a kernel draws from, given a known configuration. What
+an unprivileged reader can still *prove* about the base is a different and
+looser quantity, measured in
+[reproducibility.md](reproducibility.md#results-matrix-image-base) — looser
+because that measurement cannot see the configuration, so its window must span
+every layout and placement formula the architecture admits. A residual there may
+therefore exceed the figure here without either being wrong.
 
 | Architecture | Default text base | Derivation | Min alignment | Grain | KASLR slots | Entropy |
 |---|---|---|---|---|---|---|

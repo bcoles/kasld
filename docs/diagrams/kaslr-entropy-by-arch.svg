@@ -9,7 +9,7 @@
   .guide { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }
 </style>
 <rect width="960" height="609" fill="#ffffff"/>
-<text class="title" x="24" y="34">KASLR entropy by architecture</text>
+<text class="title" x="24" y="34">KASLR entropy in the virtual image base</text>
 <text class="sub" x="24" y="57">How many places the kernel base can land, before any leak strips it.</text>
 <text class="sub" x="24" y="75">Each bar spans worst case to best case across configurations. Each extra bit doubles the placements.</text>
 <line class="guide" x1="148.0" y1="96" x2="148.0" y2="438"/>

@@ -1,94 +1,103 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="606" viewBox="0 0 960 606" font-family="sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="610" viewBox="0 0 960 610" font-family="sans-serif">
   <style>
       .title { font-size: 22px; font-weight: 700; fill: #263238; }
       .sub   { font-size: 13px; fill: #546e7a; }
       .arch  { font-family: monospace; font-size: 13px; fill: #37474f; }
-      .val   { font-family: monospace; font-size: 11.5px; fill: #455a64; }
+      .val   { font-family: monospace; font-size: 11px; fill: #455a64; }
       .note  { font-size: 11.5px; fill: #607d8b; }
       .axis  { font-size: 11px; fill: #607d8b; }
       .guide { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }
   </style>
-  <rect width="960" height="606" fill="#ffffff"/>
-  <text class="title" x="24" y="34">Residual KASLR entropy by architecture</text>
-  <text class="sub" x="24" y="57">Guaranteed window, virtual image base. The bar spans every kernel line and configuration tested;</text>
-  <text class="sub" x="24" y="75">a longer bar means more entropy survived. Lower is weaker KASLR.</text>
-  <line class="guide" x1="132.0" y1="96" x2="132.0" y2="522"/>
-  <text class="axis" x="132.0" y="90" text-anchor="middle">0</text>
-  <line class="guide" x1="219.2" y1="96" x2="219.2" y2="522"/>
-  <text class="axis" x="219.2" y="90" text-anchor="middle">5</text>
-  <line class="guide" x1="306.5" y1="96" x2="306.5" y2="522"/>
-  <text class="axis" x="306.5" y="90" text-anchor="middle">10</text>
-  <line class="guide" x1="393.8" y1="96" x2="393.8" y2="522"/>
-  <text class="axis" x="393.8" y="90" text-anchor="middle">15</text>
-  <line class="guide" x1="481.0" y1="96" x2="481.0" y2="522"/>
-  <text class="axis" x="481.0" y="90" text-anchor="middle">20</text>
-  <line class="guide" x1="568.2" y1="96" x2="568.2" y2="522"/>
-  <text class="axis" x="568.2" y="90" text-anchor="middle">25</text>
-  <line class="guide" x1="655.5" y1="96" x2="655.5" y2="522"/>
-  <text class="axis" x="655.5" y="90" text-anchor="middle">30</text>
-  <line class="guide" x1="742.8" y1="96" x2="742.8" y2="522"/>
-  <text class="axis" x="742.8" y="90" text-anchor="middle">35</text>
-  <line class="guide" x1="830.0" y1="96" x2="830.0" y2="522"/>
-  <text class="axis" x="830.0" y="90" text-anchor="middle">40</text>
-  <text class="axis" x="122" y="90" text-anchor="end">bits</text>
-  <text class="arch" x="120" y="116" text-anchor="end">s390x</text>
-  <line x1="428.6" y1="112" x2="812.5" y2="112" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="822.5" y="116" fill="#455a64">17-39 bits</text>
-  <circle cx="132.0" cy="112" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="arch" x="120" y="144" text-anchor="end">aarch64</text>
-  <line x1="393.8" y1="140" x2="690.4" y2="140" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="700.4" y="144" fill="#455a64">15-32 bits</text>
-  <circle cx="132.0" cy="140" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="arch" x="120" y="172" text-anchor="end">loongarch64</text>
-  <line x1="306.5" y1="168" x2="411.2" y2="168" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="421.2" y="172" fill="#455a64">10-16 bits</text>
-  <circle cx="132.0" cy="168" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="arch" x="120" y="200" text-anchor="end">riscv64</text>
-  <line x1="132.0" y1="196" x2="411.2" y2="196" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="421.2" y="200" fill="#455a64">0-16 bits</text>
-  <circle cx="132.0" cy="196" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="arch" x="120" y="228" text-anchor="end">mips64el</text>
-  <line x1="271.6" y1="224" x2="376.3" y2="224" stroke="#e65100" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="386.3" y="228" fill="#e65100">8-14 bits  (perf-open gains nothing)</text>
-  <text class="arch" x="120" y="256" text-anchor="end">ppc32</text>
-  <line x1="341.4" y1="252" x2="376.3" y2="252" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="386.3" y="256" fill="#455a64">12-14 bits</text>
-  <circle cx="132.0" cy="252" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="arch" x="120" y="284" text-anchor="end">mips</text>
-  <line x1="271.6" y1="280" x2="358.9" y2="280" stroke="#e65100" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="368.9" y="284" fill="#e65100">8-13 bits  (perf-open gains nothing)</text>
-  <text class="arch" x="120" y="312" text-anchor="end">mipsel</text>
-  <line x1="271.6" y1="308" x2="358.9" y2="308" stroke="#e65100" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="368.9" y="312" fill="#e65100">8-13 bits  (perf-open gains nothing)</text>
-  <text class="arch" x="120" y="340" text-anchor="end">x86_64</text>
-  <line x1="132.0" y1="336" x2="289.1" y2="336" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="299.1" y="340" fill="#455a64">0-9 bits</text>
-  <circle cx="132.0" cy="336" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="arch" x="120" y="368" text-anchor="end">i686</text>
-  <line x1="219.2" y1="364" x2="271.6" y2="364" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <text class="val" x="281.6" y="368" fill="#455a64">5-8 bits</text>
-  <circle cx="132.0" cy="364" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="arch" x="120" y="396" text-anchor="end">armeb</text>
-  <line x1="132.0" y1="392" x2="830.0" y2="392" stroke="#eceff1" stroke-width="11" stroke-linecap="round"/>
-  <text class="val" x="144.0" y="396" fill="#90a4ae">KASLR off on all 3 kernels</text>
-  <text class="arch" x="120" y="424" text-anchor="end">armv7</text>
-  <line x1="132.0" y1="420" x2="830.0" y2="420" stroke="#eceff1" stroke-width="11" stroke-linecap="round"/>
-  <text class="val" x="144.0" y="424" fill="#90a4ae">KASLR off on all 5 kernels</text>
-  <text class="arch" x="120" y="452" text-anchor="end">powerpc64</text>
-  <line x1="132.0" y1="448" x2="830.0" y2="448" stroke="#eceff1" stroke-width="11" stroke-linecap="round"/>
-  <text class="val" x="144.0" y="452" fill="#90a4ae">KASLR off on all 3 kernels</text>
-  <text class="arch" x="120" y="480" text-anchor="end">ppc64le</text>
-  <line x1="132.0" y1="476" x2="830.0" y2="476" stroke="#eceff1" stroke-width="11" stroke-linecap="round"/>
-  <text class="val" x="144.0" y="480" fill="#90a4ae">KASLR off on all 4 kernels</text>
-  <text class="arch" x="120" y="508" text-anchor="end">riscv32</text>
-  <line x1="132.0" y1="504" x2="830.0" y2="504" stroke="#eceff1" stroke-width="11" stroke-linecap="round"/>
-  <text class="val" x="144.0" y="508" fill="#90a4ae">KASLR off on all 3 kernels</text>
-  <line x1="24" y1="538" x2="936" y2="538" stroke="#eceff1" stroke-width="1"/>
-  <rect x="24" y="552" width="26" height="9" rx="4" fill="#2e7d32" opacity="0.85"/>
-  <text class="note" x="58" y="560">entropy surviving every profile except perf-open</text>
-  <circle cx="352" cy="556" r="5.5" fill="#ffffff" stroke="#1b5e20" stroke-width="2.5"/>
-  <text class="note" x="366" y="560">perf-open recovers the base exactly</text>
-  <rect x="610" y="552" width="26" height="9" rx="4" fill="#e65100" opacity="0.85"/>
-  <text class="note" x="644" y="560">perf-open gains nothing</text>
-  <text class="note" x="24" y="580">The MIPS kernels come from malta_defconfig, which does not enable CONFIG_PERF_EVENTS, so perf-open unlocks neither perf sampling nor the symbol table.</text>
+  <rect width="960" height="610" fill="#ffffff"/>
+  <text class="title" x="24" y="34">Residual KASLR entropy in the virtual image base</text>
+  <text class="sub" x="24" y="57">Guaranteed window, virtual image base, at the default vantage. Each architecture shows its newest and</text>
+  <text class="sub" x="24" y="75">oldest kernel line tested; a grey dot right of the green one means the newer kernel left less. Lower is weaker KASLR.</text>
+  <line class="guide" x1="300.0" y1="96" x2="300.0" y2="440"/>
+  <text class="axis" x="300.0" y="90" text-anchor="middle">0</text>
+  <line class="guide" x1="362.5" y1="96" x2="362.5" y2="440"/>
+  <text class="axis" x="362.5" y="90" text-anchor="middle">5</text>
+  <line class="guide" x1="425.0" y1="96" x2="425.0" y2="440"/>
+  <text class="axis" x="425.0" y="90" text-anchor="middle">10</text>
+  <line class="guide" x1="487.5" y1="96" x2="487.5" y2="440"/>
+  <text class="axis" x="487.5" y="90" text-anchor="middle">15</text>
+  <line class="guide" x1="550.0" y1="96" x2="550.0" y2="440"/>
+  <text class="axis" x="550.0" y="90" text-anchor="middle">20</text>
+  <line class="guide" x1="612.5" y1="96" x2="612.5" y2="440"/>
+  <text class="axis" x="612.5" y="90" text-anchor="middle">25</text>
+  <line class="guide" x1="675.0" y1="96" x2="675.0" y2="440"/>
+  <text class="axis" x="675.0" y="90" text-anchor="middle">30</text>
+  <line class="guide" x1="737.5" y1="96" x2="737.5" y2="440"/>
+  <text class="axis" x="737.5" y="90" text-anchor="middle">35</text>
+  <line class="guide" x1="800.0" y1="96" x2="800.0" y2="440"/>
+  <text class="axis" x="800.0" y="90" text-anchor="middle">40</text>
+  <text class="axis" x="112" y="90" text-anchor="end">bits</text>
+  <text class="arch" x="112" y="116" text-anchor="end">s390x</text>
+  <line x1="512.5" y1="112" x2="787.5" y2="112" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="512.5" cy="112" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="787.5" cy="112" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="498.5" y="116" text-anchor="end">17 bits on 5.15</text>
+  <text class="val" x="801.5" y="116">39 bits on 7.0</text>
+  <text class="arch" x="112" y="150" text-anchor="end">aarch64</text>
+  <line x1="687.5" y1="146" x2="700.0" y2="146" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="700.0" cy="146" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="687.5" cy="146" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="673.5" y="150" text-anchor="end">31 bits on 7.0</text>
+  <text class="val" x="714.0" y="150">32 bits on 4.19</text>
+  <text class="arch" x="112" y="184" text-anchor="end">loongarch64</text>
+  <line x1="437.5" y1="180" x2="500.0" y2="180" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="437.5" cy="180" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="500.0" cy="180" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="423.5" y="184" text-anchor="end">11 bits on 6.6</text>
+  <text class="val" x="514.0" y="184">16 bits on 7.0</text>
+  <text class="arch" x="112" y="218" text-anchor="end">riscv64</text>
+  <line x1="300.0" y1="214" x2="500.0" y2="214" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="300.0" cy="214" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="500.0" cy="214" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="286.0" y="218" text-anchor="end">0 bits on 6.6</text>
+  <text class="val" x="514.0" y="218">16 bits on 7.0</text>
+  <text class="arch" x="112" y="252" text-anchor="end">mips64el</text>
+  <line x1="400.0" y1="248" x2="475.0" y2="248" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="400.0" cy="248" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="475.0" cy="248" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="386.0" y="252" text-anchor="end">8 bits on 5.15</text>
+  <text class="val" x="489.0" y="252">14 bits on 7.0</text>
+  <text class="arch" x="112" y="286" text-anchor="end">mips</text>
+  <line x1="400.0" y1="282" x2="462.5" y2="282" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="400.0" cy="282" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="462.5" cy="282" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="386.0" y="286" text-anchor="end">8 bits on 5.15</text>
+  <text class="val" x="476.5" y="286">13 bits on 7.0</text>
+  <text class="arch" x="112" y="320" text-anchor="end">mipsel</text>
+  <line x1="400.0" y1="316" x2="462.5" y2="316" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="400.0" cy="316" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="462.5" cy="316" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="386.0" y="320" text-anchor="end">8 bits on 5.15</text>
+  <text class="val" x="476.5" y="320">13 bits on 7.0</text>
+  <text class="arch" x="112" y="354" text-anchor="end">ppc32</text>
+  <line x1="437.5" y1="350" x2="462.5" y2="350" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="462.5" cy="350" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="437.5" cy="350" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="423.5" y="354" text-anchor="end">11 bits on 7.0</text>
+  <text class="val" x="476.5" y="354">13 bits on 5.15</text>
+  <text class="arch" x="112" y="388" text-anchor="end">x86_64</text>
+  <line x1="362.5" y1="384" x2="412.5" y2="384" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="362.5" cy="384" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="412.5" cy="384" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="348.5" y="388" text-anchor="end">5 bits on 5.15</text>
+  <text class="val" x="426.5" y="388">9 bits on 7.0</text>
+  <text class="arch" x="112" y="422" text-anchor="end">i686</text>
+  <line x1="394.5" y1="418" x2="405.5" y2="418" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="400.0" cy="418" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="400.0" cy="418" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="414.0" y="422">8 bits on 5.15 and 7.0</text>
+  <line x1="24" y1="456" x2="936" y2="456" stroke="#eceff1" stroke-width="1"/>
+  <text class="note" x="24" y="448">Not plotted: KASLR was off on every kernel booted (count in brackets): armeb (3), armv7 (5), powerpc64 (3), ppc64le (4), riscv32 (3)</text>
+  <circle cx="32" cy="474" r="5.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="note" x="46" y="478">oldest kernel line tested</text>
+  <circle cx="232" cy="474" r="5.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="note" x="246" y="478">newest kernel line tested</text>
+  <text class="note" x="24" y="500">KASLR reached these architectures at different times, so the grey end is the oldest line tested rather than a baseline they share. The default</text>
+  <text class="note" x="24" y="517">vantage is an unprivileged reader with nothing opened, the one profile every cell runs; opening a sysctl narrows the window further, and</text>
+  <text class="note" x="24" y="534">lowering perf_event_paranoid recovers the base exactly wherever CONFIG_PERF_EVENTS is built in. Those figures are in the matrix.</text>
+  <text class="note" x="24" y="551">Microarchitectural side channels (prefetch, entrybleed) narrow only the likely window, never the guaranteed one plotted here.</text>
 </svg>

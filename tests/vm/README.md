@@ -187,9 +187,9 @@ tests/vm/run mipsel-mainline-7.0           # boot it, verdict
 
 | arch | kernel-ARCH / defconfig | qemu |
 |------|-------------------------|------|
-| mips | `mips` / `malta_defconfig` + BE | `qemu-system-mips -M malta` |
-| mipsel | `mips` / `malta_defconfig` (LE) | `qemu-system-mipsel -M malta` |
-| mips64el | `mips` / `malta_defconfig` + 64-bit (LE) | `qemu-system-mips64el -M malta` |
+| mips | `mips` / `malta_kvm_defconfig` + BE | `qemu-system-mips -M malta` |
+| mipsel | `mips` / `malta_kvm_defconfig` (LE) | `qemu-system-mipsel -M malta` |
+| mips64el | `mips` / `malta_kvm_defconfig` + 64-bit (LE) | `qemu-system-mips64el -M malta` |
 | riscv32 | `riscv` / `defconfig` + `32-bit.config` | `qemu-system-riscv32 -M virt` |
 | ppc32 | `powerpc` / `mpc85xx_defconfig` (BE) | `qemu-system-ppc -M ppce500` |
 | powerpc64 | `powerpc` / `ppc64_defconfig` (BE) | `qemu-system-ppc64 -M pseries` |
@@ -198,7 +198,7 @@ tests/vm/run mipsel-mainline-7.0           # boot it, verdict
 Validation status of the gap arches (built fresh from kernel.org, booted here):
 
 - `mips`, `mipsel`, `mips64el`, `riscv32` — verified end-to-end, boots PASS.
-  `malta_defconfig` is little-endian, so `mips` exercises the big-endian overlay
+  `malta_kvm_defconfig` is little-endian, so `mips` exercises the big-endian overlay
   (and `mipsel` boots the native byte order); `mips64el` promotes the same board
   to a 64-bit CPU (`MIPS64R2-generic`); `riscv32` is staged as the flat `Image`
   (the `virt` board rejects the raw `vmlinux` ELF) and needs the 32-bit OpenSBI

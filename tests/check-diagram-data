@@ -137,8 +137,14 @@ if [ -f "$SVG" ]; then
   md_table_select "$MTX" 'arch,scenario,KASLR' arch | sort -u >"$TMP/mtx"
   require_rows "results matrix" "$TMP/mtx" || :
   tbl=$(cat "$TMP/mtx")
-  plot=$(grep -oE 'text-anchor="end">[a-z0-9_]+</text>' "$SVG" |
-         sed 's/.*>\(.*\)<.*/\1/' | grep -v '^bits$' | sort -u)
+  # An architecture appears in the chart one of two ways: as a row label, or
+  # named in the off-list note where KASLR was off on every kernel tested and
+  # there is no window to draw. Both count as present; an architecture in
+  # neither is still a silent drop, which is what this checks for.
+  plot=$( { grep -oE 'text-anchor="end">[a-z0-9_]+</text>' "$SVG" |
+              sed 's/.*>\(.*\)<.*/\1/'
+            grep -oE '[a-z0-9_]+ \([0-9]+\)' "$SVG" | sed 's/ .*//'
+          } | grep -v '^bits$' | sort -u)
   for a in $tbl; do
     printf '%s\n' "$plot" | grep -qx "$a" || {
       printf '%s  matrix architecture missing from the chart%s: %s\n' "$RED" "$RESET" "$a"
