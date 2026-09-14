@@ -285,6 +285,13 @@ it does not hold. A capture cannot answer from the tree alone: an absent source
 and a refused one are both simply not in it, so only a capture that recorded a
 refusal at collection time renders one.
 
+Under a mandatory-access-control policy the common case is that a refusal never
+reaches the report as one. SELinux withholds `getattr` on the type rather than
+returning `EACCES` on the open, so the source reads as *missing*. A vantage
+where nearly every oracle is `unknown` and most components are denied or
+unavailable is what a policy doing its job looks like from inside — not a run
+that failed.
+
 Group names come from `/etc/group` in the tree being analysed, so an offline
 replay names that tree's groups rather than the analysing host's; the ids kasld
 knows gate one of its own sources are named even where the tree cannot name
@@ -604,7 +611,11 @@ capabilities. `lsm`, `selinux` and
 `security_context` are `null` when this vantage cannot read them, which is not
 the same as their being absent — an enforcing policy commonly hides its own
 state. `mac_enforcing` is the only one of the four that asserts anything: it is
-true only where a policy was observed actively confining this process.
+true only where a policy was observed actively confining this process. The same
+caveat applies to the oracle map: under such a policy a refusal is commonly
+indistinguishable from an absence at the point of the probe, so a document whose
+oracles are nearly all `unknown` describes a target that is confined, not a
+collection that went wrong.
 
 The `groups` array carries the leak evidence, one object per (`type`,
 `section`, `region`) — the same split the text readout prints as separate
