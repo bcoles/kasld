@@ -1,0 +1,9 @@
+ffffffe000202000 T _sinittext
+ffffffe000202000 T __init_begin
+ffffffe000227208 T _einittext
+ffffffe000229000 T _stext
+ffffffe000229000 T _text
+ffffffe000229000 T __init_end
+ffffffe000229000 D __per_cpu_end
+ffffffe000229000 D __per_cpu_start
+ffffffe00066ce4a T _etext
