@@ -5693,6 +5693,48 @@ static void test_group_gate_table_is_complete(void) {
   TH_CHECK(seen);
 }
 
+/* A held gid names a gate only where the gid's RESOLVED name agrees with the
+ * table's.
+ *
+ * The Android ids live in the range a distro hands to its first user accounts,
+ * so gid 1001 is `radio` on a device and somebody's login group on a
+ * workstation. The name kasld reports comes from the analysed tree's
+ * /etc/group, falling back to the table only where nothing named the gid --
+ * which is why an Android tree, whose /etc/group is empty, still resolves 1001
+ * to `radio`. The JSON once matched on the gid alone and asserted `radio` for a
+ * group the readout beside it was calling `user`. */
+static void test_vantage_group_gate_needs_the_resolved_name(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+  struct kasld_vantage *v = &kasld_env.vantage;
+  memset(v, 0, sizeof(*v));
+  v->have_ids = 1;
+  v->ngroups = 3;
+  v->groups[0] = 4;    /* adm, named by every distro tree */
+  v->groups[1] = 1001; /* radio on Android; a user's own group on a distro */
+  v->groups[2] = 3012; /* readtracefs, unnamed outside Android */
+  snprintf(v->group_names[0], sizeof(v->group_names[0]), "adm");
+  snprintf(v->group_names[1], sizeof(v->group_names[1]), "user");
+  /* Unnamed by the tree: the gate table is what named it, as on Android. */
+  snprintf(v->group_names[2], sizeof(v->group_names[2]), "readtracefs");
+
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  /* The two the tree agrees with are claimed. */
+  TH_CHECK(strstr(render_cap, "\"gid\": 4, \"name\": \"adm\"") != NULL);
+  TH_CHECK(strstr(render_cap, "\"gid\": 3012, \"name\": \"readtracefs\"") !=
+           NULL);
+  /* The one it does not is claimed by neither the gid nor the Android prose. */
+  TH_CHECK(strstr(render_cap, "\"gid\": 1001") == NULL);
+  TH_CHECK(strstr(render_cap, "radio") == NULL);
+
+  memset(v, 0, sizeof(*v));
+  reset_comp_logs();
+  stage_likely_reset();
+}
+
 /* The MAC posture helpers. Two honesty rules are load-bearing: an unreadable
  * LSM is reported as unknown and never as absent, and a policy that only logs
  * is not confinement. */
@@ -6104,6 +6146,7 @@ int main(void) {
   RUN(test_hardening_projection_redundant);
   RUN(test_render_hardening_pointer_hashing_gate);
   RUN(test_group_gate_table_is_complete);
+  RUN(test_vantage_group_gate_needs_the_resolved_name);
   RUN(test_render_hardening_value_states);
   RUN(test_vantage_mac_posture_helpers);
   RUN(test_hardening_mac_attribution_scope);

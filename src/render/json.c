@@ -344,12 +344,27 @@ static void render_environment_json(void) {
   {
     int first = 1;
     for (int i = 0; i < v->ngroups; i++) {
+      const char *nm = kasld_group_name(v, i);
       for (int g = 0; g < KASLD_N_GROUP_GATES; g++) {
         if (kasld_group_gates[g].gid != v->groups[i])
           continue;
+        /* A matching gid does not make this the group that gates the source.
+         * The Android ids sit in the range a distro hands to its first user
+         * accounts, so a tree whose /etc/group calls 1001 `user` holds no
+         * `radio` membership and gates nothing.
+         *
+         * resolve_group_names() has already answered what the gid is called:
+         * the analysed tree's own name, falling back to this table only where
+         * nothing named it -- which is how an Android tree, whose /etc/group is
+         * empty, still resolves 1001 to `radio`. Claiming the gate only where
+         * that answer agrees is what keeps this array from contradicting the
+         * readout beside it, which names the same group from the same source.
+         */
+        if (!nm || strcmp(nm, kasld_group_gates[g].name) != 0)
+          continue;
         printf("%s\n      {\"gid\": %lu, \"name\": ", first ? "" : ",",
                kasld_group_gates[g].gid);
-        json_print_escaped(kasld_group_gates[g].name);
+        json_print_escaped(nm);
         printf(", \"gates\": ");
         json_print_escaped(kasld_group_gates[g].gates);
         printf("}");
