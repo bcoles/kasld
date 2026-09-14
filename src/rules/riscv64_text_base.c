@@ -1,6 +1,6 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: riscv64 no-KASLR kernel text base, layout-aware.
+// Rule: riscv64 kernel text base bounds, layout-aware.
 //
 // riscv64 has TWO kernel-text layouts. Which one is running is determined by
 // the resolved PAGE_OFFSET — NOT by the kernel version, which KASLD does not
@@ -34,10 +34,15 @@
 //     exclude the truth; module_text_bound supplies the upper bound from a
 //     leaked module address. Fires regardless of the disabled marker — a legacy
 //     PAGE_OFFSET already implies no KASLR.
-//   * Modern (PAGE_OFFSET resolved < RISCV_LEGACY_PAGE_OFFSET): pin
-//     Q_VIRT_IMAGE_BASE to KERNEL_VIRT_TEXT_DEFAULT when KASLR is reported
-//     disabled — the contract the generic pin provided, scoped to the layout
-//     where the constant is correct.
+//   * Modern (PAGE_OFFSET resolved < RISCV_LEGACY_PAGE_OFFSET): the image is
+//     out of the linear map, so floor Q_VIRT_IMAGE_BASE at KERNEL_LINK_ADDR —
+//     sound with KASLR on or off, since setup_vm() places the image at
+//     KERNEL_LINK_ADDR plus a non-negative slide. Without it the window keeps
+//     the whole span down to the legacy base, which the honest top must admit
+//     (a linear-map kernel really does put text there) but which this layout
+//     has already ruled out. Additionally pin to KERNEL_VIRT_TEXT_DEFAULT when
+//     KASLR is reported disabled — the contract the generic pin provided,
+//     scoped to the layout where the constant is correct.
 //
 // riscv64 only; inert elsewhere.
 // ---
@@ -80,9 +85,8 @@ int rule_riscv64_text_base(const struct evidence_set *ev,
     return 1;
   }
 
-  /* Modern layout: text at KERNEL_LINK_ADDR. Pin to the compile-time default
-   * when KASLR is reported off (mirrors the generic virt_kaslr_disabled_pin,
-   * scoped to riscv64-modern).
+  /* Modern layout: text at KERNEL_LINK_ADDR. Two constraints follow, the first
+   * unconditional and the second only where KASLR is reported off.
    *
    * CRITICAL ordering guard: only act once PAGE_OFFSET is RESOLVED strictly
    * below the legacy value (every modern PAGE_OFFSET is). Q_PAGE_OFFSET starts
@@ -94,6 +98,34 @@ int rule_riscv64_text_base(const struct evidence_set *ev,
    * kernel that turns out legacy. */
   if (!(po_known && po_hi < (unsigned long)RISCV_LEGACY_PAGE_OFFSET))
     return 0;
+
+  int n = 0;
+
+  /* The image cannot be in the linear map, so it sits at or above the address
+   * the modern layout links it to: setup_vm() sets
+   * kernel_map.virt_addr = KERNEL_LINK_ADDR + kernel_map.virt_offset, and the
+   * offset is a non-negative slide. The bound therefore holds whether or not
+   * KASLR is on, which is what makes it worth emitting here -- the honest top
+   * floors at the LEGACY base to stay sound on a linear-map kernel, and without
+   * this the window keeps a span the layout has already excluded.
+   *
+   * Keyed on the window's TOP for the same reason the pin below is: a resolved
+   * PAGE_OFFSET strictly under the legacy floor is the layout's own signature,
+   * and no legacy CONFIG_PAGE_OFFSET reaches below it. A v5.13-v5.16 kernel is
+   * modern yet still carries a compile-time PAGE_OFFSET at or above the floor,
+   * so it fails this test and keeps the wide window -- a missed narrowing, not
+   * an unsound one. */
+  if (n < out_max) {
+    struct constraint *c = &out[n++];
+    memset(c, 0, sizeof(*c));
+    c->q = Q_VIRT_IMAGE_BASE;
+    c->op = C_LOWER_BOUND;
+    c->value = (unsigned long)KERNEL_LINK_ADDR;
+    c->conf = CONF_INFERRED;
+    c->derived_from[0] = po->hi_binding;
+    c->lineage_count = po->hi_binding ? 1 : 0;
+    snprintf(c->origin, ORIGIN_LEN, "riscv64_text_base");
+  }
 
   uint32_t sig_id = 0;
   enum kasld_confidence sig_conf = CONF_UNKNOWN;
@@ -108,14 +140,16 @@ int rule_riscv64_text_base(const struct evidence_set *ev,
     }
   }
   if (sig_id == 0)
-    return 0;
+    return n;
 
   unsigned long v = arch_default_text_base();
   const struct estimate *vt = &est[Q_VIRT_IMAGE_BASE];
   if (v == 0 || v < vt->lo || v > vt->hi)
-    return 0; /* default doesn't model this build; keep the wider window. */
+    return n; /* default doesn't model this build; keep the wider window. */
 
-  struct constraint *c = &out[0];
+  if (n >= out_max)
+    return n;
+  struct constraint *c = &out[n++];
   memset(c, 0, sizeof(*c));
   c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_EQUALS;
@@ -127,7 +161,7 @@ int rule_riscv64_text_base(const struct evidence_set *ev,
   c->derived_from[0] = sig_id;
   c->lineage_count = 1;
   snprintf(c->origin, ORIGIN_LEN, "riscv64_text_base");
-  return 1;
+  return n;
 }
 
 #else
