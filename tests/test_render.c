@@ -4470,6 +4470,22 @@ static struct component_log *hr_seed_comp(const char *name,
   cl->outcome = oc;
   return cl;
 }
+/* A physical record attributed to `name`, so the compile-time surface reads a
+ * PHYSICAL disclosure off what the component produced. The surface's disclosure
+ * is OBSERVED, not declared, so seeding the `discloses:` key alone leaves a
+ * component in the "does not state" group. */
+static void hr_seed_phys_record(const char *name) {
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_PHYS;
+  r->region = REGION_RAM;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  r->lo = 0x40000000ul;
+  r->hi = 0xf0000000ul;
+  r->set_mask = LO_SET | HI_SET;
+  origin_set_add(&r->origins, test_origin(name));
+}
+
 static void hr_seed_meta(struct component_log *cl, const char *k,
                          const char *v) {
   /* An entry holds pointers into the raw section a log slot owns; here the
@@ -4970,6 +4986,132 @@ static void test_render_hardening_confirmed_mitigations(void) {
   set_render_mode(0, 0, 0);
   TH_CHECK(strstr(render_cap, "\"confirmed_mitigations\"") != NULL);
   TH_CHECK(strstr(render_cap, "\"gate\": \"kpti\"") != NULL);
+
+  reset_comp_logs();
+  stage_likely_reset();
+}
+
+/* Every listing line of the compile-time surface block fits the readout width.
+ *
+ * Scoped to that block deliberately: the hardening renderer's fixed prose (the
+ * decoupled-KASLR note, the hardware requirement lines) is already wider, and
+ * this asserts the one field whose width is a function of metadata rather than
+ * of the sentence -- which is why that field wraps and they do not. */
+static void check_surface_block_width(const char *cap) {
+  const char *line = cap;
+  int in_block = 0;
+  while (line && *line) {
+    const char *nl = strchr(line, '\n');
+    size_t len = nl ? (size_t)(nl - line) : strlen(line);
+    if (strncmp(line, "Compile-time attack surface:", 28) == 0) {
+      in_block = 1;
+    } else if (in_block) {
+      /* The block ends at its note, at a blank line, or at the next heading. */
+      if (len == 0 || line[0] != ' ' || strncmp(line, "  Note:", 7) == 0)
+        return;
+      TH_CHECK(len <= (size_t)KASLD_READOUT_COLS);
+    }
+    line = nl ? nl + 1 : NULL;
+  }
+}
+
+/* A component depending on SEVERAL config options is ONE component.
+ *
+ * surface[] carries one row per (component, option) pair, so a two-option
+ * component holds two rows; counting rows called it two components and printed
+ * its name twice. The options are a conjunction -- the technique needs all of
+ * them -- so they belong on one line against one name. Five shipped components
+ * declare two options each, and the readout is where the miscount showed.
+ *
+ * The JSON pair list is the general form and is deliberately unchanged: a
+ * consumer groups it as it likes, and the published schema pins its shape. */
+static void test_render_hardening_surface_multi_config(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+
+  struct component_log *two = hr_seed_comp("c_two_opts", OUTCOME_SUCCESS);
+  hr_seed_meta(two, "method", "parsed");
+  hr_seed_meta(two, "config", "CONFIG_OF");
+  hr_seed_meta(two, "config", "CONFIG_BLK_DEV_INITRD");
+  hr_seed_phys_record("c_two_opts");
+
+  struct component_log *one = hr_seed_comp("c_one_opt", OUTCOME_SUCCESS);
+  hr_seed_meta(one, "method", "parsed");
+  hr_seed_meta(one, "config", "CONFIG_PCI");
+  hr_seed_phys_record("c_one_opt");
+
+  /* The report model keeps the pair: three rows over two components. */
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+  int rows_two = 0;
+  for (int i = 0; i < rep.n_surface; i++)
+    if (strcmp(rep.surface[i].name, "c_two_opts") == 0)
+      rows_two++;
+  TH_CHECK(rows_two == 2);
+
+  hardening_mode = 1;
+
+  /* Text: two components, each named once, the pair joined on one line. */
+  capture_stdout(wrap_render_summary, &s);
+  TH_CHECK(strstr(render_cap, "2 components disclose physical addresses") !=
+           NULL);
+  TH_CHECK(strstr(render_cap, "CONFIG_OF, CONFIG_BLK_DEV_INITRD") != NULL);
+  {
+    const char *p = render_cap;
+    int seen = 0;
+    while ((p = strstr(p, "c_two_opts")) != NULL) {
+      seen++;
+      p += 10;
+    }
+    TH_CHECK(seen == 1);
+  }
+
+  check_surface_block_width(render_cap);
+
+  /* JSON keeps one object per (component, option) pair. */
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  TH_CHECK(
+      strstr(render_cap,
+             "{\"component\": \"c_two_opts\", \"config\": \"CONFIG_OF\"") !=
+      NULL);
+  TH_CHECK(strstr(render_cap, "\"config\": \"CONFIG_BLK_DEV_INITRD\"") != NULL);
+
+  hardening_mode = 0;
+  reset_comp_logs();
+  stage_likely_reset();
+}
+
+/* Four long option names on one component overflow the readout width, so the
+ * list wraps to the option column instead of running past it or being cut: an
+ * option dropped for width is one the reader cannot account for. No shipped
+ * component declares four, which is why this case is constructed. */
+static void test_render_hardening_surface_config_wrap(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+
+  struct component_log *c = hr_seed_comp("c_many_opts", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_phys_record("c_many_opts");
+  hr_seed_meta(c, "config", "CONFIG_A_VERY_LONG_OPTION_NAME_ONE");
+  hr_seed_meta(c, "config", "CONFIG_A_VERY_LONG_OPTION_NAME_TWO");
+  hr_seed_meta(c, "config", "CONFIG_A_VERY_LONG_OPTION_NAME_THREE");
+  hr_seed_meta(c, "config", "CONFIG_A_VERY_LONG_OPTION_NAME_FOUR");
+
+  hardening_mode = 1;
+  capture_stdout(wrap_render_summary, &s);
+  hardening_mode = 0;
+
+  /* Every option survives the wrap, the component is still named once, and no
+   * line ran past the budget. */
+  TH_CHECK(strstr(render_cap, "CONFIG_A_VERY_LONG_OPTION_NAME_ONE") != NULL);
+  TH_CHECK(strstr(render_cap, "CONFIG_A_VERY_LONG_OPTION_NAME_TWO") != NULL);
+  TH_CHECK(strstr(render_cap, "CONFIG_A_VERY_LONG_OPTION_NAME_THREE") != NULL);
+  TH_CHECK(strstr(render_cap, "CONFIG_A_VERY_LONG_OPTION_NAME_FOUR") != NULL);
+  TH_CHECK(strstr(render_cap, "1 component discloses physical addresses") !=
+           NULL);
+  check_surface_block_width(render_cap);
 
   reset_comp_logs();
   stage_likely_reset();
@@ -5952,6 +6094,8 @@ int main(void) {
   RUN(test_hardening_disclosure_declared_fallback);
   RUN(test_render_hardening_confirmed_mitigations);
   RUN(test_render_hardening_no_confirmed_mitigations);
+  RUN(test_render_hardening_surface_multi_config);
+  RUN(test_render_hardening_surface_config_wrap);
   RUN(test_section_interior_only_and_conflicts);
   RUN(test_render_interior_only_surface);
   RUN(test_hardening_unprivileged_bpf_gate);

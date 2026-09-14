@@ -748,7 +748,11 @@ kernel. It is followed by seven analysis sections:
 
 5. **Compile-time attack surface** — successful components that exploit
    kernel features enabled at compile time (e.g. `CONFIG_E820_TABLE`,
-   `CONFIG_EFI`), grouped by address type (physical vs. virtual).
+   `CONFIG_EFI`), grouped by address type (physical vs. virtual). A component
+   that depends on several options is listed once, carrying all of them: the
+   options are a conjunction, so the count is of components and not of
+   dependencies. In json, `hardening.compile_time_surface` keeps one object per
+   (component, option) pair, which a consumer can group either way.
 
 6. **Hardware side-channels** — successful components that exploit CPU
    microarchitectural side channels (prefetch, EntryBleed, ZombieLoad,

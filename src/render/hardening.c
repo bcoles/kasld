@@ -26,6 +26,12 @@
  * they carry distinct surfaces rather than sharing "lsm". */
 #define HR_SURFACE_MAC "mac"
 
+/* The component-name column the text renderer's listings align to, and the
+ * column the field after it starts in. Named once because two sections draw
+ * the same grid and a reader reads them as one table. */
+#define HR_COMPONENT_COL_W 28
+#define HR_COMPONENT_COL_NEXT (4 + HR_COMPONENT_COL_W + 1)
+
 /* Known sysctl gates */
 struct sysctl_gate {
   const char *name;    /* meta value prefix, e.g. "dmesg_restrict" */
@@ -814,6 +820,49 @@ static void md_print_necessity(int silences, int exposure, int all_v,
         "; 0 guaranteed bits (not required - the rest reach the same posture)");
 }
 
+/* Whether row `i` of surface[] is the first one naming its component.
+ *
+ * surface[] carries one row per (component, config option) pair, so a component
+ * that depends on two options occupies two rows. Every row of a component
+ * carries the same disclosure -- that is read off the component, not off the
+ * option -- so a component lies entirely within one disclosure group, and
+ * deduplicating by name over the whole array deduplicates within a group too.
+ */
+static int surface_row_is_first(const struct hardening_report *rep, int i) {
+  for (int j = 0; j < i; j++)
+    if (strcmp(rep->surface[j].name, rep->surface[i].name) == 0)
+      return 0;
+  return 1;
+}
+
+/* Print every config option component `i` depends on, comma-joined, starting
+ * at the column the caller has already reached.
+ *
+ * The options are a conjunction: the technique needs all of them. One row per
+ * option would state the component once per option and invite counting it once
+ * per option, which is the arithmetic this listing exists to state correctly.
+ * Wraps rather than truncating, for the reason the vantage's group list does --
+ * an option dropped for width is one the reader cannot account for. */
+static void print_surface_configs(const struct hardening_report *rep, int i,
+                                  int col) {
+  int first = 1;
+  for (int j = i; j < rep->n_surface; j++) {
+    if (strcmp(rep->surface[j].name, rep->surface[i].name) != 0)
+      continue;
+    int w = (int)strlen(rep->surface[j].config) + (first ? 0 : 2);
+    if (!first && col + w > KASLD_READOUT_COLS) {
+      printf(",\n    %-*s ", HR_COMPONENT_COL_W, "");
+      col = HR_COMPONENT_COL_NEXT + (int)strlen(rep->surface[j].config);
+      printf("%s", rep->surface[j].config);
+    } else {
+      printf("%s%s", first ? "" : ", ", rep->surface[j].config);
+      col += w;
+    }
+    first = 0;
+  }
+  printf("\n");
+}
+
 void render_hardening_text(void) {
   printf("\n%s========================================%s\n", c(C_BOLD),
          c(C_RESET));
@@ -1105,7 +1154,7 @@ void render_hardening_text(void) {
      * addresses. A kind nothing states is now its own group, named as unstated
      * rather than folded into one of the others. */
     const char *kinds[HR_SURFACE_MAX];
-    int nkinds = 0, phys_count = 0;
+    int nkinds = 0, any_phys = 0;
     for (int i = 0; i < rep.n_surface; i++) {
       const char *d = rep.surface[i].discloses;
       int seen = 0;
@@ -1120,12 +1169,15 @@ void render_hardening_text(void) {
        * about physical addresses ALONE, so a component disclosing both is not
        * one of them. A substring test would count it. */
       if (d && strcmp(d, DISCLOSE_PHYS) == 0)
-        phys_count++;
+        any_phys = 1;
     }
     for (int k = 0; k < nkinds; k++) {
+      /* Distinct COMPONENTS, not rows: a component depending on two options
+       * holds two rows, and counting rows reports it as two components. */
       int n = 0;
       for (int i = 0; i < rep.n_surface; i++)
-        if (disclosure_eq(kinds[k], rep.surface[i].discloses))
+        if (disclosure_eq(kinds[k], rep.surface[i].discloses) &&
+            surface_row_is_first(&rep, i))
           n++;
       if (kinds[k])
         printf("  %d component%s disclose%s %s via compiled-in features:\n", n,
@@ -1134,11 +1186,22 @@ void render_hardening_text(void) {
         printf("  %d component%s do%s not state what they disclose, via "
                "compiled-in features:\n",
                n, n == 1 ? "" : "s", n == 1 ? "es" : "");
-      for (int i = 0; i < rep.n_surface; i++)
-        if (disclosure_eq(kinds[k], rep.surface[i].discloses))
-          printf("    %-28s %s\n", rep.surface[i].name, rep.surface[i].config);
+      for (int i = 0; i < rep.n_surface; i++) {
+        if (!disclosure_eq(kinds[k], rep.surface[i].discloses) ||
+            !surface_row_is_first(&rep, i))
+          continue;
+        int name_w = (int)strlen(rep.surface[i].name);
+        printf("    %-*s ", HR_COMPONENT_COL_W, rep.surface[i].name);
+        /* A name wider than the column pushes the options right of it rather
+         * than back to the column, so the wrap arithmetic follows what was
+         * actually printed. */
+        print_surface_configs(&rep, i,
+                              name_w > HR_COMPONENT_COL_W
+                                  ? 4 + name_w + 1
+                                  : HR_COMPONENT_COL_NEXT);
+      }
     }
-    if (phys_count > 0 && sizeof(unsigned long) >= 8)
+    if (any_phys && sizeof(unsigned long) >= 8)
       printf("  %sNote: on 64-bit architectures with decoupled KASLR, "
              "physical addresses alone cannot derive the kernel virtual text "
              "base.%s\n",
@@ -1165,7 +1228,7 @@ void render_hardening_text(void) {
       /* Lead with the technique and what it leaks; the hardware field is the
        * requirement (e.g. "TSX required", "prefetch side-channel (mitigated by
        * KPTI)"), labelled so it does not read as the subject that leaks. */
-      printf("    %-28s ", rep.hw[i].name);
+      printf("    %-*s ", HR_COMPONENT_COL_W, rep.hw[i].name);
       if (rep.hw[i].discloses)
         printf("discloses %s; ", rep.hw[i].discloses);
       printf("hardware: %s\n", rep.hw[i].hardware);
