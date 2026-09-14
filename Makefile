@@ -123,15 +123,34 @@ KASLD_WARN_FLAGS   := $(foreach f,$(KASLD_WARN_FLAGS_WANTED),$(call cc-option,$(
 KASLD_HARDEN_FLAGS := $(foreach f,$(KASLD_HARDEN_FLAGS_WANTED),$(call cc-option,$(f)))
 endif
 
-# Appended, not substituted: a caller adding a flag for one target must not have
-# to restate CFLAGS and lose the warning and hardening sets with it. `make cross`
-# uses these to carry a per-triple requirement.
+# Two flag channels, appended rather than substituted: a caller adding a flag
+# for one target must not have to restate CFLAGS and lose the warning and
+# hardening sets with it.
+#
+#   EXTRA_*  belongs to whoever invoked make, and this file never assigns it.
+#   CROSS_*  is how the cross loop hands one triple the flags its toolchain
+#            needs (arch flags, and the dependency prefix when cross-deps has
+#            populated one).
+#
+# They are separate names because one name cannot carry both meanings. The
+# cross loop reaches a per-triple build through a sub-make, and a variable set
+# on a sub-make's command line outranks the same variable inherited from the
+# parent -- replacing it, not appending to it. Sharing a name therefore drops
+# the caller's flags on every cross build while honouring them natively, and a
+# dropped -Werror is invisible: the build it should have stopped succeeds.
+#
+# EXTRA_* comes after CROSS_* so that a caller's flag wins where the two
+# conflict, which is the ordering `AM_CFLAGS $(CFLAGS)` and `KBUILD_CFLAGS +=
+# $(KCFLAGS)` both use.
 EXTRA_CFLAGS =
 EXTRA_LDFLAGS =
+CROSS_CFLAGS =
+CROSS_LDFLAGS =
 
-ALL_CFLAGS = -std=c99 $(CFLAGS) $(EXTRA_CFLAGS) $(KASLD_WARN_FLAGS) $(KASLD_HARDEN_FLAGS)
+ALL_CFLAGS = -std=c99 $(CFLAGS) $(CROSS_CFLAGS) $(EXTRA_CFLAGS) \
+             $(KASLD_WARN_FLAGS) $(KASLD_HARDEN_FLAGS)
 LDFLAGS =
-ALL_LDFLAGS = $(LDFLAGS) $(EXTRA_LDFLAGS)
+ALL_LDFLAGS = $(LDFLAGS) $(CROSS_LDFLAGS) $(EXTRA_LDFLAGS)
 
 # Quiet build. The default prints a short kernel-style tag ("  CC  <path>")
 # BEFORE each step runs, so any compiler diagnostics that follow are always
@@ -1140,6 +1159,7 @@ lint :
 	    $(TEST_DIR)/check-shellcheck \
 	    $(TEST_DIR)/check-fuzz-harnesses \
 	    $(TEST_DIR)/check-make-deps \
+	    $(TEST_DIR)/check-caller-flags \
 	    $(TEST_DIR)/check-component-prune \
 	    $(TEST_DIR)/check-suite-registry \
 	    $(TEST_DIR)/check-render-model-only \
@@ -1467,10 +1487,10 @@ cross-arch-flags :
 	*) echo '' ;; \
 	esac
 
-# What the cross loop passes: the arch flags above, plus the dependency prefix
-# for this triple when `cross-deps` has populated one. Absent, the flags are the
-# arch flags alone and the zlib probe simply fails, which is the state every
-# cross build was in before: proc_config decompresses by running zcat instead.
+# What the cross loop passes, as CROSS_CFLAGS / CROSS_LDFLAGS: the arch flags
+# above, plus the dependency prefix for this triple when `cross-deps` has
+# populated one. Absent, the flags are the arch flags alone and the zlib probe
+# simply fails, leaving proc_config to decompress by running zcat instead.
 # Kept separate from cross-arch-flags because zlib itself is compiled with the
 # arch flags and must not be told to search a prefix it is being built into.
 .PHONY: cross-extra-flags
@@ -1583,7 +1603,7 @@ cross :
 		if command -v $${triple}-gcc >/dev/null 2>&1; then \
 			echo "=== Building for $$triple ==="; \
 			xf=$$($(MAKE) --no-print-directory cross-extra-flags TRIPLE=$$triple); \
-			$(MAKE) build CC=$${triple}-gcc EXTRA_CFLAGS="$$xf" EXTRA_LDFLAGS="$$xf" \
+			$(MAKE) build CC=$${triple}-gcc CROSS_CFLAGS="$$xf" CROSS_LDFLAGS="$$xf" \
 				|| { rc=1; echo "!!! FAILED: $$triple"; }; \
 			echo; \
 		else \

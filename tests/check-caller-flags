@@ -1,0 +1,117 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-caller-flags — EXTRA_CFLAGS / EXTRA_LDFLAGS belong to whoever invoked
+# make, and the Makefile never writes to them.
+#
+# The build has two flag channels: EXTRA_* carries what the caller asked for,
+# CROSS_* carries what a target triple's toolchain requires. They are separate
+# names because a sub-make cannot share one. A variable set on a sub-make's
+# command line outranks the same variable inherited from the parent and
+# REPLACES it rather than appending, so a recursive rule that passes its own
+# value in EXTRA_CFLAGS silently discards the caller's.
+#
+# What that costs is specific: `-Werror` is deliberately absent from the
+# Makefile and supplied on the command line by CI and by anyone checking a
+# change. Dropped, the build it should have stopped succeeds instead — a
+# warning reaches the tree through a gate that reported it clean, and the same
+# command that catches it natively reports nothing on every cross target.
+# Nothing in the output distinguishes a check that ran from one that did not.
+#
+# Two halves, since either alone passes while the channel is broken:
+#   - no recursive make invocation assigns EXTRA_CFLAGS or EXTRA_LDFLAGS
+#   - ALL_CFLAGS / ALL_LDFLAGS still reference them, so what the caller passes
+#     reaches the compiler at all
+#
+# Scope is the Makefile. A script or a CI job that runs `make EXTRA_CFLAGS=...`
+# is the caller exercising the channel, which is what it is for.
+#
+# Backslash continuations are joined before matching, so an assignment moved
+# onto a continuation line is examined with the $(MAKE) it belongs to rather
+# than read as a line of its own.
+#
+# Pure text, so it needs no build.
+#
+# Usage: tests/check-caller-flags   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
+
+MK=$ROOT/Makefile
+
+[ -f "$MK" ] || {
+  guard_fail "Makefile is missing"
+  exit 1
+}
+
+# One logical line per record, prefixed with the line number it starts at.
+logical=$(awk '
+  {
+    line = $0
+    if (buf == "") start = NR
+    if (line ~ /\\$/) { sub(/\\$/, "", line); buf = buf line; next }
+    buf = buf line
+    printf "%d:%s\n", start, buf
+    buf = ""
+  }
+  END { if (buf != "") printf "%d:%s\n", start, buf }
+' "$MK")
+
+# shellcheck disable=SC2016  # the literal token $(MAKE) as it appears in the file
+recurse='\$(MAKE)'
+
+recursive=$(printf '%s\n' "$logical" | grep -c "$recurse")
+
+bad=$(printf '%s\n' "$logical" |
+  grep "$recurse" |
+  grep -E 'EXTRA_(C|LD)FLAGS[[:space:]]*=')
+
+if [ -n "$bad" ]; then
+  guard_fail "a recursive make invocation assigns the caller's flags"
+  # A joined recipe is most of a screen; the line number and the offending
+  # assignments are the whole of what a reader needs.
+  printf '%s\n' "$bad" | while IFS=: read -r ln rest; do
+    printf '  Makefile:%s: %s\n' "$ln" \
+      "$(printf '%s\n' "$rest" |
+         grep -oE 'EXTRA_(C|LD)FLAGS[[:space:]]*=[^[:space:]]*' | tr '\n' ' ')"
+  done >&2
+  printf 'Pass a triple'"'"'s own requirements in CROSS_CFLAGS / CROSS_LDFLAGS.\n' >&2
+  printf 'EXTRA_* reaches a sub-make through MAKEFLAGS on its own; assigning it\n' >&2
+  printf 'on the command line replaces the caller'"'"'s value instead of adding to it.\n' >&2
+  exit 1
+fi
+
+# The other half: the channel has to arrive somewhere. A rule that never
+# mentions EXTRA_* honours the ban above and still ignores the caller.
+missing=
+for pair in 'ALL_CFLAGS:EXTRA_CFLAGS' 'ALL_LDFLAGS:EXTRA_LDFLAGS'; do
+  var=${pair%%:*}
+  flag=${pair#*:}
+  def=$(printf '%s\n' "$logical" | grep -E "^[0-9]+:${var}[[:space:]]*=")
+  if [ -z "$def" ]; then
+    missing="$missing $var(undefined)"
+  elif ! printf '%s\n' "$def" | grep -q "\$($flag)"; then
+    missing="$missing $var(drops $flag)"
+  fi
+done
+
+if [ -n "$missing" ]; then
+  guard_fail "the caller's flags never reach the compiler:$missing"
+  printf 'ALL_CFLAGS and ALL_LDFLAGS are what the compile and link recipes use;\n' >&2
+  printf 'a channel absent from them is set by the caller and read by nothing.\n' >&2
+  exit 1
+fi
+
+if [ "$recursive" -lt 1 ]; then
+  guard_fail "no recursive make invocation found -- the pattern no longer matches"
+  # shellcheck disable=SC2016  # naming the token this guard searches for
+  printf 'This guard looks for $(MAKE). Finding none means the Makefile spells\n' >&2
+  printf 'recursion some other way and nothing here was actually examined.\n' >&2
+  exit 1
+fi
+
+guard_ok "$recursive recursive make invocations; EXTRA_CFLAGS / EXTRA_LDFLAGS are the caller's alone and reach ALL_CFLAGS / ALL_LDFLAGS"
