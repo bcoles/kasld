@@ -830,20 +830,26 @@ void render_hardening_text(void) {
          c(C_RESET));
 
   /* Confirmed active mitigations: controls a component observed to defeat its
-   * leak this run (mitigation dispositions). Positive posture — printed only
-   * when present, keyed by the confirmed control. */
-  if (rep.n_confirmed > 0) {
-    printf("%sConfirmed active mitigations%s (observed to defeat a leak):\n",
-           c(C_BOLD), c(C_RESET));
-    for (int i = 0; i < rep.n_confirmed; i++) {
-      printf("  %s%s%s — %s", c(C_YELLOW), rep.confirmed[i].gate, c(C_RESET),
-             rep.confirmed[i].component);
-      if (rep.confirmed[i].message)
-        printf(" %s(%s)%s", c(C_DIM), rep.confirmed[i].message, c(C_RESET));
-      printf("\n");
-    }
+   * leak this run (mitigation dispositions), keyed by the confirmed control.
+   *
+   * Drawn only from controls that stopped a technique AND named themselves, so
+   * the list is never a survey of what the target has. Printed whether or not
+   * it holds anything: suppressed when empty, it leaves that distinction to a
+   * blank space, and a host whose every technique was denied before reaching a
+   * control renders identically to one that defended nothing. */
+  printf("%sConfirmed active mitigations%s (observed to defeat a leak):\n",
+         c(C_BOLD), c(C_RESET));
+  if (rep.n_confirmed == 0)
+    printf("  %sNone observed - not evidence that no mitigation is active.%s\n",
+           c(C_DIM), c(C_RESET));
+  for (int i = 0; i < rep.n_confirmed; i++) {
+    printf("  %s%s%s — %s", c(C_YELLOW), rep.confirmed[i].gate, c(C_RESET),
+           rep.confirmed[i].component);
+    if (rep.confirmed[i].message)
+      printf(" %s(%s)%s", c(C_DIM), rep.confirmed[i].message, c(C_RESET));
     printf("\n");
   }
+  printf("\n");
 
   /* ---- Section 0: KASLR posture downgrade ----
    *
@@ -1538,9 +1544,12 @@ void render_hardening_markdown(void) {
          rep.succeeded, rep.total);
 
   /* Confirmed active mitigations: controls observed to defeat a leak this run
-   * (mitigation dispositions). Printed only when present. */
-  if (rep.n_confirmed > 0) {
-    printf("### Confirmed active mitigations\n\n");
+   * (mitigation dispositions). Printed whether or not any were confirmed, for
+   * the reason given at the text renderer. */
+  printf("### Confirmed active mitigations\n\n");
+  if (rep.n_confirmed == 0) {
+    printf("None observed - not evidence that no mitigation is active.\n\n");
+  } else {
     printf("Controls observed to defeat a leak this run:\n\n");
     for (int i = 0; i < rep.n_confirmed; i++) {
       printf("- **%s** - %s", rep.confirmed[i].gate,

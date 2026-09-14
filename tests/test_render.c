@@ -4975,6 +4975,50 @@ static void test_render_hardening_confirmed_mitigations(void) {
   stage_likely_reset();
 }
 
+/* An empty confirmed-mitigations list is RENDERED, not suppressed. The list
+ * holds only controls that stopped a technique and named themselves, so it is
+ * never a survey of the target's defenses; printed only when non-empty, a host
+ * whose every technique was denied before it reached a control renders exactly
+ * like one that defended nothing, with a blank space carrying the difference.
+ * Text and markdown state the empty case; JSON already carries an empty array.
+ */
+static void test_render_hardening_no_confirmed_mitigations(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+
+  /* Dispositions that are NOT mitigations, so nothing is confirmed. */
+  struct component_log *a = hr_seed_comp("databounce", OUTCOME_UNAVAILABLE);
+  a->disposition.category = DISP_ABSENT;
+  struct component_log *ic =
+      hr_seed_comp("mmap_brute_vmsplit", OUTCOME_NO_RESULT);
+  ic->disposition.category = DISP_INCONCLUSIVE;
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+  TH_CHECK(rep.n_confirmed == 0);
+
+  hardening_mode = 1;
+
+  capture_stdout(wrap_render_summary, &s);
+  TH_CHECK(strstr(render_cap, "Confirmed active mitigations") != NULL);
+  TH_CHECK(strstr(render_cap, "None observed") != NULL);
+
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  TH_CHECK(strstr(render_cap, "### Confirmed active mitigations") != NULL);
+  TH_CHECK(strstr(render_cap, "None observed") != NULL);
+
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  TH_CHECK(strstr(render_cap, "\"confirmed_mitigations\": []") != NULL);
+
+  hardening_mode = 0;
+  reset_comp_logs();
+  stage_likely_reset();
+}
+
 /* Interior samples corroborate an extent; they are not competing base claims.
  * A section with only interior samples is interior-only (no single base), its
  * sources count the distinct contributors, and it has no conflicts. Adding a
@@ -5907,6 +5951,7 @@ int main(void) {
   RUN(test_hardening_disclosure_is_observed);
   RUN(test_hardening_disclosure_declared_fallback);
   RUN(test_render_hardening_confirmed_mitigations);
+  RUN(test_render_hardening_no_confirmed_mitigations);
   RUN(test_section_interior_only_and_conflicts);
   RUN(test_render_interior_only_surface);
   RUN(test_hardening_unprivileged_bpf_gate);

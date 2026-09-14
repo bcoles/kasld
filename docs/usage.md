@@ -700,10 +700,14 @@ $ ./kasld --explain
 The `--hardening` (`-H`) flag appends a post-run hardening assessment that
 evaluates the system's KASLR defenses based on the component results and
 their machine-readable metadata. It opens with **Confirmed active mitigations**
-(shown when present) — controls a component observed to defeat its leak this
-run, keyed by the gate (`kpti`, an MDS hardware fix, a hardening `CONFIG`); this
-is the runtime-observed complement to the sysctl gates, and appears in json as
-`hardening.confirmed_mitigations`. It is followed by seven analysis sections:
+— controls a component observed to defeat its leak this run, keyed by the gate
+(`kpti`, an MDS hardware fix, a hardening `CONFIG`); this is the
+runtime-observed complement to the sysctl gates, and appears in json as
+`hardening.confirmed_mitigations`. The section is always present, empty
+included: it lists only controls that stopped a technique *and* named
+themselves, so it is never a survey of the target's defenses, and an empty list
+says no technique was stopped that way rather than that nothing is defending the
+kernel. It is followed by seven analysis sections:
 
 1. **KASLR posture** (only when degraded) — surfaces a runtime KASLR
    state that downgrades effective slot entropy to 0 bits. Fires on
