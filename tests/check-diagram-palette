@@ -1,0 +1,85 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-diagram-palette — every committed diagram titles itself in one colour.
+#
+# The diagram set was brought to a single palette in one pass, editing the SVGs
+# directly. Three of those files are generated, and their generators were not
+# touched, so the next regeneration put the old colour back -- silently, because
+# an SVG diff is not read and a wrong title colour renders as a perfectly good
+# diagram. It survived until someone happened to look at the picture.
+#
+# That is the failure this guards: a hand-edit to a generated artifact, reverted
+# by the tool that writes it. Asserting the rendered colour catches it wherever
+# it comes from, generated or authored, without needing to know which files have
+# generators or to run them (two live under a directory that is not committed,
+# and the third needs boot logs that are not either).
+#
+# Only the TITLE is asserted. The set uses 58 distinct colours across bars,
+# regions, arrows and shading, and pinning all of them would reject legitimate
+# variety and be abandoned. The title is the one element every diagram has and
+# renders the same way, so it is the one place a single value is right.
+#
+# A diagram with no title is not a failure: several are figures inside a
+# document that names them in prose. The check is that a title, where present,
+# carries the house colour.
+#
+# Usage: tests/check-diagram-palette   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+TITLE_FILL='#263238'
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+fail=0
+checked=0
+titled=0
+
+for svg in "$ROOT"/docs/diagrams/*.svg; do
+  [ -f "$svg" ] || continue
+  checked=$((checked + 1))
+  name=${svg##*/}
+
+  # A title is coloured one of two ways: a `.title` CSS rule, or a fill on the
+  # element itself. Read both, so a diagram cannot pass by using the form the
+  # check does not look at.
+  # Both forms are collected, not one in preference to the other: an inline
+  # fill OVERRIDES the rule, so a file carrying a correct rule and a wrong
+  # attribute renders wrong while a check that stopped at the rule calls it
+  # right. Every value found has to be the house colour.
+  found=$( { sed -n 's/.*\.title[^{]*{[^}]*fill: *\(#[0-9a-fA-F]\{6\}\).*/\1/p' "$svg"
+             sed -n 's/.*<text[^>]*class="title"[^>]*fill="\(#[0-9a-fA-F]\{6\}\)".*/\1/p' "$svg"
+             sed -n 's/.*<text[^>]*fill="\(#[0-9a-fA-F]\{6\}\)"[^>]*class="title".*/\1/p' "$svg"
+           } | tr 'A-F' 'a-f' | sort -u)
+
+  [ -n "$found" ] || continue      # no title element; nothing to assert
+
+  titled=$((titled + 1))
+  for c in $found; do
+    if [ "$c" != "$TITLE_FILL" ]; then
+      printf '%s  %s titles in %s, not %s%s\n' \
+        "$RED" "$name" "$c" "$TITLE_FILL" "$RESET"
+      fail=1
+    fi
+  done
+done
+
+if [ "$checked" -eq 0 ]; then
+  printf '%scheck-diagram-palette: FAIL%s (no diagrams found)\n' "$RED" "$RESET" >&2
+  exit 1
+fi
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-diagram-palette: FAIL%s\n' "$RED" "$RESET" >&2
+  exit 1
+fi
+
+printf '%scheck-diagram-palette: OK%s (%d diagrams, %d titled, all %s)\n' \
+  "$GREEN" "$RESET" "$checked" "$titled" "$TITLE_FILL"

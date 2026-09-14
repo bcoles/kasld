@@ -1123,6 +1123,7 @@ lint :
 	    $(TEST_DIR)/check-doc-structure \
 	    $(TEST_DIR)/check-doc-identifiers \
 	    $(TEST_DIR)/check-diagram-data \
+	    $(TEST_DIR)/check-diagram-palette \
 	    $(TEST_DIR)/check-arch-axes \
 	    $(TEST_DIR)/check-arch-headers \
 	    $(TEST_DIR)/check-arch-dispatch \
