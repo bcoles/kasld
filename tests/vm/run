@@ -181,6 +181,7 @@ ppc64le-mainline-7.0    | -           | local| powerpc64le  | ppc64       | -M p
 s390x-mainline-5.15     | -           | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
 s390x-mainline-6.6      | -           | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
 s390x-mainline-7.0      | -           | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+s390x-mainline-7.0-4level | -         | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
 mips-mainline-5.15      | -           | local| mips         | mips        | -M malta               | ttyS0
 mips-mainline-6.6       | -           | local| mips         | mips        | -M malta               | ttyS0
 mips-mainline-7.0       | -           | local| mips         | mips        | -M malta               | ttyS0

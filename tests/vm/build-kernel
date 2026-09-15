@@ -380,6 +380,19 @@ build_one() {
   # dropped without a word; set both and DYNAMIC_FTRACE follows by select.
   *-ftrace)
     "$src/scripts/config" --file "$bdir/.config" -e FTRACE -e FUNCTION_TRACER ;;
+  # s390 picks its ASCE limit at boot: setup_kernel_memory_layout() takes
+  # _REGION1_SIZE (4-level, 8 PiB) when CONFIG_KASAN, or when
+  # __NO_KASLR_END_KERNEL exceeds _REGION2_SIZE, or when the vmem estimate does
+  # on a KASLR kernel; otherwise _REGION2_SIZE (3-level, 4 TiB). A stock
+  # defconfig on a small guest takes the 3-level branch, so the 8 PiB half of
+  # the honest top is exercised by no cell. __NO_KASLR_END_KERNEL is
+  # CONFIG_KERNEL_IMAGE_BASE + KERNEL_IMAGE_SIZE (512 MiB, asm/page.h), so a
+  # base of 0x7FFFE0000000 puts it at 1 << 47 and forces the 4-level branch.
+  # Inside the Kconfig range (0x100000 .. 0x1FFFFFE0000000 without KASAN) and
+  # THREAD_SIZE-aligned, which the boot code BUILD_BUG_ON()s.
+  *-4level)
+    "$src/scripts/config" --file "$bdir/.config" \
+      --set-val KERNEL_IMAGE_BASE 0x7FFFE0000000 ;;
   *-va36 | *-va39 | *-va42 | *-va47)
     # The VA width fixes the page size: 39 needs 4K, 36 and 47 need 16K, 42
     # needs 64K (arch/arm64/Kconfig). 36-bit is additionally EXPERT-gated. Clear
@@ -412,6 +425,14 @@ build_one() {
       return 1
     fi
     echo "  [*] split moved: CONFIG_PAGE_OFFSET=0x80000000" ;;
+  *-4level)
+    if ! grep -q '^CONFIG_KERNEL_IMAGE_BASE=0x7FFFE0000000$' "$bdir/.config"; then
+      echo "  !! $arch: KERNEL_IMAGE_BASE did not take (it is" \
+        "$(sed -n 's/^CONFIG_KERNEL_IMAGE_BASE=//p' "$bdir/.config")) --" \
+        "the kernel would boot 3-level and the cell would test nothing"
+      return 1
+    fi
+    echo "  [*] ASCE limit forced: CONFIG_KERNEL_IMAGE_BASE=0x7FFFE0000000" ;;
   *-ftrace)
     if ! grep -q '^CONFIG_DYNAMIC_FTRACE=y$' "$bdir/.config"; then
       echo "  !! $arch: DYNAMIC_FTRACE did not take -- the address tables this" \
