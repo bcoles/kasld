@@ -400,6 +400,7 @@ R(riscv64_non_efi_phys_base);
 R(riscv64_page_offset_from_vmalloc_vmemmap);
 
 /* s390-specific rules */
+R(s390_va_bits_from_config);
 R(s390_text_from_belows);
 R(s390_text_segment_mod);
 R(s390_phys_segment_mod);

@@ -126,6 +126,18 @@
 #define KERNEL_VIRT_VAS_START 0ul
 #define KERNEL_VIRT_VAS_END 0x20000000000000ul
 
+// The two ASCE limits as ADDRESSES, for the rules that reason about which one
+// the kernel chose. VA_BITS_CANDIDATES names the same pair as widths; the
+// assertions below tie the three statements together so none can drift.
+#define S390_ASCE_LIMIT_3LEVEL (1ul << 42)
+#define S390_ASCE_LIMIT_4LEVEL (1ul << 53)
+
+// The span reserved for the image above CONFIG_KERNEL_IMAGE_BASE, so
+// __NO_KASLR_END_KERNEL is that base plus this. A plain constant in
+// arch/s390/include/asm/page.h, introduced by the same commit as the knob it
+// accompanies and unchanged since; it is not a Kconfig symbol.
+#define S390_KERNEL_IMAGE_SIZE (512ul * MB)
+
 // Kernel text virtual address range.
 // CONFIG_KERNEL_IMAGE_BASE:
 //   range  0x100000 .. 0x1FFFFFE0000000 (without KASAN)
@@ -305,5 +317,17 @@
 // exceeds the in-memory footprint and can be read with stat() where the file
 // content is unreadable. See the axis contract in api.h.
 #define BOOT_IMAGE_SIZE_FLOORS_FOOTPRINT 1
+
+/* The ASCE limits are stated twice above -- once as addresses for the rules
+ * that compare against them, once as widths in VA_BITS_CANDIDATES -- because
+ * the two uses want different types. Tie them together so a later edit to one
+ * cannot leave the other behind: a rule comparing against a stale limit would
+ * pick the wrong paging level and say so with a parsed confidence.
+ * __extension__ silences -Wpedantic on -std=c99. */
+__extension__ _Static_assert(S390_ASCE_LIMIT_4LEVEL == KERNEL_VIRT_VAS_END,
+                             "s390 4-level ASCE limit must equal the kernel "
+                             "VAS end");
+__extension__ _Static_assert(S390_ASCE_LIMIT_3LEVEL < S390_ASCE_LIMIT_4LEVEL,
+                             "s390 ASCE limits must be ordered");
 
 #endif /* KASLD_S390_H */

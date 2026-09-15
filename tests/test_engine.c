@@ -4194,6 +4194,115 @@ static void test_s390_image_base_from_config_inert_without_fact(void) {
 #endif
 }
 
+/* s390_va_bits_from_config reproduces setup_kernel_memory_layout()'s choice of
+ * ASCE limit from parsed config facts. It can only ever prove the 4-level
+ * limit: that needs any one disjunct, while 3-level needs all three false
+ * including a vsize estimate the rule does not compute. The two inert cases
+ * below are therefore the soundness tests -- a spurious pin would exclude the
+ * truth on a 3-level kernel, which is every stock s390 guest. */
+
+/* The configured base puts the image end above _REGION2_SIZE, so the 3-level
+ * limit cannot hold the image and the kernel takes the 4-level branch. */
+static void test_s390_va_bits_from_config_base_forces_4level(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  /* The value tests/vm/build-kernel gives the -4level cell. */
+  struct observation b =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x7FFFE0000000ul, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 53ul);
+#endif
+}
+
+/* CONFIG_KASAN forces the 4-level branch whatever the base is. */
+static void test_s390_va_bits_from_config_kasan_forces_4level(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  struct observation b =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 1ul, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &k);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 53ul);
+#endif
+}
+
+/* SOUNDNESS: the DEFAULT base sits exactly at _REGION2_SIZE -
+ * KERNEL_IMAGE_SIZE, so __NO_KASLR_END_KERNEL equals the limit rather than
+ * exceeding it and the kernel takes the 3-level branch. Without KASAN the rule
+ * must leave both candidates live -- pinning 53 here would exclude the truth on
+ * every stock s390 guest, which is the 3-level case. */
+static void test_s390_va_bits_from_config_default_base_inert(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  struct observation b =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 0ul, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &k);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      !estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  /* The boundary is exact: one byte higher does force 4-level. */
+  struct engine e2;
+  engine_init(&e2);
+  struct observation b2 =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul + 1ul, CONF_PARSED);
+  evidence_add(&e2.ev, &b2);
+  engine_run(&e2, rules, 1);
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e2.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 53ul);
+#endif
+}
+
+/* SOUNDNESS: a zero base is the knob's ABSENCE -- the layout that predates it,
+ * whose boot code makes a different decision. The rule must not reproduce this
+ * decision there, even with KASAN set. */
+static void test_s390_va_bits_from_config_preuncoupled_inert(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  struct observation b = mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0ul, CONF_PARSED);
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 1ul, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &k);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      !estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+#endif
+}
+
+/* No config at all: inert. */
+static void test_s390_va_bits_from_config_no_config_inert(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      !estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+#endif
+}
+
 /* cmdline_memmap_too_large_phys_pin: cmdline carries 5+ memmap=
  * tokens with offset → SF_CMDLINE_MEMMAP_COUNT > 4 + a PHYS kernel_image
  * observation pins Q_PHYS_IMAGE_BASE bilaterally. */
@@ -9255,6 +9364,11 @@ int main(void) {
   RUN(test_s390_image_base_from_config_modern_pin_when_kaslr_off);
   RUN(test_s390_image_base_from_config_identity_ceiling);
   RUN(test_s390_image_base_from_config_inert_without_fact);
+  RUN(test_s390_va_bits_from_config_base_forces_4level);
+  RUN(test_s390_va_bits_from_config_kasan_forces_4level);
+  RUN(test_s390_va_bits_from_config_default_base_inert);
+  RUN(test_s390_va_bits_from_config_preuncoupled_inert);
+  RUN(test_s390_va_bits_from_config_no_config_inert);
 #endif
 
   BEGIN_CATEGORY("ppc-specific rules");

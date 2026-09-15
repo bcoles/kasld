@@ -186,6 +186,13 @@ RULES=$ROOT/src/rules
 #                                 Likely window only
 #   riscv64_text_base             gated on a KASLR-disabled signal, conf-capped
 #   s390_image_base_from_config   parsed CONFIG_KERNEL_IMAGE_BASE on KASLR-off
+#   s390_va_bits_from_config      reproduces the boot code's own choice of ASCE
+#                                 limit from parsed config facts. Derived, not
+#                                 assumed: 4-level follows from any one
+#                                 disjunct of the condition in
+#                                 setup_kernel_memory_layout(), and the rule
+#                                 emits nothing otherwise -- it cannot express
+#                                 3-level, so it cannot assert it wrongly
 #   s390_phys_segment_mod         computed: the image base's residue mod the
 #                                 segment size. s390 declares no head gap, so the
 #                                 _stext normalisation is exact
@@ -233,6 +240,7 @@ riscv64_non_efi_phys_base
 riscv64_text_base
 s390_image_base_from_config
 s390_phys_segment_mod
+s390_va_bits_from_config
 s390_text_segment_mod
 text_pin_from_observation
 virt_kaslr_disabled_pin

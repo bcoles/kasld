@@ -123,6 +123,7 @@ static const rule_fn k_rules[] = {
     rule_riscv64_page_offset_from_vmalloc_vmemmap,
 
     /* s390-specific */
+    rule_s390_va_bits_from_config,
     rule_s390_text_from_belows,
     rule_s390_text_segment_mod,
     rule_s390_phys_segment_mod,
