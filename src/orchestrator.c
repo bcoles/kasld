@@ -2302,9 +2302,10 @@ static int origins_all_excluded(const struct origin_set *origins,
  * — the collected address results into address observations, and the collected
  * scalar facts into scalar observations. The orchestrator performs no
  * measurement itself; every fact comes from a component (meminfo_facts,
- * firmware_memmap, riscv64_no_seed, mmap_s390_va_bits, ...). Observations whose
- * producing component is in `exclude` are dropped — the hardening advisor's
- * "what if this leak were closed" projection; pass NULL/0 for the full set. */
+ * firmware_memmap, riscv64_no_seed, mmap_riscv64_va_bits, ...). Observations
+ * whose producing component is in `exclude` are dropped — the hardening
+ * advisor's "what if this leak were closed" projection; pass NULL/0 for the
+ * full set. */
 static void engine_build_evidence(struct evidence_set *ev,
                                   const char *const *exclude, int n_exclude) {
   struct origin_set excluded;

@@ -7678,34 +7678,6 @@ static void test_xkphys_decode(void) {
 #endif /* __SIZEOF_LONG__ >= 8 */
 }
 
-/* s390_paging_level: SF_VIRT_ADDR_BITS (from the mmap probe) -> text-base
- * ceiling at 1<<va_bits. On s390 a 3-level probe (va_bits=42) drops the ceiling
- * to 4 TiB; inert on other arches (the quantity stays at its honest top). */
-
-static void test_s390_paging_level(void) {
-  struct engine e;
-  engine_init(&e);
-  struct observation v =
-      mk_scalar(SF_VIRT_ADDR_BITS, 42ul, CONF_PARSED); /* 3-level */
-  evidence_add(&e.ev, &v);
-  const rule_fn rules[] = {rule_kaslr_align_arch_default,
-                           rule_s390_paging_level};
-  engine_run(&e, rules, 2);
-
-  struct estimate top;
-  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
-#if defined(__s390x__) || defined(__zarch__)
-  unsigned long align = e.est[Q_VIRT_KASLR_ALIGN].lo;
-  if (align < (unsigned long)KASLR_VIRT_ALIGN)
-    align = (unsigned long)KASLR_VIRT_ALIGN;
-  unsigned long ceiling = (1ul << 42) & ~(align - 1);
-  if (ceiling < top.hi)
-    TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == ceiling); /* dropped to ~4 TiB */
-#else
-  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert off s390 */
-#endif
-}
-
 /* ========================================================================
  * Arch-gated rules: dedicated coverage. On the host (wrong arch) each is inert
  * (estimate stays at its honest top); the active assertion executes when this
@@ -9004,7 +8976,6 @@ int main(void) {
 
   BEGIN_CATEGORY("Address helpers (XKPHYS / s390 paging)");
   RUN(test_xkphys_decode);
-  RUN(test_s390_paging_level);
 
   BEGIN_CATEGORY("Image-size ceilings");
   RUN(test_ceiling_from_image_size);

@@ -57,8 +57,30 @@
 // with the shifts in arch/s390/include/asm/pgtable.h. _REGION3_SIZE (1 << 31)
 // is a table-entry size here, never an ASCE limit, so it is not a candidate.
 //
-// The mmap boundary probe distinguishes the two and publishes the width as
-// SF_VIRT_ADDR_BITS; va_bits_from_scalar pins Q_VA_BITS from it.
+// The level is not OBSERVABLE, but it is DERIVABLE, and the set is unresolved
+// only until something derives it.
+//
+// Not observable: an mmap boundary probe measures the wrong address space.
+// TASK_SIZE is TASK_SIZE_MAX unconditionally (asm/processor.h), every mm starts
+// at an ASCE limit of _REGION2_SIZE (asm/mmu_context.h), and a MAP_FIXED
+// request above that limit calls crst_table_upgrade() rather than failing
+// (asm/pgalloc.h check_asce_limit, mm/pgalloc.c). The user limit is therefore
+// per-address-space and grows on demand, unrelated to the kernel's own
+// asce_limit, and a probe reports the 4-level width on a kernel running
+// 3-level.
+//
+// Derivable: the kernel picks the level from three things, and two are facts
+// already collected. setup_kernel_memory_layout() takes _REGION1_SIZE when
+//   CONFIG_KASAN                      (SF_KASAN_ENABLED)
+//   || __NO_KASLR_END_KERNEL > _REGION2_SIZE
+//                                     (SF_VIRT_KERNEL_IMAGE_BASE + the 512 MiB
+//                                      KERNEL_IMAGE_SIZE, asm/page.h)
+//   || (vsize > _REGION2_SIZE && kaslr_enabled())
+//                                     (the vmem estimate, from the RAM extent,
+//                                      sizeof(struct page) and vmalloc_size)
+// and _REGION2_SIZE otherwise. Any disjunct proven true gives 4-level; all
+// three proven false gives 3-level. The same vmem estimate bounds the KASLR
+// placement range, so a rule that computes one has the inputs for both.
 #define VA_BITS_CANDIDATES {42ul, 53ul}
 
 // Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
