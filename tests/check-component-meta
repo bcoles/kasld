@@ -109,6 +109,7 @@ baddisc=""
 nosrc=""
 badsrc=""
 badstatus=""
+nofallback=""
 n=0
 for f in "$COMP"/*.c; do
   n=$((n + 1))
@@ -168,6 +169,35 @@ for f in "$COMP"/*.c; do
   if grep -qE '"status:' "$f" &&
     ! grep -qE '"status:('"$stat_alt"')\\n"' "$f"; then
     badstatus="$badstatus $base"
+    rc=1
+  fi
+
+  # fallback: names a second, file-based path to a source the gate above also
+  # governs, and it is what tells the hardening report which of two opposite
+  # recommendations a bypassing component belongs to. Without it the component
+  # is counted as one that enabling the sysctl would silence, and left out of
+  # the count for restricting the fallback files -- so one omission inflates
+  # what one recommendation buys and deflates the other.
+  #
+  # Required only where both halves hold: the component declares the
+  # dmesg_restrict gate AND reaches the log by a path that reads the file.
+  # Neither half alone is the condition, and the two components that hold
+  # exactly one of them are why:
+  #
+  #   a component may call dmesg_search() with no sysctl gate at all, using the
+  #   log to detect a mitigation rather than to leak -- nothing matches it to a
+  #   gate, so the key would be inert;
+  #
+  #   a component may carry the gate and read the file through its own reader
+  #   rather than the shared framework, so the key is right and the call is
+  #   absent.
+  #
+  # The quoted forms are what make this precise: an unquoted "fallback:" in
+  # prose is a comment, not a declaration.
+  if grep -qE '"sysctl:dmesg_restrict' "$f" &&
+    grep -qE 'dmesg_search\(|/var/log/dmesg' "$f" &&
+    ! grep -qE '"fallback:' "$f"; then
+    nofallback="$nofallback $base"
     rc=1
   fi
 
@@ -305,6 +335,13 @@ if [ -n "$badstatus" ]; then
   printf '  back -- but the JSON, the documents and the readout tally all go by\n'
   printf '  the value, and none of them will agree that it is\n'
 fi
+if [ -n "$nofallback" ]; then
+  printf '%scheck-component-meta: FAIL%s — reaches the kernel log through /var/log/dmesg under a dmesg_restrict gate, but declares no fallback::\n' "$RED" "$RESET"
+  for c in $nofallback; do printf '  %s\n' "$c"; done
+  printf '  the hardening report reads the absent key as "enabling the sysctl\n'
+  printf '  silences this", and leaves the component out of the count for\n'
+  printf '  restricting the log files -- wrong in both directions at once\n'
+fi
 if [ -n "$badhw" ]; then
   printf '%scheck-component-meta: FAIL%s — hardware: names a mitigation as the requirement (move it into "(mitigated by X)"):\n' "$RED" "$RESET"
   for c in $badhw; do printf '  %s\n' "$c"; done
@@ -312,6 +349,6 @@ fi
 if [ "$rc" -eq 0 ]; then
 guard_scope "check-component-meta" "$n" 80
 
-  printf '%scheck-component-meta: OK%s (%d components: method:, discloses: and source: on every one, status: where present; all four vocabularies match api.h and CONTRIBUTING.md)\n' "$GREEN" "$RESET" "$n"
+  printf '%scheck-component-meta: OK%s (%d components: method:, discloses: and source: on every one, status: where present; fallback: on every dmesg_restrict-gated log reader; all four vocabularies match api.h and CONTRIBUTING.md)\n' "$GREEN" "$RESET" "$n"
 fi
 exit $rc
