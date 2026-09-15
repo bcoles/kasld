@@ -232,9 +232,44 @@ COMP_DIR := $(ARCH_DIR)/components
 TEST_OBJ_DIR := $(BUILD_DIR)/tests
 SRC_DIR := ./src
 
-# Header dependencies: rebuild when any header changes
+# Header dependencies for the test and fuzz harnesses: rebuild when any header
+# changes. Those targets #include the sources they drive, so what they depend on
+# is spelled out in their rules and held there by tests/check-make-deps; a
+# generated dependency cannot be used for them without answering that guard's
+# question for it, which would leave the guard passing while checking nothing.
 HDRS := $(wildcard $(SRC_DIR)/include/*.h $(SRC_DIR)/include/kasld/*.h \
                     $(SRC_DIR)/include/kasld/arch/*.h)
+
+# Header dependencies for the product: recorded by the compiler, not declared.
+# -MMD writes, beside each object, the list of headers that translation unit
+# actually opened; those files are make rules, read back in below. A build for
+# one architecture therefore depends on that architecture's header alone, and
+# editing another one rebuilds nothing -- where naming every header as a
+# prerequisite rebuilds all of them, on every triple, for an edit none of them
+# read.
+#
+# -MMD and not -MD: a libc header is not a reason to rebuild, and naming them
+# would invalidate every object on a toolchain upgrade.
+# -MP adds an empty rule per header, so DELETING one rebuilds its consumers
+# instead of failing with "no rule to make target".
+#
+# Consumed only for $(OBJ_DIR), which is where every rule below writes its
+# dependency file -- see the component rules for why that is not where the
+# compiler would put it. The files themselves are read in at the END of this
+# makefile, not here: an included rule can claim the default goal, and these
+# name object files.
+DEPFLAGS = -MMD -MP
+
+# The Makefile itself stands in for $(HDRS) in the rules below. A generated
+# dependency covers headers but not flags, and make compares files rather than
+# commands: editing CFLAGS here otherwise leaves every object standing and the
+# build reports success for a tree compiled with the old flags. It is also what
+# makes the dependency files self-installing, since the edit that introduces
+# them is an edit to this file.
+#
+# $(MAKEFILE_LIST) would be wrong: -include adds each .d to it, so every object
+# would depend on every dependency file and one changed header would rebuild
+# the tree -- the behaviour this replaces, restored silently.
 
 # Detect zlib (optional, for native gzip decompression in proc_config) and
 # pthread (optional, for the parallel inference worker pool in the orchestrator).
@@ -421,6 +456,12 @@ endif
 
 PREFIX ?= /usr/local
 
+# Pinned rather than left to "the first target wins": the dependency files read
+# in at the end of this makefile define rules of their own, and a rule read
+# before this point would otherwise become what a bare `make` builds -- one
+# object, reported as a successful build.
+.DEFAULT_GOAL := all
+
 .PHONY: all
 all : build
 
@@ -445,12 +486,22 @@ check-headers: | $(COMP_DIR)
 	$(Q)$(CC) $(ALL_CFLAGS) -Wno-unused-function -xc -fsyntax-only \
 	    $(SRC_DIR)/include/kasld/api.h
 
-$(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
+# A component compiles and links in one step, so the compiler names its
+# dependency file after the -o path -- which is this directory, the deployable
+# tree the orchestrator scans. prune-components deletes every regular file here
+# that is not a component, so a .d written beside the binary would be destroyed
+# on each build and never read, and check-component-sections reads whatever
+# survives as an ELF. -MF puts it under obj/ instead, where the objects keep
+# theirs; the comp_ prefix keeps a component from colliding with a src/ file of
+# the same name, as rule_ and render_ already do for the objects.
+COMP_DEPFLAGS = $(DEPFLAGS) -MF $(OBJ_DIR)/comp_$(@F).d
 
-# Offset-table components #include a generated offsets/<name>.inc; add it as a
-# prerequisite (the pattern rule above only sees the .c + $(HDRS)) so a regen
-# rebuilds the component.
+$(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c Makefile | $(COMP_DIR) $(OBJ_DIR)
+	$(call cc-component, $(CC) $(ALL_CFLAGS) $(COMP_DEPFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
+
+# Offset-table components #include a generated offsets/<name>.inc. The recorded
+# dependencies name it once the component has been built, so this states it for
+# the build that has no record yet.
 $(COMP_DIR)/bpf_verifier_ksym: $(COMP_SRC_DIR)/offsets/bpf_verifier_ksym.inc
 $(COMP_DIR)/dmesg_ex_handler_msr: $(COMP_SRC_DIR)/offsets/dmesg_ex_handler_msr.inc
 $(COMP_DIR)/entrybleed: $(COMP_SRC_DIR)/offsets/entrybleed.inc
@@ -465,8 +516,8 @@ $(COMP_DIR)/qemu_tcg_iret: $(COMP_SRC_DIR)/offsets/qemu_tcg_iret.inc
 # absent, which is every host build and every cross build before cross-deps.
 ZLIB_DEP := $(wildcard $(DEPS_DIR)/$(_ARCH)/lib/libz.a)
 ifeq ($(HAVE_ZLIB),1)
-$(COMP_DIR)/proc_config: $(COMP_SRC_DIR)/proc_config.c $(HDRS) $(ZLIB_DEP) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) -DHAVE_ZLIB $< -lz -o $@)
+$(COMP_DIR)/proc_config: $(COMP_SRC_DIR)/proc_config.c Makefile $(ZLIB_DEP) | $(COMP_DIR) $(OBJ_DIR)
+	$(call cc-component, $(CC) $(ALL_CFLAGS) $(COMP_DEPFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) -DHAVE_ZLIB $< -lz -o $@)
 endif
 
 # Side-channel components: compile without optimization (-O0 overrides -O2).
@@ -477,12 +528,12 @@ endif
 # the SIDECHANNEL_BINS (discovered by the KASLD_BUILD_NO_OPTIMIZE marker above).
 # -U_FORTIFY_SOURCE drops the fortify define inherited from ALL_CFLAGS: it is a
 # no-op at -O0 and glibc otherwise warns "_FORTIFY_SOURCE requires -O".
-$(SIDECHANNEL_BINS): $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 -U_FORTIFY_SOURCE $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
+$(SIDECHANNEL_BINS): $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c Makefile | $(COMP_DIR) $(OBJ_DIR)
+	$(call cc-component, $(CC) $(ALL_CFLAGS) $(COMP_DEPFLAGS) -O0 -U_FORTIFY_SOURCE $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
 
 # kernelsnitch: needs -lpthread (uses default -O2 for hash timing performance)
-$(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< $(PTHREAD_LIBS) -o $@)
+$(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c Makefile | $(COMP_DIR) $(OBJ_DIR)
+	$(call cc-component, $(CC) $(ALL_CFLAGS) $(COMP_DEPFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< $(PTHREAD_LIBS) -o $@)
 
 # Component binaries whose source is gone. A rename or a deletion leaves the old
 # binary behind, and the orchestrator runs every executable it finds in this
@@ -544,52 +595,52 @@ build : check-headers prune-components component-manifest $(BIN_FILES) $(KASLD_B
 # CI does, reported the new one. The documented output samples then matched
 # locally and not there. Depending on the file the version is read from is what
 # ties the flag to something make can see.
-$(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) $(HDRS) VERSION | $(OBJ_DIR)
+$(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) Makefile VERSION | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -DVERSION='"$(VERSION)"' -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -DVERSION='"$(VERSION)"' -c $< -o $@
 
-$(OBJ_DIR)/discard.o: $(DISCARD_SRC) $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/discard.o: $(DISCARD_SRC) Makefile | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(OBJ_DIR)/meta.o: $(META_SRC) $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/meta.o: $(META_SRC) Makefile | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(OBJ_DIR)/capture.o: $(CAPTURE_SRC) $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/capture.o: $(CAPTURE_SRC) Makefile | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(OBJ_DIR)/environment.o: $(ENV_SRC) $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/environment.o: $(ENV_SRC) Makefile | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(OBJ_DIR)/render.o: $(RENDER_SRC) $(HDRS) VERSION | $(OBJ_DIR)
+$(OBJ_DIR)/render.o: $(RENDER_SRC) Makefile VERSION | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
 
 # Per-mode render translation units (src/render/<mode>.c). Each gets its own
 # object so editing one mode does not force the others to recompile.
-$(OBJ_DIR)/render_%.o: $(SRC_DIR)/render/%.c $(HDRS) VERSION | $(OBJ_DIR)
+$(OBJ_DIR)/render_%.o: $(SRC_DIR)/render/%.c Makefile VERSION | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
 
-$(OBJ_DIR)/report.o: $(REPORT_SRC) $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/report.o: $(REPORT_SRC) Makefile | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(OBJ_DIR)/region_info.o: $(REGIONS_SRC) $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/region_info.o: $(REGIONS_SRC) Makefile | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 # Engine core (estimate/quantities/evidence/engine) and ported rules.
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c Makefile | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(OBJ_DIR)/rule_%.o: $(SRC_DIR)/rules/%.c $(HDRS) | $(OBJ_DIR)
+$(OBJ_DIR)/rule_%.o: $(SRC_DIR)/rules/%.c Makefile | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(DEPFLAGS) -I$(SRC_DIR) -c $< -o $@
 
 $(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/capture.o $(OBJ_DIR)/discard.o $(OBJ_DIR)/meta.o $(OBJ_DIR)/environment.o $(OBJ_DIR)/render.o $(OBJ_DIR)/report.o $(RENDER_MODE_OBJS) $(OBJ_DIR)/region_info.o $(ENGINE_OBJS) | $(OBJ_DIR)
 	$(call ccv,LD,$@)
@@ -1720,3 +1771,9 @@ help:
 	@echo "      V=1             Verbose build (show full command lines)"
 	@echo "      COLOR=1|0       Force colored tags on/off (default: auto by tty)"
 	@echo
+
+# Recorded header dependencies, one file per object and component (see DEPFLAGS
+# above). Read last: every rule here names a target under $(OBJ_DIR), and an
+# include placed before the real rules hands one of them the default goal.
+# Absent on a first build, which needs them least -- nothing is up to date yet.
+-include $(wildcard $(OBJ_DIR)/*.d)
