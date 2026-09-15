@@ -4067,14 +4067,17 @@ static void test_s390_text_no_random_admits_empirical_phys(void) {
 
 /* s390_image_base_from_config: a parsed kernel config (CONFIG_S390=y) resolves
  * the s390 text layout via SF_VIRT_KERNEL_IMAGE_BASE without trusting version
- * numbers — a positive value (CONFIG_KERNEL_IMAGE_BASE) floors the image base
- * at the modern high layout; 0 (knob absent) caps it at the top of RAM for the
- * pre-v6.8 identity-mapped layout. */
+ * numbers — a positive value (CONFIG_KERNEL_IMAGE_BASE) names the modern high
+ * layout's KASLR-OFF base; 0 (knob absent) caps the base at the top of RAM for
+ * the identity-mapped layout. */
 
-/* Modern: CONFIG_KERNEL_IMAGE_BASE > 0 floors Q_VIRT_IMAGE_BASE at that value,
- * recovering tightness lost to the historical-layout honest floor (0) while
- * still admitting a real modern _text above it. */
-static void test_s390_image_base_from_config_modern_floor(void) {
+/* Modern, KASLR live: the configured base is where the image sits when KASLR is
+ * OFF, so on its own it licenses no narrowing. setup_kernel_memory_layout()'s
+ * randomizing branch anchors the image at the TOP of the address space
+ * (kernel_end = vmax - pos * THREAD_SIZE) over a range
+ * [vmax - kaslr_len, vmax], kaslr_len = max(KASLR_LEN, vmax - vsize) — whose
+ * floor lies below the configured base. The rule must stay inert. */
+static void test_s390_image_base_from_config_no_floor_while_kaslr_live(void) {
 #if defined(__s390__) || defined(__s390x__)
   struct engine e;
   engine_init(&e);
@@ -4083,12 +4086,32 @@ static void test_s390_image_base_from_config_modern_floor(void) {
   struct observation s = mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, cfg, CONF_PARSED);
   evidence_add(&e.ev, &s);
 
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+
   const rule_fn rules[] = {rule_s390_image_base_from_config};
   engine_run(&e, rules, 1);
-  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo == cfg);
-  const unsigned long t_modern = 0x3fffe774000ul; /* real slid _text */
-  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo <= t_modern &&
-           t_modern <= e.est[Q_VIRT_IMAGE_BASE].hi);
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
+
+  /* The randomization range's HIGHEST possible floor is vmax - KASLR_LEN,
+   * reached when the vmem estimate leaves less than KASLR_LEN (2 GiB) free; no
+   * configuration places the floor above it. On 3-level paging vmax is
+   * _REGION2_SIZE, putting that placement 1.5 GiB below the configured base —
+   * so a floor at the configured base excludes it whatever the guest. */
+  const unsigned long vmax_3level = 1ul << 42;   /* _REGION2_SIZE */
+  const unsigned long kaslr_len_min = 1ul << 31; /* KASLR_LEN */
+  const unsigned long highest_possible_floor = vmax_3level - kaslr_len_min;
+  TH_CHECK(highest_possible_floor < cfg);
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo <= highest_possible_floor &&
+           highest_possible_floor <= e.est[Q_VIRT_IMAGE_BASE].hi);
+
+  /* Measured: a 1 GiB 3-level guest prints "Randomization range:
+   * 0x10180402000-0x40000000000", so the reachable floor tracks the vmem
+   * estimate and drops further as memory shrinks. */
+  const unsigned long observed_floor = 0x10180402000ul;
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo <= observed_floor &&
+           observed_floor <= e.est[Q_VIRT_IMAGE_BASE].hi);
 #endif
 }
 
@@ -9257,7 +9280,7 @@ int main(void) {
   RUN(test_s390_text_no_random_fires_with_signal);
   RUN(test_s390_text_no_random_inert_without_signal);
   RUN(test_s390_text_no_random_admits_empirical_phys);
-  RUN(test_s390_image_base_from_config_modern_floor);
+  RUN(test_s390_image_base_from_config_no_floor_while_kaslr_live);
   RUN(test_s390_image_base_from_config_modern_pin_when_kaslr_off);
   RUN(test_s390_image_base_from_config_identity_ceiling);
   RUN(test_s390_image_base_from_config_inert_without_fact);

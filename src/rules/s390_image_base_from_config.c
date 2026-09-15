@@ -9,18 +9,38 @@
 // numbers, via SF_VIRT_KERNEL_IMAGE_BASE (CONFIG_KERNEL_IMAGE_BASE, emitted by
 // proc_config / boot_config):
 //
-//   value > 0  — modern (v6.10+) high separate-kernel-mapping layout. The image
-//     base is placed at >= CONFIG_KERNEL_IMAGE_BASE (the KASLR window minimum;
-//     arch/s390/boot/startup.c). Floor Q_VIRT_IMAGE_BASE at that value. The
-//     value is the LOAD address, not _text; flooring at it without adding
-//     IMAGE_BASE_OFFSET stays at or below the true _text, so as a bound it
-//     cannot exclude truth. When SF_VIRT_KASLR_DISABLED is also present the
-//     base does not slide, so the floor becomes an exact PIN — and the pin adds
-//     IMAGE_BASE_OFFSET, because an equality has none of the slack that let the
-//     bound omit it. This rule owns the s390 no-KASLR base (s390 opts out of
-//     the generic compile-time-default disabled-pin; see s390.h), pinning the
-//     layout-correct PARSED load address plus the arch's .text offset rather
-//     than an assumed default.
+//   value > 0  — the modern high separate-kernel-mapping layout, in which
+//     CONFIG_KERNEL_IMAGE_BASE is the address the image takes when KASLR is
+//     OFF, and nothing else. arch/s390/Kconfig states it directly ("This is the
+//     address at which the kernel image is loaded in case Kernel Address Space
+//     Layout Randomization (KASLR) is disabled"), and it reaches
+//     setup_kernel_memory_layout() only as __NO_KASLR_START_KERNEL
+//     (asm/page.h: #define __NO_KASLR_START_KERNEL CONFIG_KERNEL_IMAGE_BASE),
+//     which appears in the two branches taken when kaslr_enabled() is false.
+//     So this rule PINS Q_VIRT_IMAGE_BASE only on a positive
+//     SF_VIRT_KASLR_DISABLED, and the pin adds IMAGE_BASE_OFFSET because the
+//     config value is the LOAD address while the quantity solves _text. It
+//     owns the s390 no-KASLR base (s390 opts out of the generic
+//     compile-time-default disabled-pin; see s390.h), pinning the
+//     layout-correct PARSED load address rather than an assumed default.
+//
+//     DO NOT emit this value as a lower bound while KASLR is live. The
+//     randomizing branch anchors the image at the TOP of the address space, not
+//     at the configured base:
+//
+//         kaslr_len  = max(KASLR_LEN, vmax - vsize);
+//         kernel_end = vmax - pos * THREAD_SIZE;
+//         kernel_start = round_down(kernel_end - kernel_size, THREAD_SIZE);
+//
+//     so the reachable range is [vmax - kaslr_len, vmax], which the boot code
+//     prints as "Randomization range". Even where kaslr_len collapses to its
+//     floor KASLR_LEN (2 GiB, asm/pgtable.h) that range opens at vmax - 2 GiB,
+//     while the default CONFIG_KERNEL_IMAGE_BASE is vmax - KERNEL_IMAGE_SIZE
+//     (512 MiB) — so a floor there sits 1.5 GiB ABOVE the lowest placement the
+//     kernel can choose, and higher still whenever vmax - vsize exceeds 2 GiB.
+//     A guest whose CPU has no CPACF PRNG takes the same branch with pos = 0
+//     and lands flush against vmax, which is the one placement such a floor
+//     admits.
 //
 //   value == 0 — config is an s390 config that LACKS the knob: the pre-v6.10
 //     identity-mapped layout (__identity_base = 0, no RANDOMIZE_IDENTITY_BASE),
@@ -90,20 +110,22 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
   snprintf(c->origin, ORIGIN_LEN, "s390_image_base_from_config");
 
   if (image_base > 0) {
-    /* Modern layout. Guard against an implausible value pushing past the top.
-     */
+    /* Modern layout. The configured base describes the KASLR-off placement
+     * only, so without that signal there is nothing here to narrow with: the
+     * randomizing branch can put the image below this value. See the header. */
+    if (!kaslr_off_id)
+      return 0;
+    /* Guard against an implausible value pushing past the top. */
     if (image_base >= (unsigned long)KERNEL_VIRT_TEXT_MAX)
       return 0;
     c->value = image_base;
-    if (kaslr_off_id) {
+    {
       /* KASLR confirmed off + parsed modern base ⇒ the load address IS
        * CONFIG_KERNEL_IMAGE_BASE exactly (no slide): PIN the text base.
        *
-       * The pin must add IMAGE_BASE_OFFSET, and that is the one place the
-       * floor's licence does NOT carry over. As a C_LOWER_BOUND the raw config
-       * value is deliberately at or BELOW the truth, which is what makes it
-       * safe without the addend. An equality has no such slack: _text sits
-       * IMAGE_BASE_OFFSET into the image, so pinning the load address pins one
+       * The pin must add IMAGE_BASE_OFFSET. The config value is the image's
+       * LOAD address while this quantity solves _text, which sits
+       * IMAGE_BASE_OFFSET into the image, so pinning the raw value pins one
        * offset below the real _text and puts the truth outside the guaranteed
        * window. A live nokaslr boot reported exactly that — truth
        * 0x3ffe0100000 against a window pinned at 0x3ffe0000000, short by the
@@ -125,9 +147,6 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
       c->op = C_EQUALS;
       c->conf = kasld_conf_min(CONF_PARSED, kaslr_off_conf);
       c->derived_from[c->lineage_count++] = kaslr_off_id;
-    } else {
-      /* KASLR may slide the base up from this floor. */
-      c->op = C_LOWER_BOUND;
     }
     return 1;
   }
