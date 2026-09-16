@@ -5591,9 +5591,14 @@ static void test_arm64_text_band_union_admits_both_layouts(void) {
           TH_CHECK(out[i].value2 < modern_text);
         }
     }
-    /* KASAN proven off: the hole starts right above the shadow-free image, and
-     * so is strictly wider than either state that admits a shadow. */
-    TH_CHECK(hole_off == no_shadow + 1ul);
+    /* KASAN proven off: the hole starts above the shadow-free image REGION plus
+     * the largest TEXT_OFFSET, because pre-flip _text sits that far above
+     * KIMAGE_VADDR. A hole starting at the region base would swallow every
+     * v5.0..v5.3 kernel, which carries the BPF region and a non-zero default
+     * TEXT_OFFSET of 0x80000. */
+    const unsigned long preflip_v50_text = no_shadow + 0x80000ul;
+    TH_CHECK(hole_off == no_shadow + ARM64_PREFLIP_TEXT_OFFSET_MAX + 1ul);
+    TH_CHECK(hole_off > preflip_v50_text);
     TH_CHECK(hole_absent > hole_off);
     TH_CHECK(hole_on > hole_off);
     /* An unread config gives exactly what a KASAN kernel gives -- absence is

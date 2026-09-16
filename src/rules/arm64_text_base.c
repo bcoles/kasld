@@ -193,9 +193,15 @@ static int arm64_text_band_union(const struct evidence_set *ev,
   const unsigned long p_lo = vstart + ARM64_MODULE_REGION_SIZE_MIN;
   enum kasld_confidence shadow_conf = CONF_UNKNOWN;
   uint32_t shadow_src = 0;
+  /* KIMAGE_VADDR is where the pre-flip image REGION starts; _text sits
+   * TEXT_OFFSET above it, which the modern layout does not have. Omitting the
+   * term puts the ceiling exactly on KIMAGE_VADDR and excludes every kernel
+   * built with the default 0x80000 -- the whole v5.0..v5.3 window, where the
+   * BPF region exists and TEXT_OFFSET had not yet been zeroed. */
   const unsigned long p_hi_unslid =
       vstart + 2ul * ARM64_MODULE_REGION_SIZE_MIN +
-      arm64_kasan_shadow_max(ev, va_old, &shadow_conf, &shadow_src);
+      arm64_kasan_shadow_max(ev, va_old, &shadow_conf, &shadow_src) +
+      ARM64_PREFLIP_TEXT_OFFSET_MAX;
   const unsigned long p_hi = p_hi_unslid + arm64_kaslr_offset_max(va_old);
 
   const unsigned long lo = p_lo < m_lo ? p_lo : m_lo;

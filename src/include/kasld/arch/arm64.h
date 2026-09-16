@@ -290,6 +290,17 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 // https://lore.kernel.org/all/20200428134119.GI6791@willie-the-truck/T/
 #define IMAGE_BASE_OFFSET 0
 
+// How far _text could sit ABOVE KIMAGE_VADDR on the pre-flip layout. That is a
+// different question from the residue above: the pre-flip linker script opens
+// with `. = KIMAGE_VADDR + TEXT_OFFSET` and sets `_text = .` immediately after
+// (arch/arm64/kernel/vmlinux.lds.S), so the offset displaces the image base
+// itself. arch/arm64/Makefile made TEXT_OFFSET 0x00080000 by default and, under
+// CONFIG_ARM64_RANDOMIZE_TEXT_OFFSET, a page-aligned build-time random value
+// below SZ_2M; it was set to 0 in v5.8 (cfa7ede20f13) and the flipped layout
+// places _text at KIMAGE_VADDR with no offset at all. So this bounds the
+// pre-flip case only, and SZ_2M covers every value the formula can produce.
+#define ARM64_PREFLIP_TEXT_OFFSET_MAX (2ul * MB)
+
 // Head gap _stext - _text: arm64 places .head.text (EFI header + early vectors)
 // before _stext, and .text is ALIGN(SEGMENT_ALIGN), so _stext = _text + 0x10000
 // wherever SEGMENT_ALIGN is SZ_64K. The engine solves the image base (_text);
