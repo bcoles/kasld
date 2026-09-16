@@ -124,6 +124,7 @@ static const rule_fn k_rules[] = {
 
     /* s390-specific */
     rule_s390_va_bits_from_config,
+    rule_s390_text_ceiling_from_va_bits,
     rule_s390_text_from_belows,
     rule_s390_text_segment_mod,
     rule_s390_phys_segment_mod,

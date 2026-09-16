@@ -60,6 +60,7 @@ bpf_verifier_ksym
 bpf_verifier_log
 cmdline_memmap
 cmdline_region
+cmdline_vmalloc
 devicetree_facts
 dmesg_acpi_dynamic_ssdt
 dmesg_android_ion_snapshot

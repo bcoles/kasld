@@ -60,7 +60,6 @@
 #include <limits.h>
 #include <string.h>
 
-#define S390_MODULES_LEN 0x80000000ul       /* SZ_2G */
 #define S390_STRUCT_PAGE_BYTES_DEFAULT 64ul /* common sizeof(struct page) */
 
 /* One below-text rung: the region, its constant cumulative offset to text, and

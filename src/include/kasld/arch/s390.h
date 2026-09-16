@@ -138,6 +138,30 @@
 // accompanies and unchanged since; it is not a Kconfig symbol.
 #define S390_KERNEL_IMAGE_SIZE (512ul * MB)
 
+// Terms of the vmem estimate the boot code weighs against the 3-level limit
+// when it picks the paging level -- get_vmem_size() in
+// arch/s390/boot/startup.c, called with _REGION3_SIZE as its rounding
+// granularity. Each is a plain constant in the kernel, not a Kconfig symbol,
+// so a build cannot move one without moving the header it lives in:
+//   MAX_DCSS_ADDR      asm/extmem.h    -- the floor under max_mappable, which
+//                                         is max(ident_map_size, this), so
+//                                         installed memory below it does not
+//                                         enter the estimate at all
+//   MODULES_LEN        asm/pgtable.h
+//   KASLR_LEN          asm/pgtable.h   -- 0 without CONFIG_RANDOMIZE_BASE,
+//                                         so this value is the upper bound
+//   VMALLOC_DEFAULT_SIZE  asm/pgtable.h -- what the kernel uses absent a
+//                                         `vmalloc=` token
+//   _REGION3_SIZE      asm/pgtable.h   -- 1 << _REGION3_SHIFT (31)
+//   _SEGMENT_SIZE      the granularity `vmalloc=` is rounded up to by the
+//                      boot parser (arch/s390/boot/ipl_parm.c)
+#define S390_MAX_DCSS_ADDR (512ul * GB)
+#define S390_MODULES_LEN (1ul << 31)
+#define S390_KASLR_LEN (1ul << 31)
+#define S390_VMALLOC_DEFAULT_SIZE ((512ul * GB) - S390_MODULES_LEN)
+#define S390_REGION3_SIZE (1ul << 31)
+#define S390_SEGMENT_SIZE (1ul * MB)
+
 // Kernel text virtual address range.
 // CONFIG_KERNEL_IMAGE_BASE:
 //   range  0x100000 .. 0x1FFFFFE0000000 (without KASAN)

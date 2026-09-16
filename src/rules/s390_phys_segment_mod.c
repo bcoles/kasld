@@ -44,8 +44,6 @@
 #include "include/kasld/engine_rules.h"
 #include "include/kasld/regions.h"
 
-#define S390_SEGMENT_SIZE 0x100000ul /* 1 MiB */
-
 int rule_s390_phys_segment_mod(const struct evidence_set *ev,
                                const struct estimate *est,
                                struct constraint *out, int out_max) {

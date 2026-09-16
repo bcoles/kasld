@@ -4290,6 +4290,198 @@ static void test_s390_va_bits_from_config_preuncoupled_inert(void) {
 #endif
 }
 
+/* The 3-level direction. It needs ALL THREE disjuncts false, so the inert
+ * cases below carry the soundness: each removes one input the proof depends
+ * on, and a pin appearing without it would assert 3-level on a kernel that
+ * may well have chosen 4. */
+
+/* A 1 GiB guest, default base, no KASAN, no `vmalloc=`: the vmem estimate
+ * comes in far below the 3-level limit and the level is proven. */
+static void test_s390_va_bits_from_config_small_guest_proves_3level(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  struct observation b =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 0ul, CONF_PARSED);
+  struct observation pf = mk_scalar(SF_PHYS_MAX_PFN, 0x40000ul, CONF_PARSED);
+  struct observation ps = mk_scalar(SF_PAGE_SIZE, 0x1000ul, CONF_PARSED);
+  struct observation vm = mk_scalar(SF_CMDLINE_VMALLOC, 0ul, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &k);
+  evidence_add(&e.ev, &pf);
+  evidence_add(&e.ev, &ps);
+  evidence_add(&e.ev, &vm);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 42ul);
+#endif
+}
+
+/* The estimate must be an UPPER bound on what the kernel computes, or the
+ * comparison against _REGION2_SIZE is meaningless. A 1 GiB 3-level guest
+ * printed "vmem size estimated: 0x10180402000"; the rule's bound has to sit at
+ * or above it. Written as a literal because a bound checked against a value
+ * derived the same way checks nothing. */
+static void test_s390_va_bits_from_config_estimate_is_an_upper_bound(void) {
+#if defined(__s390__) || defined(__zarch__)
+  const unsigned long measured = 0x10180402000ul; /* recorded boot */
+  unsigned long ident = 1ul * GB, page = 0x1000ul, sp = 256ul, vsize;
+  unsigned long mappable = ident > (unsigned long)S390_MAX_DCSS_ADDR
+                               ? ident
+                               : (unsigned long)S390_MAX_DCSS_ADDR;
+#define RU(x, a) (((x) + (a) - 1ul) & ~((a) - 1ul))
+  vsize = RU(2ul * GB + mappable, S390_REGION3_SIZE);
+  vsize += RU((ident / page) * sp, S390_REGION3_SIZE) + S390_REGION3_SIZE;
+  vsize += S390_REGION3_SIZE;
+  vsize += S390_MODULES_LEN + S390_KASLR_LEN + S390_MODULES_LEN * 2ul;
+  vsize += (unsigned long)S390_VMALLOC_DEFAULT_SIZE;
+#undef RU
+  TH_CHECK(vsize >= measured);
+  TH_CHECK(vsize <= (unsigned long)S390_ASCE_LIMIT_3LEVEL);
+#endif
+}
+
+/* SOUNDNESS: no `vmalloc=` fact means the command line was never read, so the
+ * term is unbounded above and the estimate proves nothing. */
+static void test_s390_va_bits_from_config_no_vmalloc_fact_inert(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  struct observation b =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 0ul, CONF_PARSED);
+  struct observation pf = mk_scalar(SF_PHYS_MAX_PFN, 0x40000ul, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &k);
+  evidence_add(&e.ev, &pf);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      !estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+#endif
+}
+
+/* SOUNDNESS: a `vmalloc=` large enough to carry the estimate past the limit
+ * leaves the disjunct open, so the level stays unresolved. */
+static void test_s390_va_bits_from_config_huge_vmalloc_inert(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  struct observation b =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 0ul, CONF_PARSED);
+  struct observation pf = mk_scalar(SF_PHYS_MAX_PFN, 0x40000ul, CONF_PARSED);
+  struct observation ps = mk_scalar(SF_PAGE_SIZE, 0x1000ul, CONF_PARSED);
+  struct observation vm =
+      mk_scalar(SF_CMDLINE_VMALLOC, 4ul * 1024ul * GB, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &k);
+  evidence_add(&e.ev, &pf);
+  evidence_add(&e.ev, &ps);
+  evidence_add(&e.ev, &vm);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      !estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+#endif
+}
+
+/* SOUNDNESS: without the KASAN fact the first disjunct is open whatever the
+ * estimate says, so neither direction concludes. */
+static void test_s390_va_bits_from_config_no_kasan_fact_inert(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  struct observation b =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  struct observation pf = mk_scalar(SF_PHYS_MAX_PFN, 0x40000ul, CONF_PARSED);
+  struct observation vm = mk_scalar(SF_CMDLINE_VMALLOC, 0ul, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &pf);
+  evidence_add(&e.ev, &vm);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      !estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+#endif
+}
+
+/* KASLR off falsifies the third disjunct outright -- it is conjoined with
+ * kaslr_enabled() -- so the level follows with no estimate and no memory
+ * facts at all. */
+static void test_s390_va_bits_from_config_kaslr_off_proves_3level(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  struct observation b =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 0ul, CONF_PARSED);
+  struct observation off = mk_scalar(SF_VIRT_KASLR_DISABLED, 1ul, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &k);
+  evidence_add(&e.ev, &off);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 42ul);
+#endif
+}
+
+/* s390_text_ceiling_from_va_bits turns a resolved paging level into the text
+ * ceiling. The 3-level case is the one that matters: _REGION2_SIZE is 2048
+ * times smaller than the architectural top, so the bound is worth 11 bits
+ * there and nothing at 4-level. */
+static void test_s390_text_ceiling_from_va_bits(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+
+  /* 3-level resolved: the ceiling drops to _REGION2_SIZE, floored to the grid,
+   * and is genuinely tighter than the honest top. */
+  struct engine e;
+  engine_init(&e);
+  struct observation v = mk_scalar(SF_VIRT_ADDR_BITS, 42ul, CONF_PARSED);
+  evidence_add(&e.ev, &v);
+  const rule_fn rules[] = {rule_kaslr_align_arch_default,
+                           rule_va_bits_from_scalar,
+                           rule_s390_text_ceiling_from_va_bits};
+  engine_run(&e, rules, 3);
+  unsigned long align = e.est[Q_VIRT_KASLR_ALIGN].lo;
+  if (align < (unsigned long)KASLR_VIRT_ALIGN)
+    align = (unsigned long)KASLR_VIRT_ALIGN;
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi ==
+           kasld_floor_virt_text_bound(S390_ASCE_LIMIT_3LEVEL, align));
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi < top.hi);
+  /* Sound: a real 3-level base sits below the limit and survives. */
+  TH_CHECK(0x3fffe4b4000ul <= e.est[Q_VIRT_IMAGE_BASE].hi);
+
+  /* 4-level resolved: the bound is the architectural top, so it narrows
+   * nothing and cannot exclude the high placements that level allows. */
+  struct engine e2;
+  engine_init(&e2);
+  struct observation v2 = mk_scalar(SF_VIRT_ADDR_BITS, 53ul, CONF_PARSED);
+  evidence_add(&e2.ev, &v2);
+  engine_run(&e2, rules, 3);
+  TH_CHECK(0x13a21d342d4000ul <=
+           e2.est[Q_VIRT_IMAGE_BASE].hi); /* recorded boot */
+
+  /* Unresolved: inert, and the window stands at the top admitting both. */
+  struct engine e3;
+  engine_init(&e3);
+  engine_run(&e3, rules, 3);
+  TH_CHECK(e3.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
+#endif
+}
+
 /* No config at all: inert. */
 static void test_s390_va_bits_from_config_no_config_inert(void) {
 #if defined(__s390__) || defined(__zarch__)
@@ -9369,6 +9561,13 @@ int main(void) {
   RUN(test_s390_va_bits_from_config_default_base_inert);
   RUN(test_s390_va_bits_from_config_preuncoupled_inert);
   RUN(test_s390_va_bits_from_config_no_config_inert);
+  RUN(test_s390_text_ceiling_from_va_bits);
+  RUN(test_s390_va_bits_from_config_small_guest_proves_3level);
+  RUN(test_s390_va_bits_from_config_estimate_is_an_upper_bound);
+  RUN(test_s390_va_bits_from_config_no_vmalloc_fact_inert);
+  RUN(test_s390_va_bits_from_config_huge_vmalloc_inert);
+  RUN(test_s390_va_bits_from_config_no_kasan_fact_inert);
+  RUN(test_s390_va_bits_from_config_kaslr_off_proves_3level);
 #endif
 
   BEGIN_CATEGORY("ppc-specific rules");
