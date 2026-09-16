@@ -5515,6 +5515,44 @@ static void test_arm64_text_band_union_admits_both_layouts(void) {
       TH_CHECK(out[i].value < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
   }
 
+  /* No-KASLR: neither layout slides, so the ceiling drops the slide term. The
+   * pre-flip no-KASLR base must stay admitted -- it is the lowest of the two --
+   * and the ceiling must still cover a modern kernel that took the 2 GiB module
+   * region, which is where seven of the harness's ten nokaslr boots land. */
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 48);
+  {
+    struct observation d = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+    evidence_add(&e.ev, &d);
+  }
+  n = rule_arm64_text_base(&e.ev, e.est, out, 4);
+  TH_CHECK(n == 4); /* floor, slid ceiling, un-slid cap, and the gap */
+  {
+    const unsigned long unslid = 0xffff800080000000ul; /* _PAGE_END(48) + 2G */
+    unsigned long cap = ~0ul;
+    for (int i = 0; i < n; i++) {
+      if (out[i].op == C_LOWER_BOUND)
+        TH_CHECK(out[i].value <= preflip_text);
+      if (out[i].op == C_UPPER_BOUND && out[i].value < cap)
+        cap = out[i].value;
+    }
+    /* The binding ceiling is the un-slid one, and it is INCLUSIVE of a kernel
+     * sitting exactly on it. */
+    TH_CHECK(cap == unslid);
+    TH_CHECK(cap > preflip_text);
+    /* And the gap between the two un-slid bands is carved, over neither of
+     * them: the pre-flip no-KASLR base and the modern band's floor both
+     * survive. */
+    int holes = 0;
+    for (int i = 0; i < n; i++)
+      if (out[i].op == C_EXCLUDE) {
+        holes++;
+        TH_CHECK(out[i].value > preflip_text);
+        TH_CHECK(out[i].value2 < modern_text);
+      }
+    TH_CHECK(holes == 1);
+  }
+
   /* Unresolved width as well -> nothing, rather than a band over a guess. */
   engine_init(&e);
   TH_CHECK(rule_arm64_text_base(&e.ev, e.est, out, 4) == 0);

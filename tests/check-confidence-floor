@@ -96,6 +96,18 @@ RULES=$ROOT/src/rules
 #                                 configuration out; unobserved keeps the pair,
 #                                 and the pre-flip partner of a measured 52 is
 #                                 the 48-bit base, never a 52-bit one
+#   arm64_text_base               carves ONE span, and only under a no-KASLR
+#                                 signal: with no slide the two layouts' image
+#                                 bands separate, and a base that did not slide
+#                                 is one of the two link-time KIMAGE_VADDRs, so
+#                                 nothing can lie between them. Derived from the
+#                                 resolved width plus the disabled marker, both
+#                                 evidence, and carried at the marker's own
+#                                 confidence so a text leak overrides it. With
+#                                 KASLR live the bands meet and no hole is
+#                                 emitted at all. Checked against every nokaslr
+#                                 boot the harness records: each truth lands in
+#                                 one band, none in the gap
 #   arm64_va_bits_from_vmemmap    computed, but capped at CONF_HEURISTIC: the
 #                                 pre-v5.4 vmemmap overlaps the modern VA52 one,
 #                                 so the witness is ambiguous. Likely window only
@@ -217,6 +229,7 @@ RULES=$ROOT/src/rules
 #                                 up, so the two ranges cannot meet
 ALLOW="arm64_efi_kimg_align
 arm64_page_offset_from_va_bits
+arm64_text_base
 arm64_phys_text_residue
 arm64_text_phys_residue
 arm64_va_bits_from_directmap

@@ -117,7 +117,8 @@ static unsigned long arm64_kasan_shadow_max(unsigned long va) {
  * 2^(va-1). The difference is 128 MiB at every width, so admitting the shadow
  * -- which is not observable, and so must be admitted -- closes any gap the
  * bands would otherwise have. */
-static int arm64_text_band_union(const struct estimate *est,
+static int arm64_text_band_union(const struct evidence_set *ev,
+                                 const struct estimate *est,
                                  struct constraint *out, int out_max) {
   unsigned long va = 0;
   if (!estimate_finset_value(&quantities[Q_VA_BITS], &est[Q_VA_BITS], &va))
@@ -133,9 +134,11 @@ static int arm64_text_band_union(const struct estimate *est,
   const unsigned long va_min = va < 48ul ? va : 48ul;
   const unsigned long m_lo =
       arm64_page_end_for(va_min) + ARM64_MODULE_REGION_SIZE_MIN;
-  const unsigned long m_hi = arm64_page_end_for(va_min) +
-                             ARM64_MODULE_REGION_SIZE +
-                             arm64_kaslr_offset_max(va_min);
+  /* The un-slid ceilings are kept apart from the slid ones because the no-KASLR
+   * cap below is exactly the slide term dropped. */
+  const unsigned long m_hi_unslid =
+      arm64_page_end_for(va_min) + ARM64_MODULE_REGION_SIZE;
+  const unsigned long m_hi = m_hi_unslid + arm64_kaslr_offset_max(va_min);
 
   /* The pre-flip partner of a measured 52 is the 48-bit layout: pre-flip never
    * offered a 52-bit kernel VA, and the one configuration that showed userspace
@@ -144,9 +147,10 @@ static int arm64_text_band_union(const struct estimate *est,
   const unsigned long va_old = (va == 52ul) ? 48ul : va;
   const unsigned long vstart = arm64_page_offset_for(va_old);
   const unsigned long p_lo = vstart + ARM64_MODULE_REGION_SIZE_MIN;
-  const unsigned long p_hi = vstart + 2ul * ARM64_MODULE_REGION_SIZE_MIN +
-                             arm64_kasan_shadow_max(va_old) +
-                             arm64_kaslr_offset_max(va_old);
+  const unsigned long p_hi_unslid = vstart +
+                                    2ul * ARM64_MODULE_REGION_SIZE_MIN +
+                                    arm64_kasan_shadow_max(va_old);
+  const unsigned long p_hi = p_hi_unslid + arm64_kaslr_offset_max(va_old);
 
   const unsigned long lo = p_lo < m_lo ? p_lo : m_lo;
   const unsigned long hi = p_hi > m_hi ? p_hi : m_hi;
@@ -175,6 +179,67 @@ static int arm64_text_band_union(const struct estimate *est,
     c->lineage_count = src ? 1 : 0;
     snprintf(c->origin, ORIGIN_LEN, "arm64_text_base");
   }
+
+  /* No-KASLR: neither layout slides, so the ceiling is the slide term dropped
+   * -- the higher of the two un-slid KIMAGE_VADDRs. Which of the two the kernel
+   * used is still unknown, and so is its module-region size, so this stays an
+   * upper bound rather than a pin; the union floor above already bounds below
+   * and covers both layouts. Capped to the signal's confidence and to inferred,
+   * so a real text leak still wins, and skipped where a leak has already raised
+   * the floor past it. Same discipline as the pinned path's own cap. */
+  {
+    uint32_t sig_id = 0;
+    enum kasld_confidence sig_conf = CONF_UNKNOWN;
+    for (int i = 0; ev && i < ev->n_obs; i++) {
+      const struct observation *o = &ev->obs[i];
+      if (!o->valid || o->value_kind != OBS_SCALAR)
+        continue;
+      if (o->scalar_fact == SF_VIRT_KASLR_DISABLED && o->scalar_value != 0) {
+        sig_id = o->id;
+        sig_conf = o->conf;
+        break;
+      }
+    }
+    const unsigned long cap =
+        m_hi_unslid > p_hi_unslid ? m_hi_unslid : p_hi_unslid;
+    const enum kasld_confidence sig_cap =
+        sig_conf < CONF_INFERRED ? sig_conf : CONF_INFERRED;
+    if (sig_id != 0 && n < out_max && cap >= est[Q_VIRT_IMAGE_BASE].lo) {
+      struct constraint *c = &out[n++];
+      memset(c, 0, sizeof(*c));
+      c->q = Q_VIRT_IMAGE_BASE;
+      c->op = C_UPPER_BOUND;
+      c->value = cap;
+      c->conf = sig_cap;
+      c->derived_from[0] = sig_id;
+      c->lineage_count = 1;
+      snprintf(c->origin, ORIGIN_LEN, "arm64_text_base");
+    }
+    /* And the span between the two un-slid bands, which is where the narrowing
+     * actually is. With the slide admitted the bands meet and there is nothing
+     * to carve; drop the slide and they separate -- each is at most the
+     * module-region spread, a couple of GiB, while the distance between them is
+     * most of the address space. Capping the ceiling alone leaves that distance
+     * in the count and is worth under a bit; excluding it is worth ten.
+     *
+     * Sound because a no-KASLR base is one layout's link-time KIMAGE_VADDR and
+     * nothing lies between them: the modern one is _PAGE_END + module_region,
+     * the pre-flip one VA_START + its own regions, and neither can land in the
+     * gap. Carried at the signal's confidence like the cap above, so a text
+     * leak still overrides it. */
+    if (sig_id != 0 && n < out_max && p_hi_unslid + 1ul < m_lo) {
+      struct constraint *c = &out[n++];
+      memset(c, 0, sizeof(*c));
+      c->q = Q_VIRT_IMAGE_BASE;
+      c->op = C_EXCLUDE;
+      c->value = p_hi_unslid + 1ul;
+      c->value2 = m_lo - 1ul;
+      c->conf = sig_cap;
+      c->derived_from[0] = sig_id;
+      c->lineage_count = 1;
+      snprintf(c->origin, ORIGIN_LEN, "arm64_text_base");
+    }
+  }
   return n;
 }
 
@@ -190,7 +255,7 @@ int rule_arm64_text_base(const struct evidence_set *ev,
    * two layouts' bands are emitted as a union instead. */
   unsigned long po_pin;
   if (!quantity_pinned(Q_PAGE_OFFSET, po, &po_pin))
-    return arm64_text_band_union(est, out, out_max);
+    return arm64_text_band_union(ev, est, out, out_max);
 
   /* Map the resolved PAGE_OFFSET back to its VA_BITS (PAGE_OFFSET = -(1<<va)).
    */
