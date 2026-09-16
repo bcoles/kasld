@@ -13,21 +13,24 @@
 </p>
 
 KASLD recovers the Linux kernel's virtual and physical memory layout —
-primarily the kernel text base — from a local process, using as much as
-the process's vantage allows: its privileges and capabilities, the
-system's configuration, and any container confinement. It recovers the
-kernel text base outright where a leak or side channel allows, and
-otherwise narrows it to the smallest set of placements the available
-evidence supports. The inference engine fuses evidence from dozens of
-independent techniques with the architecture's known invariants,
-narrowing the kernel's placement to a residual window — reported as the
-surviving slot count and bits of entropy: an upper bound on the protection
-KASLR retains from this vantage, not a guarantee the base is beyond an
-attacker's reach (see [docs/limitations.md](docs/limitations.md)). On a
-fully-patched modern kernel — where x86-64 side channels are mitigated
-and no direct kernel-text leak survives — full recovery is often impossible,
-but the constraint set is rarely empty. On architectures without KASLR, the
-engine locates the bootloader-chosen load address.
+primarily the kernel text base — from a local process. What it can recover
+is a function of that process's vantage: its privileges and capabilities,
+the system's configuration, and any container confinement. It recovers the
+base outright where a leak or side channel allows, and otherwise narrows it
+to the smallest set of placements the available evidence supports.
+
+The inference engine fuses evidence from dozens of independent techniques
+with the architecture's known invariants, narrowing the kernel's placement
+to a residual window — reported as the surviving slot count and bits of
+entropy: an upper bound on the protection KASLR retains from this vantage,
+not a guarantee the base is beyond an attacker's reach (see
+[docs/limitations.md](docs/limitations.md)).
+
+Full recovery is often impossible on a hardened target — one where no
+direct kernel-text leak survives and the side channels its architecture
+and CPU expose are closed — but the constraint set is rarely empty. On
+architectures without KASLR, the engine locates the bootloader-chosen
+load address.
 
 Supports:
 

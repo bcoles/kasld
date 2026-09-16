@@ -204,7 +204,7 @@ loop.
   address in the text region. Because a constraint is not an address, the anchor
   rules — which gate on the address kind — never read one, so a sub-`_text`
   bound cannot be misread as a text anchor.
-- **Rules** (`../src/rules/*.c`) — roughly 95 pure functions that read the evidence and
+- **Rules** (`../src/rules/*.c`) — dozens of pure functions that read the evidence and
   the current estimates and emit *constraints* (`>=`, `<=`, `=`, alignment,
   membership, exclusion) or *verdicts* (invalidate a result) on the quantities.
   A rule does no I/O and has no side effects, so soundness is provable in
@@ -321,13 +321,15 @@ changes representation, trust, or ownership, each held by one invariant:
 
 ![Seven seams in the KASLD data flow, each annotated with the invariant that holds it](diagrams/seams.svg)
 
-The load-bearing ones: the **wire seam** (a component's `origin` is filled by the
-orchestrator, never trusted from the wire); the **bridge seam**
-(`engine_build_evidence()` is the only crossing into the engine, which never
-sees raw I/O); the **monotone seam** (estimates only narrow, proven per-rule);
-the **store-vs-read seam** described above; and the **authoritative-sync seam**
-(the engine must project every renderer-read field, or a stale value leaks
-through).
+The load-bearing ones:
+
+| seam | invariant |
+|---|---|
+| wire | a component's `origin` is filled by the orchestrator, never trusted from the wire |
+| bridge | `engine_build_evidence()` is the only crossing into the engine, which never sees raw I/O |
+| monotone | estimates only narrow, proven per-rule |
+| store-vs-read | as described above |
+| authoritative-sync | the engine must project every renderer-read field, or a stale value leaks through |
 
 ---
 
@@ -543,10 +545,12 @@ Key rules for cross-region derivation:
   (`SF_KASAN_ENABLED`) or KASLR is off (`SF_VIRT_KASLR_DISABLED`) the direct-map
   randomization is suppressed (`kaslr_memory_enabled() = kaslr_enabled() &&
   !CONFIG_KASAN`), so `Q_PAGE_OFFSET` / `Q_VMALLOC_BASE` / `Q_VMEMMAP_BASE` are
-  pinned to their compile-time L4/L5 defaults — the paging level from
-  `SF_VIRT_ADDR_BITS` (cpuinfo, leak-free) or, when that is unavailable, a
-  resolved `Q_VA_BITS` (e.g. from a direct-map leak). Kernel TEXT KASLR is
-  independent and stays randomized.
+  pinned to their compile-time L4/L5 defaults — the paging level from a
+  resolved `Q_VA_BITS`, which on x86_64 rests on the `mmap` probe that observes
+  which level is ACTIVE. The `/proc/cpuinfo` virtual-width figure is the CPU's
+  capability rather than the booted level — an LA57-capable part reports 57
+  either way — so it is emitted below the sound floor and shapes the likely
+  window only. Kernel TEXT KASLR is independent and stays randomized.
 
 ### Coupled vs decoupled architectures
 
@@ -637,9 +641,11 @@ in only under `CONFIG_RANDOMIZE_BASE`, it carries that option with it, and
 therefore `KERNEL_IMAGE_SIZE` and the placement of `MODULES_VADDR`. That is what
 licenses `module_base_execmem_window` on a run that has resolved no base at all;
 a base observed away from its compile-time default establishes the same premise
-independently. Read from `/sys/kernel/boot_params/data` alone: the
-bit is written at runtime, and the copy in the `/boot` image carries the
-build-time value, which is clear on every kernel. The orchestrator reads
+independently. Read it from `/sys/kernel/boot_params/data` alone. The bit is written at
+runtime into the copy the kernel kept, while the same header inside the `/boot`
+image carries the build-time value, where it is unset on every kernel ever
+built — so falling back to the image would report "KASLR did not run"
+universally. The orchestrator reads
 `SF_VIRT_KASLR_DISABLED` to set the summary's `kaslr.disabled` flag (driving the
 "kernel sits at default text base" banner and `slide`/`slot` zeroing). The
 engine's `virt_kaslr_disabled_pin` pins `Q_VIRT_IMAGE_BASE` to the compile-time

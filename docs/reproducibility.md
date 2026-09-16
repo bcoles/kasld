@@ -267,11 +267,11 @@ configuration; this one measures the window KASLD can prove *without* knowing
 it. So a residual may legitimately exceed the architectural figure — aarch64
 reports 31 bits against an architectural 30, loongarch64 16 against 12, riscv64
 16 against 9 — and the excess is uncertainty about the build, not entropy the
-kernel holds. The window has to span every layout and placement formula the
-architecture admits until evidence rules one out: on aarch64 the minimum offset
-differs between the pre-v5.4, v6.6 and v6.12 formulas; on loongarch64
+kernel holds. The window has to span every layout and placement formula the architecture
+admits until evidence rules one out. On aarch64 the minimum offset differs
+between the pre-v5.4, v6.6 and v6.12 formulas. On loongarch64
 `CONFIG_RANDOMIZE_BASE_MAX_OFFSET` is a build choice an unprivileged reader
-cannot see; and on riscv64 the window must still reach down to the legacy
+cannot see. And on riscv64 the window must still reach down to the legacy
 linear-map base, because nothing observable distinguishes that layout from the
 modern one.
 
@@ -981,13 +981,12 @@ boots straight into the analysis harness from a minimal initramfs, so no distro
 init, `sysctl.d` drop-ins, service sandboxing, or LSM policy (AppArmor / SELinux /
 seccomp) ever runs. Every profile therefore measures the kernel's *own* posture —
 its compile-time sysctl defaults plus the one explicit sysctl vector the harness
-sets — and nothing a userland would layer on top. This cuts both ways and is a
-scope boundary in both directions: a real distribution install may enforce
-controls these cells do not (so an actual system can be *stricter* than even the
-`hardened` column), and userland is itself a potential leak surface — setuid
-helpers, privileged daemons, and files a running service populates — that the
-matrix does not exercise (so an actual system may expose *more* than the
-`default` column). The isolation is deliberate: it attributes each result to a
+sets — and nothing a userland would layer on top. That scope boundary cuts both ways. A real
+distribution install may enforce controls these cells do not, so an actual
+system can be *stricter* than even the `hardened` column. And userland is
+itself a leak surface the matrix does not exercise — setuid helpers,
+privileged daemons, and files a running service populates — so an actual
+system may expose *more* than the `default` column. The isolation is deliberate: it attributes each result to a
 named kernel and a declared sysctl vector, keeping the cells reproducible and
 independent of any particular distribution's userspace.
 

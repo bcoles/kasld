@@ -7,10 +7,10 @@ kasld \- recover the Linux kernel memory layout and defeat KASLR
 .SH DESCRIPTION
 .B kasld
 recovers the Linux kernel's virtual and physical memory layout \(em primarily
-the kernel text base \(em from a local process, using as much as the process's
-vantage allows: its privileges and capabilities, the system's configuration,
-and any container confinement.
-It recovers the kernel text base outright where a leak or side channel allows,
+the kernel text base \(em from a local process.
+What it can recover is a function of that process's vantage: its privileges
+and capabilities, the system's configuration, and any container confinement.
+It recovers the base outright where a leak or side channel allows,
 and otherwise narrows it to the smallest set of placements the available
 evidence supports.
 .PP

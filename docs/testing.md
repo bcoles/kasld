@@ -414,11 +414,11 @@ convention belongs at `CONF_HEURISTIC`, shaping `likely` only.
 
 The check reads nothing but the presence of the constraint, and not how the
 line is spaced. Two earlier forms failed open. The first matched confidence
-literals in the source text, so the commonest spelling of all — inheriting an
-observation's confidence into a value the rule *computed* from that observation
-— carried no literal to match and passed unexamined; where a rule computes
-rather than reads, the arithmetic between the fact and the constraint is what
-needs review, and no pattern-matching on confidence can see it. The second
+literals in the source text. The commonest spelling of all carries no literal
+to match — inheriting an observation's confidence into a value the rule
+*computed* from that observation — so it passed unexamined. Where a rule
+computes rather than reads, the arithmetic between the fact and the constraint
+is what needs review, and no pattern-matching on confidence can see it. The second
 scanned only rule files, so a rule emitting through a shared helper in
 `engine_rules.h` named no op of its own and went unreviewed — which is how an
 unsound `C_STRIDE` reached the guaranteed window on arm64. Helpers are now
@@ -1060,14 +1060,13 @@ build/fuzz/fuzz_capture_result \
     tests/fuzz/corpus/capture_result/        # run the parser fuzzer
 ```
 
-libFuzzer harnesses (with AddressSanitizer + UndefinedBehaviorSanitizer)
-for the five pure string→struct parsers the orchestrator runs against
-attacker-influenced input — `parse_hex`, `capture_result`, `capture_scalar`,
-`parse_meta`, `parse_disposition` — plus `fuzz_btf`, which walks the binary BTF
-type info in `btf_facts.c` (kernel-provided input rather than an
-attacker surface, but the most intricate binary parser in the tree), and
-`fuzz_render`, which drives the report model built from a resolved engine state
-the way a format reads it. The Makefile
+Every harness is built with AddressSanitizer and UndefinedBehaviorSanitizer.
+Five cover the pure string→struct parsers the orchestrator runs against
+attacker-influenced input: `parse_hex`, `capture_result`, `capture_scalar`,
+`parse_meta` and `parse_disposition`. `fuzz_btf` walks the binary BTF type info
+in `btf_facts.c` — kernel-provided input rather than an attacker surface, but
+the most intricate binary parser in the tree. `fuzz_render` drives the report
+model built from a resolved engine state the way a format reads it. The Makefile
 globs `tests/fuzz/fuzz_*.c`, so a new harness needs no target. See
 `tests/fuzz/README.md` for the contract details and crash-reproduction workflow.
 

@@ -594,24 +594,28 @@ than the machine a capture came from, so pairing a capture with the build that
 models it is the job of `extra/validate-bundle` and `tests/replay`, which read
 the capture's own record and run the right binary.
 
-The `environment` object is the recon vantage: `container`, `seccomp`, `lsm`,
-`selinux`, `security_context`, `mac_enforcing`, `capabilities`,
-`no_new_privs`, `uid`, `euid`, `gid`, `egid`, `groups` (null when unreadable,
-with `groups_truncated` when the process holds more than the report keeps),
-`group_gated_sources` (those of them kasld knows gate a source it reads, named),
-and a `readable_oracles` map of the sources probed for readability — the
-`/proc` oracles, the system logs, debugfs, and the `/boot` `System.map` and
-config, the last two keyed by the path including the running kernel release
-(fields are a `null` or enum when they do not apply). Each entry is an object
-carrying `readable` (a boolean, false for every state that is not a successful
-read) and `status`, one of `readable`, `denied`, `absent` or `unknown` — the
-same distinction the text readout draws, described above; and `cap_reachable_leaks`,
-the capability-gated leak sources reachable from the process's current
-capabilities. `lsm`, `selinux` and
+The `environment` object is the recon vantage. `lsm`, `selinux` and
 `security_context` are `null` when this vantage cannot read them, which is not
 the same as their being absent — an enforcing policy commonly hides its own
-state. `mac_enforcing` is the only one of the four that asserts anything: it is
-true only where a policy was observed actively confining this process. The same
+state, and `mac_enforcing` is the only one of the four that asserts anything.
+
+| field | value |
+|---|---|
+| `container` | the container runtime detected, or `null` |
+| `seccomp` | the process's seccomp mode, or `null` |
+| `lsm` | the active LSM list, or `null` |
+| `selinux` | `enforcing` or `permissive`, or `null` when unavailable |
+| `security_context` | the process's security context, or `null` |
+| `mac_enforcing` | `true` only where a policy was observed actively confining this process |
+| `uid` / `euid` / `gid` / `egid` | the process's ids, `null` together when they could not be read — 0 is a real uid, so no value in the field could mean "unknown" |
+| `groups` | supplementary gids, or `null` when unreadable; `groups_truncated` is present and `true` when the process holds more than the report keeps |
+| `group_gated_sources` | those groups kasld knows gate a source it reads, as `{gid, name, gates}`; the numeric `groups` list stays the authority |
+| `capabilities` | the process's capability set, or `null` |
+| `no_new_privs` | the `no_new_privs` bit, or `null` |
+| `readable_oracles` | a map of the sources probed for readability — the `/proc` oracles, the system logs, debugfs, and the `/boot` `System.map` and config, the last two keyed by the path including the running kernel release. Each entry carries `readable` (`false` for every state that is not a successful read) and `status`, one of `readable`, `denied`, `absent` or `unknown` — the same distinction the text readout draws |
+| `cap_reachable_leaks` | the capability-gated leak sources the effective capability set unlocks, as `{capability, source}` |
+
+The same
 caveat applies to the oracle map: under such a policy a refusal is commonly
 indistinguishable from an absence at the point of the probe, so a document whose
 oracles are nearly all `unknown` describes a target that is confined, not a
@@ -619,22 +623,38 @@ collection that went wrong.
 
 The `groups` array carries the leak evidence, one object per (`type`,
 `section`, `region`) — the same split the text readout prints as separate
-blocks. A group's aggregate describes only the region it names: `consensus`
-(the most base-like address), `consensus_method`, `consensus_sources`,
-`conflicts`, `interior_only` and the `lo`/`hi` span are computed over that
-region's records alone, never across the other regions sharing its section.
-Several regions routinely share one section — `dram` alone spans `ram`,
-`initrd`, `cmdline`, `acpi_table` and more, whose bases are unrelated — so
-`section` is not a unique key and `region` is what tells the groups apart.
-Each group's `results` array lists its own records; `valid` marks whether a
-record passes the layout bounds check.
+blocks.
 
-The `components` array holds one record per component — `name`,
-`exit_code`, `outcome`, an optional `disposition` (why a component produced no
-tagged result: `category` — `mitigation` / `absent` / `disabled` /
-`inconclusive` — plus, for a mitigation, the `gate` it confirmed and an optional
-`message`), and the parsed `meta` from `KASLD_META` (including `cve` / `patch` /
-`config` / `sysctl` keys). The `hardening` object is described under
+| field | value |
+|---|---|
+| `type` / `section` / `region` | the group's key; `display` carries the section's printed name |
+| `consensus` | the most base-like address in the group |
+| `consensus_method` | the method of the consensus record, or `unknown` |
+| `consensus_sources` | how many distinct sources contributed |
+| `conflicts` | how many records disagree with the consensus |
+| `interior_only` | `true` when the group carries only interior samples and no edge. `consensus` is then the lowest sample and `lo`/`hi` bound the corroborated span rather than a resolved base, and `conflicts` is 0 — interior samples do not compete |
+| `lo` / `hi` | the group's span |
+| `results` | the group's own records, each carrying `raw`, `aligned`, `pos`, `region`, `name`, `origins`, its method, and `valid` — whether the record passes the layout bounds check |
+
+Every aggregate above is computed over the named region's records alone, never
+across the other regions sharing its section. Several regions routinely share
+one section — `dram` alone spans `ram`, `initrd`, `cmdline`, `acpi_table` and
+more, whose bases are unrelated — so `section` is not a unique key, and
+`region` is what tells the groups apart.
+
+The `components` array holds one record per component.
+
+| field | value |
+|---|---|
+| `name` | the component's name |
+| `exit_code` | the exit status it returned |
+| `outcome` | what the orchestrator made of that status |
+| `disposition` | optional — why a component produced no tagged result: `category`, one of `mitigation` / `absent` / `disabled` / `inconclusive`, plus, for a mitigation, the `gate` it confirmed and an optional `message` |
+| `meta` | the parsed `KASLD_META`, including the `cve` / `patch` / `config` / `sysctl` keys |
+| `explain` | optional — the component's `KASLD_EXPLAIN` text, present where it embeds one |
+| `output` | the component's own output lines; emitted under `--verbose` only |
+
+The `hardening` object is described under
 [Hardening assessment](#hardening-assessment).
 The `excluded_components` array names what the run held back and why —
 `{name, reason}`, with `reason` one of `skip_pattern` (a `--skip` pattern named
@@ -743,15 +763,17 @@ kernel. It is followed by seven analysis sections:
    When the engine resolves a guaranteed base window, each suggestion is
    scored by re-resolving it: the section anchors on the current versus
    fully-hardened residual entropy, then reports, per suggestion, how much
-   of that gap it is load-bearing for. The verdicts are *load-bearing —
-   omitting forfeits N bits* (closing the others is not enough without this
-   one), *recovers nothing* (the gate governs components but none leak the
-   base), *speculative window only* (the leaks do not narrow the guaranteed
-   base — the honest reading on a host whose guaranteed posture is already
-   maxed), and *not required* (the base is recoverable, but the remaining
-   suggestions already reach the same guaranteed posture). The numbers are
-   deliberately non-additive: redundant leaks each read as load-bearing
-   because closing any single one still leaves the base pinned.
+   of that gap it is load-bearing for.
+
+   | verdict | meaning |
+   |---|---|
+   | *load-bearing — omitting forfeits N bits* | closing the others is not enough without this one |
+   | *recovers nothing* | the gate governs components, but none leak the base |
+   | *speculative window only* | the leaks do not narrow the guaranteed base — the honest reading on a host whose guaranteed posture is already maxed |
+   | *not required* | the base is recoverable, but the remaining suggestions already reach the same guaranteed posture |
+
+   The numbers are deliberately non-additive: redundant leaks each read as
+   load-bearing because closing any single one still leaves the base pinned.
 
 4. **Patched vulnerabilities** — components that target known CVEs. Shows
    how many are patched (returned no result or unavailable) versus unpatched
