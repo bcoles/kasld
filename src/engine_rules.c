@@ -119,6 +119,7 @@ static const rule_fn k_rules[] = {
 
     /* riscv64-specific */
     rule_riscv64_text_base,
+    rule_riscv64_text_floor_from_va_bits,
     rule_riscv64_non_efi_phys_base,
     rule_riscv64_page_offset_from_vmalloc_vmemmap,
 

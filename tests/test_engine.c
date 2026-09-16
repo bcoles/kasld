@@ -5521,6 +5521,53 @@ static void test_arm64_text_band_union_admits_both_layouts(void) {
 #endif
 }
 
+/* riscv64_text_floor_from_va_bits: an active Sv48/Sv57 width proves the kernel
+ * mapping was moved out of the linear map, so the image cannot sit below
+ * KERNEL_LINK_ADDR. Sv39 spans both eras and must leave the rule inert -- that
+ * is the case the earlier PAGE_OFFSET-keyed attempt got wrong, on a live 5.10
+ * Sv39 board whose text was in the linear map at 0xffffffe000229000, far below
+ * the floor that attempt emitted. */
+static void test_riscv64_text_floor_from_va_bits(void) {
+  struct engine e;
+  struct constraint out[4];
+
+#if defined(__riscv) && __riscv_xlen == 64
+  const unsigned long link = 0xffffffff80000000ul;
+  /* The legacy board's real _text, which the floor must never exclude. */
+  const unsigned long legacy_text = 0xffffffe000229000ul;
+
+  /* Sv57 -> the floor is emitted. */
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 57);
+  int n = rule_riscv64_text_floor_from_va_bits(&e.ev, e.est, out, 4);
+  TH_CHECK(n == 1);
+  TH_CHECK(out[0].q == Q_VIRT_IMAGE_BASE);
+  TH_CHECK(out[0].op == C_LOWER_BOUND);
+  TH_CHECK(out[0].value == link);
+  TH_CHECK(out[0].conf == CONF_INFERRED);
+
+  /* Sv48 -> likewise; it postdates the layout move too. */
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 48);
+  n = rule_riscv64_text_floor_from_va_bits(&e.ev, e.est, out, 4);
+  TH_CHECK(n == 1 && out[0].value == link);
+
+  /* Sv39 -> INERT. The recurrence guard: a floor here would have excluded the
+   * legacy board's text, which lies below KERNEL_LINK_ADDR. */
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 39);
+  TH_CHECK(rule_riscv64_text_floor_from_va_bits(&e.ev, e.est, out, 4) == 0);
+  TH_CHECK(legacy_text < link); /* the reason Sv39 must stay inert */
+
+  /* Unresolved width -> inert, rather than a floor over a guess. */
+  engine_init(&e);
+  TH_CHECK(rule_riscv64_text_floor_from_va_bits(&e.ev, e.est, out, 4) == 0);
+#else
+  engine_init(&e);
+  TH_CHECK(rule_riscv64_text_floor_from_va_bits(&e.ev, e.est, out, 4) == 0);
+#endif
+}
+
 /* The failure this rule's two-candidate emission prevents, end to end at the
  * sound floor: an older-layout kernel whose width probes as 48 must not have
  * its linear-map base pinned to the flipped value, because every rule that
@@ -9630,6 +9677,7 @@ int main(void) {
   RUN(test_arm64_page_offset_from_va_bits);
   RUN(test_arm64_page_offset_admits_preflip_base);
   RUN(test_arm64_text_band_union_admits_both_layouts);
+  RUN(test_riscv64_text_floor_from_va_bits);
   RUN(test_x86_64_page_offset_floor_from_va_bits);
   RUN(test_va_bits_pin_chains_to_arm64_page_offset);
 

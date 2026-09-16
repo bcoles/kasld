@@ -396,6 +396,7 @@ R(arm64_phys_text_residue);
 
 /* riscv64-specific rules */
 R(riscv64_text_base);
+R(riscv64_text_floor_from_va_bits);
 R(riscv64_non_efi_phys_base);
 R(riscv64_page_offset_from_vmalloc_vmemmap);
 

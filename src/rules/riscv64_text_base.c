@@ -48,6 +48,14 @@
 // truth. The pin below is safe because it is gated on a disabled marker and
 // range-checked against the live window; a bare lower bound has neither guard.
 //
+// That prohibition is about THIS branch's signal, not about the floor itself.
+// A floor at KERNEL_LINK_ADDR is sound where the modern layout is genuinely
+// proven, and the resolved address-space width proves it: Sv48 and Sv57 both
+// postdate the mapping move, so neither can be running the legacy layout.
+// riscv64_text_floor_from_va_bits emits that floor and stays inert at Sv39 --
+// the width the board above was running, and the reason keying on a resolved
+// PAGE_OFFSET failed where keying on the width does not.
+//
 // riscv64 only; inert elsewhere.
 // ---
 // <bcoles@gmail.com>
