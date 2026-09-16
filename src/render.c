@@ -417,13 +417,13 @@ static void layout_fmt_space(char *buf, size_t sz, unsigned long slots,
   if (!slots && !top)
     snprintf(buf, sz, "-");
   else if (!slots)
-    /* No count, but the set it would have been counted against is known. The
-     * denominator alone was printed here, which in a column headed Candidates
-     * asserts that figure AS the count -- and it is not one: a window with an
-     * unstated edge is unbounded, so what remains is not knowable, while the
-     * denominator is merely the size of the set the row narrows. Stating it as
-     * "- of N" keeps the size of the problem visible and says outright that
-     * nothing was counted. A run that narrowed nothing still shows a bare
+    /* No count, but the set it would have been counted against is known. A
+     * quantity sitting on no modelled grid has no pitch to count on, and one
+     * whose admissible set has been carved away entirely has nothing left to
+     * count; neither is a number. The denominator alone was printed here, which
+     * in a column headed Candidates asserts that figure AS the count. Stating
+     * it as "- of N" keeps the size of the problem visible and says outright
+     * that nothing was counted. A run that narrowed nothing still shows a bare
      * total, because there the count and the denominator are one figure and
      * `slots` carries it. */
     snprintf(buf, sz, "- of %s", kasld_decimal(top, tb, sizeof(tb)));

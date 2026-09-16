@@ -164,8 +164,9 @@ static void top_module_base(struct estimate *e) {
    * region sits BELOW PAGE_OFFSET (`PAGE_OFFSET - 16M` and `- 256M`), so a
    * VAS-start floor excludes the very address the quantity names and every
    * bound derived from a real module leak lands under it. Nothing is lost by
-   * starting at 0 -- a top exists to be narrowed, and an un-narrowed module
-   * base is reported as unbounded rather than as a window. */
+   * starting at 0: a top exists to be narrowed, and an un-narrowed one is
+   * reported as the whole span it opens at, which is the honest statement of
+   * how much is still unknown. */
   top_interval(e, 0ul, (unsigned long)KERNEL_VIRT_VAS_END);
 }
 

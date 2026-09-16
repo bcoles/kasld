@@ -72,8 +72,13 @@ struct kasld_report_window {
   enum kasld_report_shape shape;
 
   unsigned long lo, hi;
-  int has_lo, has_hi; /* a half-bound states one edge and claims nothing of
-                       * the other; hi == 0 is not "zero", it is "unstated" */
+  /* Which edges this shape has: an interval has both, a floor has only `lo`,
+   * and a set has neither because its values are not endpoints. Fixed by the
+   * shape rather than by what the run learned -- an address window is bounded
+   * on both sides from the moment it opens at the architecture's own limits --
+   * so these are carried beside `shape` instead of being re-derived by each
+   * format that has to decide whether to print an edge. */
+  int has_lo, has_hi;
 
   /* The live value satisfies (v % stride) == stride_offset as well as lying in
    * the hull. Zero stride means no congruence is known. Reported, not merely

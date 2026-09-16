@@ -377,30 +377,28 @@ static void collect_holes(struct kasld_report_window *w, enum kasld_quantity q,
   w->n_excluded = w->excluded_listed + dropped;
 }
 
-/* Whether an estimate states an edge at all.
+/* An interval states both of its edges, always.
  *
- * One definition, because this is a JUDGEMENT rather than a field read. An edge
- * is stated either when it holds a value or when a constraint put it where it
- * is: `lo_binding` names the constraint that last bound the edge and ids start
- * at 1, so zero means nothing has narrowed it and the edge is still the
- * architecture's own offer.
+ * There is no unbounded address. Every quantity opens at the widest window the
+ * architecture admits and is only ever narrowed from there, so at any moment
+ * both edges are real bounds -- the architecture's until evidence arrives, and
+ * whatever narrowed them afterwards. An estimate cannot reach a state where an
+ * edge means nothing, so there is nothing here to test for.
  *
- * The value alone is not enough. Zero is a real answer for some quantities: an
- * s390 built without CONFIG_RANDOMIZE_IDENTITY_BASE has __identity_base == 0,
- * which is that configuration's linear-map base, and a value-only test drops a
- * pin at zero on both edges at once -- reporting a quantity the engine resolved
- * exactly as one it knows nothing about.
+ * Deciding it from the contents instead is what this replaces, and the reason
+ * is that the contents do not carry the answer. An edge holds an address, and
+ * an address has no mark saying whether a rule chose it or the architecture
+ * supplied it. Zero is both at once: the linear-map base of an s390 built
+ * without CONFIG_RANDOMIZE_IDENTITY_BASE, and the opening floor of a quantity
+ * nothing has bounded yet. Testing the value dropped a pin at zero; admitting
+ * the binding as well then discarded a proven ceiling wherever the floor the
+ * architecture states happens to be zero -- which is every architecture
+ * defining no KASLR_PHYS_MIN, for the physical base.
  *
- * The binding alone is not enough either: a quantity whose lattice floor is
- * zero starts there so that an un-narrowed one reads as unbounded rather than
- * as a window counted from zero. The module base is the case. Both tests
- * together keep that reading and admit the pin. */
-static int est_states_lo(const struct estimate *e) {
-  return e->lo != 0 || e->lo_binding != 0;
-}
-static int est_states_hi(const struct estimate *e) {
-  return e->hi != 0 || e->hi_binding != 0;
-}
+ * An alignment is the one genuinely one-sided quantity, and for a structural
+ * reason rather than an evidential one: it states a floor and has no ceiling to
+ * put opposite it. That is a property of what an alignment IS, so build_window
+ * spells it out per lattice below rather than deriving it from an estimate. */
 
 /* Project one resolution's estimate for one quantity into a reported window. */
 static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
@@ -416,8 +414,8 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
     w->shape = RSHAPE_INTERVAL;
     w->lo = e->lo;
     w->hi = e->hi;
-    w->has_lo = est_states_lo(e);
-    w->has_hi = est_states_hi(e);
+    w->has_lo = 1;
+    w->has_hi = 1;
     w->stride = e->stride;
     w->stride_offset = e->stride_offset;
     break;
@@ -439,7 +437,7 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
   case LK_MAXALIGN:
     w->shape = RSHAPE_FLOOR;
     w->lo = e->lo;
-    w->has_lo = est_states_lo(e);
+    w->has_lo = 1;
     w->has_hi = 0;
     break;
   }
@@ -447,11 +445,8 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
   if (!w->present)
     return;
 
-  /* A count needs both edges. A one-sided bound is real information -- "the
-   * module base is at or below X" -- but it is UNBOUNDED, and counting it from
-   * zero would state a number that contradicts the missing edge beside it. The
-   * module base tops out at [0, VAS_END] precisely so an un-narrowed one reads
-   * as unbounded rather than as a window, and a count would undo that. */
+  /* A count needs both edges, so an interval is counted and an alignment is
+   * not: there is no grid between a floor and a ceiling that does not exist. */
   if (w->has_lo && w->has_hi) {
     w->candidates = quantity_slots(q, e, v.floor, v.cs, v.n_cs, grain);
     w->bits = report_bits(w->candidates);
@@ -494,13 +489,10 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
       it->search_top = (unsigned long)quantities[q].n_candidates;
     } else if (quantities[q].init_top) {
       quantities[q].init_top(&top);
-      /* Counted on the same terms a resolved window is counted on: a top with
-       * an unstated edge is unbounded and states no count. The module base is
-       * one -- its floor is zero so an un-narrowed one reads as unbounded --
-       * and counting it here while build_window() withholds the resolved count
-       * would leave a denominator standing over a numerator that was
-       * deliberately not stated. */
-      if (est_states_lo(&top) && est_states_hi(&top))
+      /* Counted on the same terms a resolved window is counted on, and under
+       * the same condition, so a denominator never stands over a numerator that
+       * was not stated: an interval is counted, an alignment is not. */
+      if (quantities[q].lattice == LK_INTERVAL)
         it->search_top =
             quantity_slots(q, &top, guaranteed.floor, NULL, 0, grain);
     }

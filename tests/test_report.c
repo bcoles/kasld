@@ -75,15 +75,14 @@ static int check_item(const struct kasld_report_quantity *it) {
     } else if (w->shape == RSHAPE_INTERVAL) {
       /* An interval is counted on a grid, so it must have one. */
       CHECK(it->align_min > 0);
-      if (w->has_lo && w->has_hi)
-        CHECK(w->lo <= w->hi);
-      /* A count is claimed for a both-sided window and withheld for a
-       * one-sided one, which is unbounded -- counting it from the lattice
-       * floor would state a number the missing edge contradicts. */
-      if (w->has_lo && w->has_hi)
-        CHECK(w->candidates > 0);
-      else
-        CHECK(w->candidates == 0 && w->bits == 0);
+      /* An interval has both edges, always: it opens at the architecture's own
+       * limits and is only narrowed from there, so there is no state in which
+       * one of them says nothing. */
+      CHECK(w->has_lo && w->has_hi);
+      CHECK(w->lo <= w->hi);
+      /* And having both, it is counted. A window admitting nothing would be a
+       * contradiction the engine resolves rather than reports. */
+      CHECK(w->candidates > 0);
     }
 
     /* The engine cannot resolve more possibilities than it was willing to
@@ -532,10 +531,11 @@ int main(void) {
    *    s390 built without CONFIG_RANDOMIZE_IDENTITY_BASE has __identity_base ==
    *    0, so the stock configuration's linear-map base is zero.
    *
-   *    Asserted against its own opposite. The same quantity left at a zero
-   *    lattice floor, with nothing bound to it, must still read as unstated --
-   *    otherwise the fix trades a dropped pin for a window counted from a floor
-   *    no evidence established. */
+   *    Asserted against its own opposite. The same quantity left at its zero
+   *    lattice floor, with nothing bound to it, still states that floor and is
+   *    still counted from it: the floor is the widest bound the architecture
+   *    admits, which is a bound like any other, and the count taken over it is
+   *    the whole search space rather than a residue of one. */
   {
     const struct kasld_report_quantity *it;
     enum kasld_quantity zq = Q__COUNT;
@@ -562,12 +562,16 @@ int main(void) {
       lv.n_cs = 0;
       lv.floor = CONF_BRUTE;
 
-      /* Unbound zero floor: one-sided, and no count taken from it. */
+      /* Unbound zero floor: still both edges, and counted over the whole of
+       * the architecture's own window -- so the count equals the search top it
+       * would be measured against, rather than being withheld. */
       kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
       it = kasld_report_find(&r, zq);
       CHECK(it != NULL);
-      CHECK(!it->guaranteed.has_lo);
-      CHECK(it->guaranteed.candidates == 0);
+      CHECK(it->guaranteed.present);
+      CHECK(it->guaranteed.has_lo && it->guaranteed.has_hi);
+      CHECK(it->guaranteed.lo == 0);
+      CHECK(it->guaranteed.candidates == it->search_top);
 
       /* Pinned at zero by a constraint. Ids start at 1, so a binding is what
        * separates this state from the one above -- the values are identical. */
