@@ -47,7 +47,6 @@
 int rule_arm64_page_offset_from_va_bits(const struct evidence_set *ev,
                                         const struct estimate *est,
                                         struct constraint *out, int out_max) {
-  (void)ev;
 #if defined(__aarch64__)
   if (out_max < 2)
     return 0;
@@ -59,16 +58,42 @@ int rule_arm64_page_offset_from_va_bits(const struct evidence_set *ev,
     return 0;
 
   const unsigned long po = arm64_page_offset_for(va_bits);
-  const unsigned long po_old = arm64_page_offset_preflip_for(va_bits);
+  /* The base the OLD layout placed at this width -- except at 52, which it
+   * never placed at all. Pre-flip, the only way to present a 52-bit USER VA was
+   * CONFIG_ARM64_USER_VA_BITS_52, and that option left the kernel at 48:
+   * arch/arm64/Kconfig set `default 48 if ARM64_VA_BITS_48 ||
+   * ARM64_USER_VA_BITS_52`. So the pre-flip partner of a measured 52 is the
+   * 48-bit base. Deriving it from the measured width instead would name
+   * -(1 << 51), a base no kernel has ever used, and -- because the true one
+   * sits ABOVE it -- would leave the truth outside the window rather than
+   * merely mis-describing the alternative. */
+  const unsigned long po_old =
+      arm64_page_offset_preflip_for(va_bits == 52ul ? 48ul : va_bits);
 
   /* A measured WIDTH does not say which layout produced it. Before the VA-space
    * flip the same VA_BITS put the linear map one canonical bit higher, so a
    * width alone admits two bases and pinning the modern one would place the
-   * guaranteed window on the wrong half of the address space. The old layout
-   * offered widths {36,39,42,47,48} (arch/arm64/Kconfig) and never a 52-bit
-   * kernel VA, which arrived with the flipped layout -- so at 52 the width does
-   * fix the base and the exact pin is kept. */
-  const int one_layout = (va_bits == 52ul);
+   * guaranteed window on the wrong half of the address space.
+   *
+   * A width of 52 is the one case where the width can settle it, because the
+   * old layout offered kernel widths {36,39,42,47,48} and never 52. But the
+   * probe measures the USER address space, and pre-flip a 64K-page kernel could
+   * offer userspace 52 bits while keeping 48 for itself -- the Kconfig help
+   * says so outright: "The kernel will continue to use 48-bit virtual addresses
+   * for its own mappings." That option `depends on ARM64_64K_PAGES`, so a 52
+   * measured on a 4K- or 16K-page kernel could not have come from it and does
+   * prove the flipped layout.
+   *
+   * Hence the page size, observed, decides it. Unobserved is not 64K-by-
+   * elimination: an unknown page size leaves both layouts admissible, which is
+   * the wide answer and the safe one. */
+  enum kasld_confidence ps_conf = CONF_UNKNOWN;
+  uint32_t ps_src = 0;
+  int one_layout = 0;
+  if (va_bits == 52ul) {
+    const unsigned long ps = kasld_page_size_observed(ev, &ps_conf, &ps_src);
+    one_layout = (ps != 0 && ps != 64ul * 1024);
+  }
 
   int n = 0;
   if (n < out_max) {
@@ -88,7 +113,17 @@ int rule_arm64_page_offset_from_va_bits(const struct evidence_set *ev,
     c->q = Q_PAGE_OFFSET;
     c->op = C_UPPER_BOUND;
     c->value = one_layout ? po : po_old;
-    c->conf = CONF_INFERRED;
+    /* This edge is what collapses the pair to a pin, and where it does so it
+     * rests on the page size as well as the width -- so it is no better than
+     * the weaker of the two. The lower edge below needs no such cap: po is the
+     * lowest base either layout admits, so it holds whatever the page size
+     * turns out to be. */
+    c->conf =
+        one_layout ? kasld_conf_min(CONF_INFERRED, ps_conf) : CONF_INFERRED;
+    if (one_layout && ps_src) {
+      c->derived_from[0] = ps_src;
+      c->lineage_count = 1;
+    }
     snprintf(c->origin, ORIGIN_LEN, "arm64_page_offset_from_va_bits");
   }
   if (one_layout)
@@ -124,6 +159,7 @@ int rule_arm64_page_offset_from_va_bits(const struct evidence_set *ev,
   }
   return n;
 #else
+  (void)ev;
   (void)est;
   (void)out;
   (void)out_max;

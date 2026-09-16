@@ -5350,8 +5350,10 @@ static void test_x86_64_randomize_memory_budget_inert(void) {
 /* arm64_page_offset_from_va_bits: a resolved Q_VA_BITS narrows the linear-map
  * virtual base with no directmap/vmemmap leak present. A width alone does not
  * say which VA layout is in force, so at the sound floor it admits BOTH the
- * flipped base -(1<<VA_BITS) and the older -(1<<(VA_BITS-1)); only VA_BITS=52,
- * which postdates the flip, pins. */
+ * flipped base -(1<<VA_BITS) and the older -(1<<(VA_BITS-1)). VA_BITS=52
+ * postdates the flip as a KERNEL width and pins -- but only once the page size
+ * rules out the pre-flip configuration that gave userspace 52 bits over a
+ * 48-bit kernel, which is what the probe would otherwise report as 52. */
 
 /* Narrow a FINSET estimate to the single candidate `value`. */
 static void resolve_finset(struct estimate *e, unsigned long value) {
@@ -5394,11 +5396,57 @@ static void test_arm64_page_offset_from_va_bits(void) {
       TH_CHECK(out[i].value > po && out[i].value2 < po_old);
   }
 
-  /* VA_BITS=52 has no older-layout counterpart, so there the width pins. */
+  /* VA_BITS=52 has no older-layout counterpart as a KERNEL width, but the
+   * probe measures the USER address space, and pre-flip a 64K-page kernel
+   * could hand userspace 52 bits while keeping 48 for itself
+   * (CONFIG_ARM64_USER_VA_BITS_52). So the width pins only once the page size
+   * rules that configuration out, and an UNOBSERVED page size does not. */
+  unsigned long po52 = -(1ul << 52);
+  unsigned long po_user52 = -(1ul << 47); /* the pre-flip kernel's own base */
+
   engine_init(&e);
   resolve_finset(&e.est[Q_VA_BITS], 52);
   n = rule_arm64_page_offset_from_va_bits(&e.ev, e.est, out, 8);
-  unsigned long po52 = -(1ul << 52);
+  TH_CHECK(n >= 2);
+  for (int i = 0; i < n; i++) {
+    if (out[i].conf < CONF_INFERRED)
+      continue;
+    if (out[i].op == C_LOWER_BOUND)
+      TH_CHECK(out[i].value <= po52);
+    /* The edge that matters: the pre-flip base sits ABOVE the modern one, so a
+     * ceiling short of it puts the truth outside the guaranteed window. */
+    if (out[i].op == C_UPPER_BOUND)
+      TH_CHECK(out[i].value >= po_user52);
+    if (out[i].op == C_EXCLUDE)
+      TH_CHECK(out[i].value > po52 && out[i].value2 < po_user52);
+  }
+
+  /* 64K pages: the pre-flip user-52 configuration is buildable, so the pair
+   * stands and the window must still reach the pre-flip base. */
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 52);
+  {
+    struct observation ps64 = mk_scalar(SF_PAGE_SIZE, 65536ul, CONF_PARSED);
+    evidence_add(&e.ev, &ps64);
+  }
+  n = rule_arm64_page_offset_from_va_bits(&e.ev, e.est, out, 8);
+  TH_CHECK(n >= 2);
+  for (int i = 0; i < n; i++) {
+    if (out[i].conf < CONF_INFERRED)
+      continue;
+    if (out[i].op == C_UPPER_BOUND)
+      TH_CHECK(out[i].value >= po_user52);
+  }
+
+  /* 4K pages: ARM64_USER_VA_BITS_52 depends on ARM64_64K_PAGES, so it cannot
+   * have produced this measurement and the width does pin. */
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 52);
+  {
+    struct observation ps4 = mk_scalar(SF_PAGE_SIZE, 4096ul, CONF_PARSED);
+    evidence_add(&e.ev, &ps4);
+  }
+  n = rule_arm64_page_offset_from_va_bits(&e.ev, e.est, out, 8);
   TH_CHECK(n == 2);
   for (int i = 0; i < n; i++)
     TH_CHECK(out[i].value == po52 && out[i].conf == CONF_INFERRED);
