@@ -1,6 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: arm64 kernel-image-base window from a resolved PAGE_OFFSET (VA_BITS).
+// Rule: arm64 kernel-image-base window from a resolved PAGE_OFFSET, or from
+// the resolved VA_BITS alone where the layout stays ambiguous.
 //
 // arm64 places the kernel image at KIMAGE_VADDR = _PAGE_END(VA_BITS_MIN) +
 // module_region on the modern (v5.4+ "flipped") VA layout, VA_BITS_MIN =
@@ -44,14 +45,21 @@
 // runtime-discoverable, so the floor uses the smallest (128M, lowest base) and
 // the ceiling the largest (2G).
 //
+// When PAGE_OFFSET does NOT resolve -- the leak-free case, because a width
+// admits both linear-map bases and so leaves two candidates -- the band above
+// cannot be chosen, but the pair of them can be emitted as a union. That path
+// is keyed on the resolved WIDTH instead, which is unambiguous where a resolved
+// PAGE_OFFSET is not, and is described at arm64_text_band_union below.
+//
 // All emissions are CONF_INFERRED, so a real text leak overrides them; when
-// PAGE_OFFSET never resolves, nothing is emitted.
+// neither PAGE_OFFSET nor the width resolves, nothing is emitted.
 //
 // arm64 only; inert elsewhere.
 // ---
 // <bcoles@gmail.com>
 
 #include "include/kasld/engine_rules.h"
+#include "include/kasld/quantity.h"
 
 #include <string.h>
 
@@ -69,6 +77,107 @@ static unsigned long arm64_kaslr_offset_max(unsigned long va_min) {
   return (1UL << (va_min - 3)) + (1UL << (va_min - 2));
 }
 
+/* The KASAN shadow that sat under the pre-flip image, at its LARGEST.
+ * arch/arm64/Makefile sets KASAN_SHADOW_SCALE_SHIFT to 3 for the generic mode
+ * and 4 for software tags, in the pre-flip era and today alike, so 3 is the
+ * shift that yields the biggest shadow and therefore the highest image. Zero
+ * without CONFIG_KASAN, which is not observable -- so it belongs in the
+ * CEILING, where admitting a shadow that is not there only widens, and never in
+ * the floor, where it would lift the bound past a kernel built without it. */
+static unsigned long arm64_kasan_shadow_max(unsigned long va) {
+  return 1UL << (va - 3);
+}
+
+/* The image-base band for each VA layout at a resolved width, as a union.
+ *
+ * Reached when PAGE_OFFSET has NOT resolved to one value, which leak-free is
+ * the normal case: the width resolves from an mmap probe, but a width admits
+ * both linear-map bases, so arm64_page_offset_from_va_bits leaves two
+ * candidates and the pinned path above never runs. The image base was then left
+ * at the honest top with nothing stripped.
+ *
+ * Keyed on the WIDTH rather than on PAGE_OFFSET, which is what makes a floor
+ * safe here where the pinned path has to gate it. A resolved PAGE_OFFSET is
+ * ambiguous at one value -- old-VA48 and modern-VA47 share a linear-map base --
+ * but a width is not: TASK_SIZE is 1 << VA_BITS under both layouts, so a
+ * pre-flip VA48 kernel reports 48 and gets the VA48 union, whose pre-flip band
+ * covers its low image. Each band is anchored at the UN-SLID KIMAGE_VADDR, so
+ * no minimum-offset formula is assumed and every no-KASLR base is inside by
+ * construction.
+ *
+ *   modern:   _PAGE_END(VA_BITS_MIN) + module_region, slide up to
+ *             arm64_kaslr_offset_max(VA_BITS_MIN)
+ *   pre-flip: VA_START + 128 MiB (modules) at the floor; the ceiling adds the
+ *             second 128 MiB region (BPF, absent on v4.x) and the KASAN shadow
+ *
+ * The two always MEET, so the union is one band and no hole is carved. That is
+ * arithmetic, not a coincidence of the widths: measured from VA_START, the
+ * modern floor sits at 2^(va-1) + 128 MiB, and the pre-flip ceiling at
+ * 256 MiB + 2^(va-3) (shadow) + 2^(va-3) + 2^(va-2) (slide) = 256 MiB +
+ * 2^(va-1). The difference is 128 MiB at every width, so admitting the shadow
+ * -- which is not observable, and so must be admitted -- closes any gap the
+ * bands would otherwise have. */
+static int arm64_text_band_union(const struct estimate *est,
+                                 struct constraint *out, int out_max) {
+  unsigned long va = 0;
+  if (!estimate_finset_value(&quantities[Q_VA_BITS], &est[Q_VA_BITS], &va))
+    return 0;
+  /* Arithmetic guard, not a policy one: the band arithmetic shifts by va - 3,
+   * so anything that would underflow is refused. Which widths are admissible is
+   * the arch header's VA_BITS_CANDIDATES to say, and estimate_finset_value only
+   * ever returns one of those -- naming the narrowest here as well would go
+   * stale the moment a width is added. */
+  if (va < 4ul || va >= sizeof(unsigned long) * 8)
+    return 0;
+
+  const unsigned long va_min = va < 48ul ? va : 48ul;
+  const unsigned long m_lo =
+      arm64_page_end_for(va_min) + ARM64_MODULE_REGION_SIZE_MIN;
+  const unsigned long m_hi = arm64_page_end_for(va_min) +
+                             ARM64_MODULE_REGION_SIZE +
+                             arm64_kaslr_offset_max(va_min);
+
+  /* The pre-flip partner of a measured 52 is the 48-bit layout: pre-flip never
+   * offered a 52-bit kernel VA, and the one configuration that showed userspace
+   * 52 bits kept the kernel at 48. Same pairing as
+   * arm64_page_offset_from_va_bits. */
+  const unsigned long va_old = (va == 52ul) ? 48ul : va;
+  const unsigned long vstart = arm64_page_offset_for(va_old);
+  const unsigned long p_lo = vstart + ARM64_MODULE_REGION_SIZE_MIN;
+  const unsigned long p_hi = vstart + 2ul * ARM64_MODULE_REGION_SIZE_MIN +
+                             arm64_kasan_shadow_max(va_old) +
+                             arm64_kaslr_offset_max(va_old);
+
+  const unsigned long lo = p_lo < m_lo ? p_lo : m_lo;
+  const unsigned long hi = p_hi > m_hi ? p_hi : m_hi;
+  const uint32_t src = est[Q_VA_BITS].lo_binding;
+
+  int n = 0;
+  if (n < out_max) {
+    struct constraint *c = &out[n++];
+    memset(c, 0, sizeof(*c));
+    c->q = Q_VIRT_IMAGE_BASE;
+    c->op = C_LOWER_BOUND;
+    c->value = lo;
+    c->conf = CONF_INFERRED;
+    c->derived_from[0] = src;
+    c->lineage_count = src ? 1 : 0;
+    snprintf(c->origin, ORIGIN_LEN, "arm64_text_base");
+  }
+  if (n < out_max) {
+    struct constraint *c = &out[n++];
+    memset(c, 0, sizeof(*c));
+    c->q = Q_VIRT_IMAGE_BASE;
+    c->op = C_UPPER_BOUND;
+    c->value = hi;
+    c->conf = CONF_INFERRED;
+    c->derived_from[0] = src;
+    c->lineage_count = src ? 1 : 0;
+    snprintf(c->origin, ORIGIN_LEN, "arm64_text_base");
+  }
+  return n;
+}
+
 int rule_arm64_text_base(const struct evidence_set *ev,
                          const struct estimate *est, struct constraint *out,
                          int out_max) {
@@ -76,10 +185,12 @@ int rule_arm64_text_base(const struct evidence_set *ev,
     return 0;
 
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  /* Act only once PAGE_OFFSET is resolved to a single value. */
+  /* A resolved PAGE_OFFSET gives the tighter single band below. Without one --
+   * the leak-free case, where the width resolves but the layout does not -- the
+   * two layouts' bands are emitted as a union instead. */
   unsigned long po_pin;
   if (!quantity_pinned(Q_PAGE_OFFSET, po, &po_pin))
-    return 0;
+    return arm64_text_band_union(est, out, out_max);
 
   /* Map the resolved PAGE_OFFSET back to its VA_BITS (PAGE_OFFSET = -(1<<va)).
    */

@@ -86,9 +86,16 @@ RULES=$ROOT/src/rules
 #                                 at-floor emission carves only the span BETWEEN
 #                                 them and pins neither. The C_EQUALS naming the
 #                                 flipped base is CONF_HEURISTIC, likely window
-#                                 only. VA_BITS=52 postdates the flip and has no
-#                                 older counterpart, so there the width does fix
-#                                 the base and the pin is at-floor
+#                                 only. VA_BITS=52 postdates the flip as a KERNEL
+#                                 width, but the probe reads the USER address
+#                                 space, and pre-flip a 64K-page kernel could
+#                                 show userspace 52 while keeping 48 for itself
+#                                 (CONFIG_ARM64_USER_VA_BITS_52, which depends
+#                                 on ARM64_64K_PAGES). So the pin is at-floor
+#                                 only once an OBSERVED page size rules that
+#                                 configuration out; unobserved keeps the pair,
+#                                 and the pre-flip partner of a measured 52 is
+#                                 the 48-bit base, never a 52-bit one
 #   arm64_va_bits_from_vmemmap    computed, but capped at CONF_HEURISTIC: the
 #                                 pre-v5.4 vmemmap overlaps the modern VA52 one,
 #                                 so the witness is ambiguous. Likely window only

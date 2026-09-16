@@ -5455,6 +5455,72 @@ static void test_arm64_page_offset_from_va_bits(void) {
 #endif
 }
 
+/* The leak-free case the union path exists for: the width resolves but
+ * PAGE_OFFSET does not, because a width admits both linear-map bases. The rule
+ * must then emit the two layouts' image bands as a union rather than declining,
+ * and the union must admit BOTH -- in particular the low pre-flip image, which
+ * is the base a modern-only band would exclude.
+ *
+ * Keyed on the width, so the PAGE_OFFSET ambiguity that forces the pinned path
+ * to withhold a floor does not arise: a pre-flip VA48 kernel reports VA_BITS 48
+ * (TASK_SIZE is 1 << VA_BITS under both layouts) and gets the VA48 union.
+ *
+ * The union is one contiguous band. The bands would be disjoint without a KASAN
+ * shadow, but the shadow is not observable and so must be admitted, and doing
+ * so closes the gap at every width. */
+static void test_arm64_text_band_union_admits_both_layouts(void) {
+#if defined(__aarch64__)
+  struct engine e;
+  struct constraint out[4];
+
+  /* VA_BITS=48, PAGE_OFFSET left unresolved (honest top, two candidates). */
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 48);
+  int n = rule_arm64_text_base(&e.ev, e.est, out, 4);
+  TH_CHECK(n >= 2);
+
+  /* The pre-flip no-KASLR base, which every aarch64-mainline-4.19 boot sits at
+   * or above, and the modern band's own floor. Both must survive. */
+  const unsigned long preflip_text = 0xffff000008080000ul;
+  const unsigned long modern_text = 0xffff800008000000ul;
+  for (int i = 0; i < n; i++) {
+    TH_CHECK(out[i].q == Q_VIRT_IMAGE_BASE);
+    if (out[i].op == C_LOWER_BOUND)
+      TH_CHECK(out[i].value <= preflip_text);
+    if (out[i].op == C_UPPER_BOUND)
+      TH_CHECK(out[i].value >= modern_text);
+    /* No hole: admitting the KASAN shadow puts the pre-flip ceiling 128 MiB
+     * above the modern floor at every width, so the bands always meet and
+     * carving between them would cut live addresses out of both. */
+    TH_CHECK(out[i].op != C_EXCLUDE);
+  }
+  TH_CHECK(n == 2);
+
+  /* VA48 is the widest layout pair, and its union IS the architectural honest
+   * top -- nothing is stripped there, which is why the narrowing is asserted at
+   * a narrower width instead. */
+  TH_CHECK(out[0].op == C_LOWER_BOUND);
+  TH_CHECK(out[0].value == (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE);
+
+  /* VA39 -- the Android configuration -- is where the union actually narrows:
+   * both edges move inside the honest top. */
+  engine_init(&e);
+  resolve_finset(&e.est[Q_VA_BITS], 39);
+  n = rule_arm64_text_base(&e.ev, e.est, out, 4);
+  TH_CHECK(n == 2);
+  for (int i = 0; i < n; i++) {
+    if (out[i].op == C_LOWER_BOUND)
+      TH_CHECK(out[i].value > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE);
+    if (out[i].op == C_UPPER_BOUND)
+      TH_CHECK(out[i].value < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
+  }
+
+  /* Unresolved width as well -> nothing, rather than a band over a guess. */
+  engine_init(&e);
+  TH_CHECK(rule_arm64_text_base(&e.ev, e.est, out, 4) == 0);
+#endif
+}
+
 /* The failure this rule's two-candidate emission prevents, end to end at the
  * sound floor: an older-layout kernel whose width probes as 48 must not have
  * its linear-map base pinned to the flipped value, because every rule that
@@ -9563,6 +9629,7 @@ int main(void) {
   RUN(test_va_bits_arm64_unambiguous_va48_pins);
   RUN(test_arm64_page_offset_from_va_bits);
   RUN(test_arm64_page_offset_admits_preflip_base);
+  RUN(test_arm64_text_band_union_admits_both_layouts);
   RUN(test_x86_64_page_offset_floor_from_va_bits);
   RUN(test_va_bits_pin_chains_to_arm64_page_offset);
 
