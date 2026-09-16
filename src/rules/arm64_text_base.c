@@ -77,14 +77,58 @@ static unsigned long arm64_kaslr_offset_max(unsigned long va_min) {
   return (1UL << (va_min - 3)) + (1UL << (va_min - 2));
 }
 
-/* The KASAN shadow that sat under the pre-flip image, at its LARGEST.
+/* The KASAN shadow that sat under the pre-flip image.
+ *
+ * The pre-flip image base is an exact value, not a range:
+ * KIMAGE_VADDR = MODULES_END, MODULES_VADDR = BPF_JIT_REGION_END, and
+ * BPF_JIT_REGION_START = VA_START + KASAN_SHADOW_SIZE, so the base is
+ * VA_START + KASAN_SHADOW_SIZE + 256 MiB. What makes it a band is that the
+ * shadow is a build option.
+ *
+ * Admitted at its LARGEST unless a fact says there is none.
  * arch/arm64/Makefile sets KASAN_SHADOW_SCALE_SHIFT to 3 for the generic mode
- * and 4 for software tags, in the pre-flip era and today alike, so 3 is the
- * shift that yields the biggest shadow and therefore the highest image. Zero
- * without CONFIG_KASAN, which is not observable -- so it belongs in the
- * CEILING, where admitting a shadow that is not there only widens, and never in
- * the floor, where it would lift the bound past a kernel built without it. */
-static unsigned long arm64_kasan_shadow_max(unsigned long va) {
+ * and 4 for software tags, in the pre-flip era and today alike, so 3 yields the
+ * biggest shadow and therefore the highest image. It belongs in the CEILING,
+ * where admitting a shadow that is not there only widens, and never in the
+ * floor, where it would lift the bound past a kernel built without one.
+ *
+ * A read config collapses it exactly: arm64's memory.h defines
+ * KASAN_SHADOW_SIZE as 0 under #else of #ifdef CONFIG_KASAN, so the fact
+ * reading zero makes the term zero rather than merely smaller. The ABSENCE of
+ * the fact is not a zero -- an unread config leaves the shadow free to be any
+ * admissible size, which is the whole term. */
+static unsigned long arm64_kasan_shadow_max(const struct evidence_set *ev,
+                                            unsigned long va,
+                                            enum kasld_confidence *conf,
+                                            uint32_t *src) {
+  enum kasld_confidence kc = CONF_UNKNOWN;
+  uint32_t ks = 0;
+  int have = 0;
+  unsigned long v = 0;
+
+  for (int i = 0; ev && i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_SCALAR)
+      continue;
+    if (o->scalar_fact == SF_KASAN_ENABLED) {
+      have = 1;
+      v = o->scalar_value;
+      kc = o->conf;
+      ks = o->id;
+      break;
+    }
+  }
+  if (have && v == 0) {
+    if (conf)
+      *conf = kc;
+    if (src)
+      *src = ks;
+    return 0;
+  }
+  if (conf)
+    *conf = CONF_UNKNOWN;
+  if (src)
+    *src = 0;
   return 1UL << (va - 3);
 }
 
@@ -147,9 +191,11 @@ static int arm64_text_band_union(const struct evidence_set *ev,
   const unsigned long va_old = (va == 52ul) ? 48ul : va;
   const unsigned long vstart = arm64_page_offset_for(va_old);
   const unsigned long p_lo = vstart + ARM64_MODULE_REGION_SIZE_MIN;
-  const unsigned long p_hi_unslid = vstart +
-                                    2ul * ARM64_MODULE_REGION_SIZE_MIN +
-                                    arm64_kasan_shadow_max(va_old);
+  enum kasld_confidence shadow_conf = CONF_UNKNOWN;
+  uint32_t shadow_src = 0;
+  const unsigned long p_hi_unslid =
+      vstart + 2ul * ARM64_MODULE_REGION_SIZE_MIN +
+      arm64_kasan_shadow_max(ev, va_old, &shadow_conf, &shadow_src);
   const unsigned long p_hi = p_hi_unslid + arm64_kaslr_offset_max(va_old);
 
   const unsigned long lo = p_lo < m_lo ? p_lo : m_lo;
@@ -234,9 +280,15 @@ static int arm64_text_band_union(const struct evidence_set *ev,
       c->op = C_EXCLUDE;
       c->value = p_hi_unslid + 1ul;
       c->value2 = m_lo - 1ul;
-      c->conf = sig_cap;
+      /* Where a read config shrank the shadow, this hole reaches addresses a
+       * KASAN kernel could occupy, so it is no better than the fact that ruled
+       * one out. Where the shadow stands admitted the hole is the narrower one
+       * and rests on the disabled marker alone. */
+      c->conf = shadow_src ? kasld_conf_min(sig_cap, shadow_conf) : sig_cap;
       c->derived_from[0] = sig_id;
       c->lineage_count = 1;
+      if (shadow_src && c->lineage_count < MAX_LINEAGE)
+        c->derived_from[c->lineage_count++] = shadow_src;
       snprintf(c->origin, ORIGIN_LEN, "arm64_text_base");
     }
   }

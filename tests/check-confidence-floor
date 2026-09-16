@@ -103,7 +103,15 @@ RULES=$ROOT/src/rules
 #                                 nothing can lie between them. Derived from the
 #                                 resolved width plus the disabled marker, both
 #                                 evidence, and carried at the marker's own
-#                                 confidence so a text leak overrides it. With
+#                                 confidence so a text leak overrides it. Where
+#                                 a read config states CONFIG_KASAN is off the
+#                                 hole is WIDER, because the pre-flip image is
+#                                 VA_START + KASAN_SHADOW_SIZE + 256 MiB and
+#                                 that term becomes exactly zero; it then also
+#                                 carries the KASAN fact's confidence and id,
+#                                 since it reaches addresses a KASAN kernel
+#                                 could occupy. An UNREAD config is not a zero
+#                                 and keeps the narrower hole. With
 #                                 KASLR live the bands meet and no hole is
 #                                 emitted at all. Checked against every nokaslr
 #                                 boot the harness records: each truth lands in

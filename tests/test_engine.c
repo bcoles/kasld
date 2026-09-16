@@ -5553,6 +5553,54 @@ static void test_arm64_text_band_union_admits_both_layouts(void) {
     TH_CHECK(holes == 1);
   }
 
+  /* The KASAN shadow is admitted unless a fact rules it out, and the fact's
+   * ABSENCE is not a zero. Three states, because only the middle one may carve
+   * the wider hole: the pre-flip image is VA_START + KASAN_SHADOW_SIZE + 256M,
+   * and a shadow that is really there puts a real base above the narrow
+   * ceiling. */
+  {
+    const unsigned long vstart = 0xffff000000000000ul; /* VA_START(48) */
+    const unsigned long no_shadow = vstart + 256ul * 1024 * 1024;
+    unsigned long hole_absent = 0, hole_off = 0, hole_on = 0;
+
+    for (int state = 0; state < 3; state++) {
+      engine_init(&e);
+      resolve_finset(&e.est[Q_VA_BITS], 48);
+      {
+        struct observation d =
+            mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+        evidence_add(&e.ev, &d);
+      }
+      if (state != 0) {
+        struct observation k =
+            mk_scalar(SF_KASAN_ENABLED, state == 1 ? 0 : 1, CONF_PARSED);
+        evidence_add(&e.ev, &k);
+      }
+      n = rule_arm64_text_base(&e.ev, e.est, out, 6);
+      for (int i = 0; i < n; i++)
+        if (out[i].op == C_EXCLUDE) {
+          if (state == 0)
+            hole_absent = out[i].value;
+          else if (state == 1)
+            hole_off = out[i].value;
+          else
+            hole_on = out[i].value;
+          /* Whatever the state, the hole never reaches the pre-flip base a
+           * shadow-free kernel occupies, nor the modern band. */
+          TH_CHECK(out[i].value > preflip_text);
+          TH_CHECK(out[i].value2 < modern_text);
+        }
+    }
+    /* KASAN proven off: the hole starts right above the shadow-free image, and
+     * so is strictly wider than either state that admits a shadow. */
+    TH_CHECK(hole_off == no_shadow + 1ul);
+    TH_CHECK(hole_absent > hole_off);
+    TH_CHECK(hole_on > hole_off);
+    /* An unread config gives exactly what a KASAN kernel gives -- absence is
+     * not a negative. */
+    TH_CHECK(hole_absent == hole_on);
+  }
+
   /* Unresolved width as well -> nothing, rather than a band over a guess. */
   engine_init(&e);
   TH_CHECK(rule_arm64_text_base(&e.ev, e.est, out, 4) == 0);
