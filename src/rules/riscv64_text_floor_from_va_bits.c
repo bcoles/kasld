@@ -52,8 +52,8 @@
 #include <string.h>
 
 int rule_riscv64_text_floor_from_va_bits(const struct evidence_set *ev,
-                                      const struct estimate *est,
-                                      struct constraint *out, int out_max) {
+                                         const struct estimate *est,
+                                         struct constraint *out, int out_max) {
   (void)ev;
 #if defined(__riscv) && __riscv_xlen == 64
   if (out_max < 1)
