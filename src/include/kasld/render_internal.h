@@ -379,11 +379,19 @@ const char *kasld_decimal(unsigned long v, char *buf, size_t sz);
  * kasld/report.h, which the renderers include directly. */
 struct kasld_report;
 struct kasld_report_quantity;
+struct kasld_report_window;
 
 /* The denominator a residual is stated against, as a raw count. One definition,
  * because three formats stating "N of M" against different M is a difference a
  * reader reads as disagreement about the target. */
 unsigned long kasld_entropy_top(const struct kasld_report_quantity *it);
+/* The same baseline, withheld where it is below the count it would be stated
+ * against. Every format publishing a count beside a baseline uses this. */
+unsigned long kasld_entropy_baseline(const struct kasld_report_quantity *it,
+                                     const struct kasld_report_window *w);
+/* The same, in bits, which is the form the readout's entropy line states. */
+int kasld_entropy_baseline_bits(const struct kasld_report_quantity *it,
+                                const struct kasld_report_window *w);
 
 /* Residual entropy in bits, against the baseline where one is modelled. One
  * definition, because the shape of the phrase is a claim: a bare "N bits"

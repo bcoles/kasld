@@ -529,6 +529,49 @@ unsigned long kasld_entropy_top(const struct kasld_report_quantity *it) {
   return it->guaranteed.shape == RSHAPE_SET ? it->search_top : it->entropy_top;
 }
 
+/* The baseline a COUNT may be stated against, or 0 where none can be.
+ *
+ * Same set as kasld_entropy_top, minus the case where it cannot serve as a
+ * denominator: the engine deliberately searches wider than the kernel
+ * randomizes, so a guaranteed count above the kernel's own window is legitimate
+ * and the ratio it would form is not. Withheld there rather than inverted,
+ * which leaves the row saying only what was counted -- and an absent
+ * denominator claims nothing about whether a set exists, which is a question
+ * about the kernel rather than about this run.
+ *
+ * Shared, because this judgement drifted once already: the readout and the
+ * entropy line each applied it and the JSON did not, so one format published a
+ * residual above the baseline printed beside it while the others withheld the
+ * baseline on the same run.
+ *
+ * Counts only. kasld_entropy_phrase applies the same comparison after
+ * ceil(log2), and the two are deliberately allowed to disagree on one run:
+ * 29355 candidates against a top of 28843 cannot state a count ratio while both
+ * round to 15 bits and state a bit one. A format publishing both figures gates
+ * each on its own comparison -- see kasld_entropy_baseline_bits -- so that it
+ * withholds exactly what the readout withholds and no more. */
+unsigned long kasld_entropy_baseline(const struct kasld_report_quantity *it,
+                                     const struct kasld_report_window *w) {
+  unsigned long top = kasld_entropy_top(it);
+  if (top && w && w->candidates && top < w->candidates)
+    return 0;
+  return top;
+}
+
+/* The same judgement in BITS, which is the form kasld_entropy_phrase states and
+ * therefore the one a format must match to agree with the readout. Separate
+ * from the count form on purpose: ceil(log2) can bring a baseline back above a
+ * count that exceeded it, and where it does the readout prints the bit ratio
+ * and withholds the count ratio. Returns 0 where no bit ratio may be stated. */
+int kasld_entropy_baseline_bits(const struct kasld_report_quantity *it,
+                                const struct kasld_report_window *w) {
+  if (it->top_bits <= 0 || !w)
+    return 0;
+  if (w->candidates && it->top_bits < w->bits)
+    return 0;
+  return it->top_bits;
+}
+
 static unsigned long layout_row_top(const struct kasld_report_quantity *it,
                                     const char *basis) {
   if (strcmp(basis, GRADE_GUARANTEED) != 0)
@@ -537,7 +580,7 @@ static unsigned long layout_row_top(const struct kasld_report_quantity *it,
      * ever emitted after its guaranteed one. Restating it spent seventeen
      * columns on the widest line the tool draws to repeat the line above. */
     return 0;
-  return kasld_entropy_top(it);
+  return kasld_entropy_baseline(it, &it->guaranteed);
 }
 
 /* The slide note for a row, or NULL.

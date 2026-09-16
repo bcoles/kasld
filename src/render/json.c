@@ -671,10 +671,12 @@ void render_json(const struct summary *s) {
      * beside it ("32 of 505", where 2^9 is 512); a consumer wanting the ratio
      * needs the slots. Omitted entirely where no set is modelled, which is the
      * same thing a bare count says in the readout. */
-    if (rv->entropy_top > 0)
-      printf("      \"slots_initial\": %lu,\n"
-             "      \"entropy_bits_initial\": %d,\n",
-             rv->entropy_top, rv->top_bits);
+    if (kasld_entropy_baseline(rv, &rv->guaranteed) > 0)
+      printf("      \"slots_initial\": %lu,\n",
+             kasld_entropy_baseline(rv, &rv->guaranteed));
+    if (kasld_entropy_baseline_bits(rv, &rv->guaranteed) > 0)
+      printf("      \"entropy_bits_initial\": %d,\n",
+             kasld_entropy_baseline_bits(rv, &rv->guaranteed));
     /* Whether the counts above are exact or ceilings. The grain they stand on
      * is a lower bound wherever the engine resolves alignment with
      * C_AT_LEAST_ALIGN and nothing caps it, so a kernel built more coarsely
@@ -700,10 +702,12 @@ void render_json(const struct summary *s) {
     json_addr_pair("range_min", "range_max", &rv->guaranteed);
     if (rv->guaranteed.candidates > 0) {
       printf(",\n      \"slots\": %lu", rv->guaranteed.candidates);
-      if (rv->entropy_top > 0)
-        printf(",\n      \"slots_initial\": %lu"
-               ",\n      \"entropy_bits_initial\": %d",
-               rv->entropy_top, rv->top_bits);
+      if (kasld_entropy_baseline(rv, &rv->guaranteed) > 0)
+        printf(",\n      \"slots_initial\": %lu",
+               kasld_entropy_baseline(rv, &rv->guaranteed));
+      if (kasld_entropy_baseline_bits(rv, &rv->guaranteed) > 0)
+        printf(",\n      \"entropy_bits_initial\": %d",
+               kasld_entropy_baseline_bits(rv, &rv->guaranteed));
       printf(",\n      \"entropy_bits\": %d", rv->guaranteed.bits);
     }
     json_excluded(&rv->guaranteed);
@@ -735,10 +739,12 @@ void render_json(const struct summary *s) {
      * posture (and is null where the architecture defines none). */
     printf("      \"slide_bytes\": %ld,\n", rp->slide);
     printf("      \"entropy_bits\": %d,\n", rp->guaranteed.bits);
-    if (rp->entropy_top > 0)
-      printf("      \"slots_initial\": %lu,\n"
-             "      \"entropy_bits_initial\": %d,\n",
-             rp->entropy_top, rp->top_bits);
+    if (kasld_entropy_baseline(rp, &rp->guaranteed) > 0)
+      printf("      \"slots_initial\": %lu,\n",
+             kasld_entropy_baseline(rp, &rp->guaranteed));
+    if (kasld_entropy_baseline_bits(rp, &rp->guaranteed) > 0)
+      printf("      \"entropy_bits_initial\": %d,\n",
+             kasld_entropy_baseline_bits(rp, &rp->guaranteed));
     /* Whether the counts above are exact or ceilings. The grain they stand on
      * is a lower bound wherever the engine resolves alignment with
      * C_AT_LEAST_ALIGN and nothing caps it, so a kernel built more coarsely
@@ -767,10 +773,12 @@ void render_json(const struct summary *s) {
     json_addr_pair("range_min", "range_max", &rp->guaranteed);
     if (rp->guaranteed.candidates > 0) {
       printf(",\n      \"slots\": %lu", rp->guaranteed.candidates);
-      if (rp->entropy_top > 0)
-        printf(",\n      \"slots_initial\": %lu"
-               ",\n      \"entropy_bits_initial\": %d",
-               rp->entropy_top, rp->top_bits);
+      if (kasld_entropy_baseline(rp, &rp->guaranteed) > 0)
+        printf(",\n      \"slots_initial\": %lu",
+               kasld_entropy_baseline(rp, &rp->guaranteed));
+      if (kasld_entropy_baseline_bits(rp, &rp->guaranteed) > 0)
+        printf(",\n      \"entropy_bits_initial\": %d",
+               kasld_entropy_baseline_bits(rp, &rp->guaranteed));
       printf(",\n      \"entropy_bits\": %d", rp->guaranteed.bits);
     }
     json_excluded(&rp->guaranteed);
@@ -823,10 +831,12 @@ void render_json(const struct summary *s) {
        * Omitted where none is declared, as on every other quantity -- a format
        * that carried the readout's denominator and left it out of json would
        * have the two describing one run differently. */
-      if (it->entropy_top)
-        printf(",\n      \"slots_initial\": %lu,\n"
-               "      \"entropy_bits_initial\": %d",
-               it->entropy_top, it->top_bits);
+      if (kasld_entropy_baseline(it, &it->guaranteed))
+        printf(",\n      \"slots_initial\": %lu",
+               kasld_entropy_baseline(it, &it->guaranteed));
+      if (kasld_entropy_baseline_bits(it, &it->guaranteed))
+        printf(",\n      \"entropy_bits_initial\": %d",
+               kasld_entropy_baseline_bits(it, &it->guaranteed));
       if (kasld_report_likely_is_tighter(it)) {
         printf(",\n      \"likely\": { \"min\": \"0x%016lx\", "
                "\"max\": \"0x%016lx\"",
@@ -879,9 +889,11 @@ void render_json(const struct summary *s) {
           printf(", \"slots\": %lu, \"entropy_bits\": %d, "
                  "\"slots_upper_bound\": %s",
                  g->candidates, g->bits, it->align_exact ? "false" : "true");
-          if (it->entropy_top > 0)
-            printf(", \"slots_initial\": %lu, \"entropy_bits_initial\": %d",
-                   it->entropy_top, it->top_bits);
+          if (kasld_entropy_baseline(it, g) > 0)
+            printf(", \"slots_initial\": %lu", kasld_entropy_baseline(it, g));
+          if (kasld_entropy_baseline_bits(it, g) > 0)
+            printf(", \"entropy_bits_initial\": %d",
+                   kasld_entropy_baseline_bits(it, g));
         }
         /* Speculative sub-window from the all-signals snapshot; subset of
          * [min, max] and may be wrong. Emitted only where it says something the

@@ -38,6 +38,14 @@
 # — and holding it exact in both directions is what keeps it from rotting into
 # one. A key that starts being exercised is removed from it.
 #
+# The direct-map region's two baseline keys are there for a reason worth naming,
+# because it is not the usual one. A baseline is published only where it can
+# serve as a denominator, and on that region the resolved count runs above the
+# declared randomization window on every x86_64 fixture, so no coherent pair is
+# published. The sysroots below are read as captured, without the length
+# restoration extra/prepare-bundle performs, which widens the window further —
+# so this corpus cannot reach those keys even where a restored one does.
+#
 # Usage: tests/check-json-schema   (also run by `make lint`)
 # ---
 # <bcoles@gmail.com>
@@ -219,11 +227,13 @@ kaslr.inferred.excluded
 kaslr.inferred.excluded.[].max
 kaslr.inferred.excluded.[].min
 kaslr.inferred.excluded_total
+kaslr.memory_kaslr.virt_page_offset_base.entropy_bits_initial
 kaslr.memory_kaslr.virt_page_offset_base.likely
 kaslr.memory_kaslr.virt_page_offset_base.likely.max
 kaslr.memory_kaslr.virt_page_offset_base.likely.min
 kaslr.memory_kaslr.virt_page_offset_base.likely.slots
 kaslr.memory_kaslr.virt_page_offset_base.likely.speculative
+kaslr.memory_kaslr.virt_page_offset_base.slots_initial
 kaslr.memory_kaslr.virt_vmalloc_base.likely
 kaslr.memory_kaslr.virt_vmalloc_base.likely.max
 kaslr.memory_kaslr.virt_vmalloc_base.likely.min
