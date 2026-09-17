@@ -31,36 +31,36 @@
   <line class="guide" x1="800.0" y1="96" x2="800.0" y2="440"/>
   <text class="axis" x="800.0" y="90" text-anchor="middle">40</text>
   <text class="axis" x="112" y="90" text-anchor="end">bits</text>
-  <text class="arch" x="112" y="116" text-anchor="end">s390x</text>
-  <line x1="512.5" y1="112" x2="787.5" y2="112" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <circle cx="512.5" cy="112" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
-  <circle cx="787.5" cy="112" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
-  <text class="val" x="498.5" y="116" text-anchor="end">17 bits on 5.15</text>
-  <text class="val" x="801.5" y="116">39 bits on 7.0</text>
-  <text class="arch" x="112" y="150" text-anchor="end">aarch64</text>
-  <line x1="687.5" y1="146" x2="700.0" y2="146" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <circle cx="700.0" cy="146" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
-  <circle cx="687.5" cy="146" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
-  <text class="val" x="673.5" y="150" text-anchor="end">31 bits on 7.0</text>
-  <text class="val" x="714.0" y="150">32 bits on 4.19</text>
+  <text class="arch" x="112" y="116" text-anchor="end">aarch64</text>
+  <line x1="687.5" y1="112" x2="700.0" y2="112" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="700.0" cy="112" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="687.5" cy="112" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="673.5" y="116" text-anchor="end">31 bits on 7.0</text>
+  <text class="val" x="714.0" y="116">32 bits on 4.19</text>
+  <text class="arch" x="112" y="150" text-anchor="end">s390x</text>
+  <line x1="512.5" y1="146" x2="662.5" y2="146" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="512.5" cy="146" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="662.5" cy="146" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="498.5" y="150" text-anchor="end">17 bits on 5.15</text>
+  <text class="val" x="676.5" y="150">29 bits on 7.0</text>
   <text class="arch" x="112" y="184" text-anchor="end">loongarch64</text>
   <line x1="437.5" y1="180" x2="500.0" y2="180" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
   <circle cx="437.5" cy="180" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
   <circle cx="500.0" cy="180" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
   <text class="val" x="423.5" y="184" text-anchor="end">11 bits on 6.6</text>
   <text class="val" x="514.0" y="184">16 bits on 7.0</text>
-  <text class="arch" x="112" y="218" text-anchor="end">riscv64</text>
-  <line x1="300.0" y1="214" x2="500.0" y2="214" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <circle cx="300.0" cy="214" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
-  <circle cx="500.0" cy="214" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
-  <text class="val" x="286.0" y="218" text-anchor="end">0 bits on 6.6</text>
-  <text class="val" x="514.0" y="218">16 bits on 7.0</text>
-  <text class="arch" x="112" y="252" text-anchor="end">mips64el</text>
-  <line x1="400.0" y1="248" x2="475.0" y2="248" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <circle cx="400.0" cy="248" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
-  <circle cx="475.0" cy="248" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
-  <text class="val" x="386.0" y="252" text-anchor="end">8 bits on 5.15</text>
-  <text class="val" x="489.0" y="252">14 bits on 7.0</text>
+  <text class="arch" x="112" y="218" text-anchor="end">mips64el</text>
+  <line x1="400.0" y1="214" x2="475.0" y2="214" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="400.0" cy="214" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="475.0" cy="214" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="386.0" y="218" text-anchor="end">8 bits on 5.15</text>
+  <text class="val" x="489.0" y="218">14 bits on 7.0</text>
+  <text class="arch" x="112" y="252" text-anchor="end">ppc32</text>
+  <line x1="450.0" y1="248" x2="475.0" y2="248" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="475.0" cy="248" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="450.0" cy="248" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="436.0" y="252" text-anchor="end">12 bits on 7.0</text>
+  <text class="val" x="489.0" y="252">14 bits on 5.15</text>
   <text class="arch" x="112" y="286" text-anchor="end">mips</text>
   <line x1="400.0" y1="282" x2="462.5" y2="282" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
   <circle cx="400.0" cy="282" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
@@ -73,12 +73,12 @@
   <circle cx="462.5" cy="316" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
   <text class="val" x="386.0" y="320" text-anchor="end">8 bits on 5.15</text>
   <text class="val" x="476.5" y="320">13 bits on 7.0</text>
-  <text class="arch" x="112" y="354" text-anchor="end">ppc32</text>
-  <line x1="437.5" y1="350" x2="462.5" y2="350" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
-  <circle cx="462.5" cy="350" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
-  <circle cx="437.5" cy="350" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
-  <text class="val" x="423.5" y="354" text-anchor="end">11 bits on 7.0</text>
-  <text class="val" x="476.5" y="354">13 bits on 5.15</text>
+  <text class="arch" x="112" y="354" text-anchor="end">riscv64</text>
+  <line x1="300.0" y1="350" x2="412.5" y2="350" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
+  <circle cx="300.0" cy="350" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>
+  <circle cx="412.5" cy="350" r="6.5" fill="#2e7d32" stroke="#ffffff" stroke-width="1.5"/>
+  <text class="val" x="286.0" y="354" text-anchor="end">0 bits on 6.6</text>
+  <text class="val" x="426.5" y="354">9 bits on 7.0</text>
   <text class="arch" x="112" y="388" text-anchor="end">x86_64</text>
   <line x1="350.0" y1="384" x2="412.5" y2="384" stroke="#2e7d32" stroke-width="11" stroke-linecap="round" opacity="0.85"/>
   <circle cx="350.0" cy="384" r="6.5" fill="#b0bec5" stroke="#ffffff" stroke-width="1.5"/>

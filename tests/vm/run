@@ -1340,17 +1340,21 @@ cmd_table() {
       #              sub-slot window (below KASLR granularity) are the same
       #              outcome here: the randomized slot is known.
       #   <n> bits : KASLR-randomized, n bits of the slot still unknown.
-      #   unbounded: the window has an unstated edge, so what remains cannot be
-      #              counted — strictly weaker than any bit figure.
+      #   uncounted: no bit figure was reported at all. A fail-safe that no run
+      #              produces; see the branch below.
       #   —        : KASLR off — no randomization to defeat.
       if [ "$kas" = off ]; then
         residual='—'
       elif [ "$bits" = '—' ]; then
-        # No figure at all: the window has an unstated edge, so what remains is
-        # not countable. That is the LEAST resolved outcome, not the most, and it
-        # is reported as such -- classing it `exact` would claim a recovered base
-        # on the strength of a missing number.
-        residual=unbounded
+        # No figure at all. A fail-safe, not an expected outcome: an address
+        # window states both edges and is counted, so the readout carries a bit
+        # figure for every cell this table scores, and no run has produced this
+        # since. It is kept because the alternative is worse -- falling through
+        # would meet the `exact` test on an empty `$lo`/`$hi` and claim a
+        # recovered base on the strength of a missing number. If a cell ever
+        # shows this, the readout stopped reporting entropy it used to, and the
+        # cause is upstream of the table.
+        residual=uncounted
       elif [ "$lo" = "$hi" ] || [ "$bits" = 0 ]; then
         residual=exact
       elif [ "$bits" = 1 ]; then
@@ -1382,7 +1386,7 @@ cmd_table() {
       elif [ "$pv" = NA ]; then
         phys_residual='—'
       elif [ "$pbits" = '—' ]; then
-        phys_residual=unbounded
+        phys_residual=uncounted   # see the virtual axis above: a fail-safe
       elif { [ -n "$plo" ] && [ "$plo" = "$phi" ]; } || [ "$pbits" = 0 ]; then
         phys_residual=exact
       elif [ "$pbits" = 1 ]; then
@@ -1439,7 +1443,7 @@ cmd_table() {
   printf '|------|---------|--------|----------|-------|---------------|---------------|\n'
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
-  printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `unbounded` = the window has an unstated edge, so what remains cannot be counted (weaker than any bit figure); `—` = KASLR off (nothing randomized to strip). In the `phys residual` column, `coupled` marks an architecture whose physical image base is a fixed projection of the virtual text base (no independent physical axis — recovering the virtual base already determines it); only the decoupled arches (x86-64, arm64, riscv64, s390) carry an independent `exact` / `<n> bits` physical result.\n'
+  printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off (nothing randomized to strip). In the `phys residual` column, `coupled` marks an architecture whose physical image base is a fixed projection of the virtual text base (no independent physical axis — recovering the virtual base already determines it); only the decoupled arches (x86-64, arm64, riscv64, s390) carry an independent `exact` / `<n> bits` physical result.\n'
 
   # An arch that cannot run the payload is disclosed rather than dropped
   # silently, so the matrix cannot be read as having covered it.
