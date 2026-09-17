@@ -450,19 +450,27 @@ static void layout_fmt_space(char *buf, size_t sz, unsigned long slots,
 
 /* Addresses are never zero-padded here, matching the rest of the readout: a
  * 16 MiB physical address does not wear the costume of a 64-bit pointer. */
-static void layout_fmt_range(char *buf, size_t sz, unsigned long lo,
-                             unsigned long hi, const char *note) {
+static void layout_fmt_range(char *buf, size_t sz, unsigned long lo, int has_lo,
+                             unsigned long hi, int has_hi, const char *note) {
   char tail[32];
   tail[0] = '\0';
   if (note && *note)
     snprintf(tail, sizeof(tail), " %s", note);
-  if (lo && hi && lo == hi)
+  /* Which edges exist, not which happen to be non-zero. Reading it off the
+   * VALUE conflates a stated floor of zero with no floor at all, and the two
+   * are opposite statements: a quantity pinned at zero -- an s390 built without
+   * CONFIG_RANDOMIZE_IDENTITY_BASE has __identity_base == 0 -- rendered as
+   * "not narrowed", reporting a base the engine resolved exactly as one it
+   * knows nothing about. A window from a stated zero floor lost its floor the
+   * same way, leaving a row whose candidate count could not be reconciled with
+   * the range printed beside it. */
+  if (has_lo && has_hi && lo == hi)
     snprintf(buf, sz, "0x%lx%s", lo, tail);
-  else if (lo && hi)
+  else if (has_lo && has_hi)
     snprintf(buf, sz, "0x%lx - 0x%lx%s", lo, hi, tail);
-  else if (lo)
+  else if (has_lo)
     snprintf(buf, sz, ">= 0x%lx%s", lo, tail);
-  else if (hi)
+  else if (has_hi)
     snprintf(buf, sz, "<= 0x%lx%s", hi, tail);
   else
     snprintf(buf, sz, "not narrowed");
@@ -478,8 +486,8 @@ static void layout_fmt_range(char *buf, size_t sz, unsigned long lo,
  * rather than edges. */
 static void layout_add(const char *quantity, const char *basis,
                        unsigned long slots, unsigned long top, unsigned long lo,
-                       unsigned long hi, const char *note, unsigned long align,
-                       int align_exact) {
+                       int has_lo, unsigned long hi, int has_hi,
+                       const char *note, unsigned long align, int align_exact) {
   char gb[32];
   struct layout_row *r;
   if (n_layout_rows >= LAYOUT_MAX_ROWS)
@@ -488,10 +496,12 @@ static void layout_add(const char *quantity, const char *basis,
   memset(r, 0, sizeof(*r));
   snprintf(r->cell[0], LAYOUT_CELL, "%s", quantity);
   snprintf(r->cell[1], LAYOUT_CELL, "%s", basis);
-  layout_fmt_range(r->cell[2], LAYOUT_CELL, lo, hi, note);
+  layout_fmt_range(r->cell[2], LAYOUT_CELL, lo, has_lo, hi, has_hi, note);
   layout_fmt_space(r->cell[3], LAYOUT_CELL, slots, top);
   r->lo = lo;
   r->hi = hi;
+  r->has_lo = has_lo;
+  r->has_hi = has_hi;
   r->slots = slots;
   r->top = top;
   r->align = align;
@@ -621,8 +631,8 @@ static void layout_add_window(const struct kasld_report_quantity *it,
                               const struct kasld_report_window *w,
                               const char *note) {
   layout_add(it->label, basis, w->candidates, layout_row_top(it, basis),
-             w->has_lo ? w->lo : 0, w->has_hi ? w->hi : 0, note, it->align_min,
-             it->align_exact);
+             w->has_lo ? w->lo : 0, w->has_lo, w->has_hi ? w->hi : 0, w->has_hi,
+             note, it->align_min, it->align_exact);
 }
 
 /* A row stating a set of admissible values.

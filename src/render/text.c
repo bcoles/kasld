@@ -792,7 +792,7 @@ static int layout_addr_w(void) {
 static void layout_pad_range(struct layout_row *r, int aw) {
   char a1[24], a2[24], out[LAYOUT_CELL];
   const char *sep = r->note[0] ? " " : "";
-  if (!r->lo && !r->hi)
+  if (!r->has_lo && !r->has_hi)
     return;
   /* Presented exactly as the engine resolved them. Moving an edge onto the
    * candidate grid is a narrowing, and a narrowing is the engine's to make and
@@ -800,14 +800,14 @@ static void layout_pad_range(struct layout_row *r, int aw) {
    * would report a different window from the one markdown and json report for
    * the same run. */
   unsigned long lo = r->lo, hi = r->hi;
-  if (lo && hi && lo != hi)
+  if (r->has_lo && r->has_hi && lo != hi)
     snprintf(out, sizeof(out), "%s - %s%s%s",
              readout_addr(lo, aw, a1, sizeof(a1)),
              readout_addr(hi, aw, a2, sizeof(a2)), sep, r->note);
-  else if (lo && hi)
+  else if (r->has_lo && r->has_hi)
     snprintf(out, sizeof(out), "%s%s%s", readout_addr(lo, aw, a1, sizeof(a1)),
              sep, r->note);
-  else if (lo)
+  else if (r->has_lo)
     snprintf(out, sizeof(out), ">= %s%s%s",
              readout_addr(lo, aw, a1, sizeof(a1)), sep, r->note);
   else

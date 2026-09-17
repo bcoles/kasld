@@ -420,6 +420,11 @@ struct layout_row {
    * zero-padded -- a 16 MiB physical address must not wear the costume of a
    * 64-bit kernel pointer -- so alignment is done with spaces or not at all. */
   unsigned long lo, hi;
+  /* Which of the two the row actually states. Carried rather than read off the
+   * value, because zero is a real edge on some quantities and the absence of an
+   * edge on others, and a format that tells them apart by truthiness renders a
+   * base pinned at zero as though nothing were known about it. */
+  int has_lo, has_hi;
   /* The counts behind cell[3], kept so a format that presents rows in a shape
    * other than the table (the static-posture block) need not re-derive them
    * from the summary -- which is how a renderer ends up deciding for itself
