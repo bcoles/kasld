@@ -416,7 +416,13 @@ SIDECHANNEL_BINS := $(addprefix $(COMP_DIR)/,$(SIDECHANNEL_COMPONENTS))
 # outcome decides what prints:
 #   - Arch-gate `#error "Architecture is not supported"` (and nothing else):
 #     print one "  SKIP <path> (architecture-gated)" line and drop a
-#     non-executable stamp at $@. The source explicitly opts out for this arch,
+#     non-executable stamp at $@ -- removed first, because a redirection
+#     truncates an existing file without touching its mode, and a component
+#     that compiled before the gate was added would keep the linker's execute
+#     bit on a now-empty file. The orchestrator would then run it (regular and
+#     executable) and execve would fail, and `make install` filters stamps by
+#     that same bit, so the empty file would ship. The source explicitly opts
+#     out for this arch,
 #     so it is not a failure — and the stamp makes the target up-to-date, so the
 #     (always-failing) compile is not re-run on the next build and an
 #     already-built tree stays silent. The orchestrator only runs executable
@@ -444,7 +450,7 @@ define cc-component
 	@out=$$($(1) 2>&1); st=$$?; \
 	if [ $$st -ne 0 ] && printf '%s' "$$out" | grep -q '#error.*Architecture is not supported'; then \
 	  printf '  $(C_SKIP)%-5s$(C_RST) %s (architecture-gated)\n' SKIP '$(call disp,$@)'; \
-	  : > '$@'; \
+	  rm -f '$@'; : > '$@'; \
 	elif [ -n "$$out" ]; then \
 	  printf '  $(C_TAG)%-5s$(C_RST) %s\n%s\n' CC '$(call disp,$@)' "$$out" >&2; \
 	  [ $$st -eq 0 ] || rm -f '$@'; \
@@ -1396,6 +1402,20 @@ install : build
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	install -m 755 $(KASLD_BIN) "$(DESTDIR)$(PREFIX)/bin/kasld"
 	install -m 755 extra/ksymoff "$(DESTDIR)$(PREFIX)/bin/ksymoff"
+	@# Replaced, not updated. The orchestrator runs every executable in this
+	@# directory, so a component deleted or renamed since the installed version
+	@# would keep running from its leftover binary -- a valid image for this
+	@# architecture, so it starts, emits facts, and the engine merges them with
+	@# nothing to say it came from a version that no longer exists. A rename is
+	@# worse than a deletion: both names remain, origins are tracked per
+	@# discovered file, and one technique then counts as two corroborating
+	@# sources.
+	@#
+	@# Removing the directory first makes the build tree the only list there is,
+	@# so nothing can drift out of step with it and there is no manifest to keep
+	@# current. uninstall already treats this path as ours, and nothing but
+	@# components is installed into it.
+	rm -rf "$(DESTDIR)$(PREFIX)/libexec/kasld"
 	install -d "$(DESTDIR)$(PREFIX)/libexec/kasld"
 	@# Install only real component binaries. Arch-gated components leave a
 	@# non-executable stamp at their target path (so make treats them as

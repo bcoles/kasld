@@ -80,5 +80,22 @@ fi
 [ ! -e "$COMP/zz_orphan_stamp" ] ||
   fail "a stamp with no source survived the prune"
 
-printf '%scheck-component-prune: OK%s (orphans dropped, live components kept)\n' \
+# A stamp that kept an execute bit is neither a component nor invisible: the
+# orchestrator admits any regular executable file, so an empty one is run and
+# execve fails, and `make install` selects what to ship by that same bit, so it
+# ships. The mode is how the two are told apart, and a shell redirection onto an
+# existing file truncates without touching it -- so a component that compiled
+# before its arch gate was added kept the linker's bit on a now-empty file.
+# Checked against the real build tree rather than the staged one, since that is
+# where the transition happens.
+for d in "$ROOT"/build/*/components; do
+  [ -d "$d" ] || continue
+  bad=$(find "$d" -maxdepth 1 -type f -size 0 -perm -u+x 2>/dev/null)
+  [ -z "$bad" ] || {
+    printf '%s\n' "$bad" | sed 's|^|  |' >&2
+    fail "zero-length executable(s) in $d: an arch-gated stamp kept its execute bit, so the orchestrator runs it and make install ships it"
+  }
+done
+
+printf '%scheck-component-prune: OK%s (orphans dropped, live components kept, no executable stamps)\n' \
   "$GREEN" "$RESET"
