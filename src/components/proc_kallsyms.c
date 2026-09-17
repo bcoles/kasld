@@ -21,8 +21,9 @@
 //   Data structure:   kernel symbol table (struct kallsym_iter)
 //   Address type:     virtual (kernel text / data)
 //   Method:           parsed (symbol table read)
-//   Status:           gated by design (kptr_restrict)
-//   Access check:     kallsyms_show_value() checks kptr_restrict + CAP_SYSLOG
+//   Status:           gated by design (kallsyms_show_value)
+//   Access check:     kallsyms_show_value() — kptr_restrict, then
+//                     perf_event_paranoid, then CAP_SYSLOG
 //   Source: https://elixir.bootlin.com/linux/v6.12/source/kernel/kallsyms.c
 //
 // Mitigations:
@@ -89,7 +90,15 @@ int main(void) {
   fclose(f);
 
   if (all_zero) {
-    kasld_err("every address in /proc/kallsyms reads as zero (kptr_restrict)");
+    /* Name the rule, not a knob. kallsyms_show_value() falls through
+     * kptr_restrict to perf_event_paranoid to CAP_SYSLOG, so the blocker is
+     * whichever of the three the caller fails -- and with kptr_restrict at 0,
+     * the most permissive setting, it is one of the other two. Naming
+     * kptr_restrict there sends a reader to change a value that is already
+     * what they would change it to. */
+    kasld_err("every address in /proc/kallsyms reads as zero "
+              "(needs CAP_SYSLOG, or kptr_restrict=0 with "
+              "perf_event_paranoid<=1)");
     return KASLD_EXIT_NOPERM;
   }
 
