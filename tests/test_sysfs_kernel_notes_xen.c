@@ -84,7 +84,8 @@ static void stage_notes(void) {
 /* A live (pre-v6.9) note set: the PHYS32 canary sits far enough above the
  * physical minimum to show a KASLR slide was applied. */
 static unsigned long live_phys32(void) {
-  return (unsigned long)KERNEL_PHYS_MIN + 4ul * (unsigned long)KASLR_PHYS_ALIGN;
+  return (unsigned long)PHYS_PLAUSIBLE_MIN +
+         4ul * (unsigned long)KASLR_PHYS_ALIGN;
 }
 
 static void run(int *rc) {
@@ -94,8 +95,8 @@ static void run(int *rc) {
 /* Relocated notes are the one publishable state. */
 static void test_live_notes_are_published(void) {
   th_sysroot_clear();
-  unsigned long entry = (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x100000ul;
-  unsigned long hyper = (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x316000ul;
+  unsigned long entry = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x100000ul;
+  unsigned long hyper = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x316000ul;
   unsigned long p32 = live_phys32();
   notes_reset();
   note_add("Xen", XEN_ELFNOTE_ENTRY, &entry, sizeof entry);
@@ -116,8 +117,8 @@ static void test_live_notes_are_published(void) {
  * values are link-time addresses, and all three are discarded together. */
 static void test_the_unrelocated_canary_discards_everything(void) {
   th_sysroot_clear();
-  unsigned long entry = (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x100000ul;
-  unsigned long p32 = (unsigned long)KERNEL_PHYS_MIN;
+  unsigned long entry = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x100000ul;
+  unsigned long p32 = (unsigned long)PHYS_PLAUSIBLE_MIN;
   notes_reset();
   note_add("Xen", XEN_ELFNOTE_ENTRY, &entry, sizeof entry);
   note_add("Xen", XEN_ELFNOTE_PHYS32_ENTRY, &p32, sizeof p32);
@@ -133,7 +134,7 @@ static void test_the_unrelocated_canary_discards_everything(void) {
  * xen_elfnote_* symbols are what says so. */
 static void test_place_relative_symbols_discard_everything(void) {
   th_sysroot_clear();
-  unsigned long entry = (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x100000ul;
+  unsigned long entry = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x100000ul;
   unsigned long p32 = live_phys32();
   notes_reset();
   note_add("Xen", XEN_ELFNOTE_ENTRY, &entry, sizeof entry);
@@ -150,7 +151,7 @@ static void test_place_relative_symbols_discard_everything(void) {
  * discarded rather than assumed live. */
 static void test_no_canary_discards_conservatively(void) {
   th_sysroot_clear();
-  unsigned long hyper = (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x316000ul;
+  unsigned long hyper = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x316000ul;
   notes_reset();
   note_add("Xen", XEN_ELFNOTE_HYPERCALL_PAGE, &hyper, sizeof hyper);
   stage_notes();
@@ -183,7 +184,7 @@ static void test_oversized_header_fields_are_refused(void) {
  * origin, and it does not go through the Xen cross-check. */
 static void test_a_foreign_note_is_scanned_generically(void) {
   th_sysroot_clear();
-  unsigned long val = (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x200000ul;
+  unsigned long val = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x200000ul;
   notes_reset();
   note_add("Linux", 7, &val, sizeof val);
   stage_notes();

@@ -30,7 +30,8 @@
 // Extracting that boundary needs per-zone-name parsing in proc_zoneinfo (future
 // work); until then soundness beats the lost precision on a genuine 32-bit
 // highmem host. On typical VMSPLIT configs high_memory already sits at ~the
-// arch KERNEL_VIRT_TEXT_MAX, so the gain is real only on small-lowmem boards.
+// arch VIRT_TEXT_PLAUSIBLE_MAX, so the gain is real only on small-lowmem
+// boards.
 // ---
 // <bcoles@gmail.com>
 
@@ -77,7 +78,7 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
       virt_page_offset + lowmem - min_image + IMAGE_BASE_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
-  if (ceiling <= KASLR_VIRT_TEXT_MIN)
+  if (ceiling <= VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0;
 
   struct constraint *c = &out[0];

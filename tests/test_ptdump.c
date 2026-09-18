@@ -77,8 +77,8 @@ static void run_capture(void) {
  * base. `_text` sits an offset into the arch's text window; the gap line below
  * it carries no protection flag, the image line carries "ro". */
 static void test_recovers_image_base(void) {
-  unsigned long text = (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x200000;
-  unsigned long gap = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long text = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x200000;
+  unsigned long gap = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN;
   char fx[512];
   snprintf(fx, sizeof(fx),
            "---[ High Kernel Mapping ]---\n"

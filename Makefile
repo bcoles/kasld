@@ -1183,6 +1183,7 @@ lint :
 	    $(TEST_DIR)/check-text-floor \
 	    $(TEST_DIR)/check-text-region \
 	    $(TEST_DIR)/check-confidence-floor \
+	    $(TEST_DIR)/check-arch-bound-derivation \
 	    $(TEST_DIR)/check-text-provenance \
 	    $(TEST_DIR)/check-arch-macros \
 	    $(TEST_DIR)/check-lattice-seam \

@@ -130,7 +130,7 @@ KASLD_META("method:timing\n"
            "hardware:AVX masked-load translation timing (mitigated by KPTI)\n");
 
 #define STEP KASLR_VIRT_ALIGN
-#define NUM_SLOTS ((KERNEL_VIRT_TEXT_MAX - KERNEL_VIRT_TEXT_MIN) / STEP)
+#define NUM_SLOTS ((VIRT_TEXT_PLAUSIBLE_MAX - VIRT_TEXT_PLAUSIBLE_MIN) / STEP)
 
 /* Samples per slot, and sweeps a slot must survive to be believed.
  *
@@ -394,7 +394,7 @@ static void sweep(int64_t *out, unsigned long ref) {
 
   for (i = 0; i < NUM_SLOTS; i++)
     out[i] =
-        maskload_delta(KERNEL_VIRT_TEXT_MIN + (unsigned long)i * STEP, ref);
+        maskload_delta(VIRT_TEXT_PLAUSIBLE_MIN + (unsigned long)i * STEP, ref);
 }
 
 /* Mark the slots that stand out on one side of the floor. Returns the count. */
@@ -593,7 +593,8 @@ int main(int argc, char **argv) {
       if (debug_mode)
         for (j = 0; j < NUM_SLOTS; j++)
           kasld_info("pass %d slot 0x%016lx %+8ld %s", pass,
-                     KERNEL_VIRT_TEXT_MIN + (unsigned long)j * STEP, (long)t[j],
+                     VIRT_TEXT_PLAUSIBLE_MIN + (unsigned long)j * STEP,
+                     (long)t[j],
                      up[j]     ? "slower"
                      : down[j] ? "faster"
                                : "-");
@@ -682,7 +683,7 @@ int main(int argc, char **argv) {
     lowest_at = -1;
     for (j = 0; j < NUM_SLOTS; j++)
       if (flag[j]) {
-        unsigned long a = KERNEL_VIRT_TEXT_MIN + (unsigned long)j * STEP;
+        unsigned long a = VIRT_TEXT_PLAUSIBLE_MIN + (unsigned long)j * STEP;
 
         kasld_debug("image interior: 0x%016lx", a);
         if (!lowest) {
@@ -731,9 +732,10 @@ int main(int argc, char **argv) {
 
   if (best_run >= BAND_MIN && best_at > 0 && best_at == lowest_at &&
       (long)best_run * BAND_SHARE_DEN >= (long)n * BAND_SHARE_NUM) {
-    unsigned long base = KERNEL_VIRT_TEXT_MIN + (unsigned long)best_at * STEP;
+    unsigned long base =
+        VIRT_TEXT_PLAUSIBLE_MIN + (unsigned long)best_at * STEP;
 
-    if (base >= KERNEL_VIRT_TEXT_MIN && base <= KERNEL_VIRT_TEXT_MAX) {
+    if (base >= VIRT_TEXT_PLAUSIBLE_MIN && base <= VIRT_TEXT_PLAUSIBLE_MAX) {
       kasld_found("kernel image base (_text): 0x%016lx", base);
       kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, base, "_text",
                         CONF_TIMING);

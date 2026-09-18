@@ -82,11 +82,11 @@
 // Drawn at the LOWEST admissible split (PAGE_OFFSET_MIN): a kernel built lower
 // would have its text below the floor and every address it reports rejected at
 // the source, so the floor tracks the bracket's low edge.
-#define KERNEL_VIRT_TEXT_MIN 0x40000000ul
-#define KERNEL_VIRT_VAS_START KERNEL_VIRT_TEXT_MIN
+#define VIRT_TEXT_PLAUSIBLE_MIN 0x40000000ul
+#define KERNEL_VIRT_VAS_START VIRT_TEXT_PLAUSIBLE_MIN
 #define KERNEL_VIRT_VAS_END 0xfffffffful
 // Above this, addresses fall in the I/O or fixmap region.
-#define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
+#define VIRT_TEXT_PLAUSIBLE_MAX 0xf0000000ul
 
 // ppc32 places modules in one of two entirely different regions, decided by
 // the platform, and the analysing binary cannot tell which kernel it faces --
@@ -154,8 +154,8 @@
 #define IMAGE_BASE_OFFSET 0
 
 // Plausible physical address range for kernel image
-#define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (1ul * GB)
+#define PHYS_PLAUSIBLE_MIN 0ul
+#define PHYS_PLAUSIBLE_MAX (1ul * GB)
 
 // Default: 0xc0000000 (PAGE_OFFSET, no text offset on PPC32).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all

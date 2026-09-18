@@ -56,9 +56,9 @@
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffful
 
-#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
+#define VIRT_TEXT_PLAUSIBLE_MIN PAGE_OFFSET
 // Above this, addresses fall in the fixmap/vmalloc region.
-#define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
+#define VIRT_TEXT_PLAUSIBLE_MAX 0xf0000000ul
 
 // Modules share the vmalloc window, which on rv32 sits immediately BELOW the
 // linear map, not above it:
@@ -108,15 +108,15 @@
 // 32-bit physical space; the ceiling spans to the top of it. riscv32 has no
 // KASLR, so this is the honest validation window, not an entropy range. The
 // floor is 0 (== PHYS_OFFSET, the linear-map anchor): conservative but sound,
-// and consistent with the KERNEL_PHYS_MIN == PHYS_OFFSET invariant. Runtime
+// and consistent with the PHYS_PLAUSIBLE_MIN == PHYS_OFFSET invariant. Runtime
 // iomem/DRAM bounds narrow the window to the real range.
-#define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX 0xfffff000ul
+#define PHYS_PLAUSIBLE_MIN 0ul
+#define PHYS_PLAUSIBLE_MAX 0xfffff000ul
 
 // Default: 0xc0002000 (PAGE_OFFSET + 8 KiB .head.text).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/riscv/kernel/vmlinux.lds.S
-#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + IMAGE_BASE_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (VIRT_TEXT_PLAUSIBLE_MIN + IMAGE_BASE_OFFSET)
 
 // RISC-V 32-bit does not have mainline KASLR.
 #define KASLR_SUPPORTED 0

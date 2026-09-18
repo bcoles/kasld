@@ -6,10 +6,10 @@
 // and RTAS (pseries) occupy physically contiguous firmware regions in the
 // first few GiB; the kernel image must fit below them. On ppc64 PHYS_OFFSET =
 // IMAGE_BASE_OFFSET = 0 and the base is PAGE_OFFSET (no mainline KASLR), so
-// phys_to_directmap_virt(x) = PAGE_OFFSET + x = KASLR_VIRT_TEXT_MIN + x,
-// giving:
+// phys_to_directmap_virt(x) = PAGE_OFFSET + x = VIRT_TEXT_MIN_DEFAULT_CONFIG +
+// x, giving:
 //
-//   virt_ceiling = KASLR_VIRT_TEXT_MIN + fw_base - min_image
+//   virt_ceiling = VIRT_TEXT_MIN_DEFAULT_CONFIG + fw_base - min_image
 //
 // The kernel must fit below BOTH firmware regions, so the bridge supplies the
 // lower of the OPAL/RTAS bases (SF_PHYS_FW_RESERVED_BASE); the merged ceiling
@@ -52,10 +52,10 @@ int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
   if (fw_base <= min_image)
     return 0;
 
-  unsigned long ceiling = KASLR_VIRT_TEXT_MIN + fw_base - min_image;
+  unsigned long ceiling = VIRT_TEXT_MIN_DEFAULT_CONFIG + fw_base - min_image;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
-  if (ceiling <= KASLR_VIRT_TEXT_MIN)
+  if (ceiling <= VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0;
 
   struct constraint *c = &out[0];

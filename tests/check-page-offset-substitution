@@ -73,7 +73,7 @@ allow_file() {
   # The direct-map floor in in_directmap_range(). Live only where the linear map
   # is separable from kernel text, which is the DECOUPLED arches — there the
   # compile-time base is the sound minimum the runtime one randomizes up from.
-  # On every 32-bit arch the window [PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN) is empty,
+  # On every 32-bit arch the window [PAGE_OFFSET, VIRT_TEXT_PLAUSIBLE_MIN) is empty,
   # so the comparison cannot decide anything and no VMSPLIT can move it.
   dmesg_backtrace.c) return 0 ;;
   # Two `== PAGE_OFFSET` tests, both of which SKIP an emission when the parsed

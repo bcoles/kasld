@@ -70,12 +70,12 @@
 #define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/Kconfig#L629
-#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
+#define VIRT_TEXT_PLAUSIBLE_MIN PAGE_OFFSET
 // KASLR offset: get_random_boot() << 16, masked to
 // CONFIG_RANDOMIZE_BASE_MAX_OFFSET (default 16 MiB, max 256 MiB), 64 KiB
 // granularity. Use 8 GiB headroom.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/kernel/relocate.c
-#define KERNEL_VIRT_TEXT_MAX 0x9000000200000000ul
+#define VIRT_TEXT_PLAUSIBLE_MAX 0x9000000200000000ul
 
 // Modules are in XKVRANGE at vm_map_base + PCI_IOSIZE + 2*PAGE_SIZE.
 // vm_map_base = 0 - (1 << vabits); for 48-bit VA: 0xffff000000000000.
@@ -171,13 +171,13 @@
 #define STEXT_OFFSET_MAX KASLD_STEXT_GAP_UNBOUNDED
 
 // Plausible physical address range for kernel image
-#define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (64ul * GB)
+#define PHYS_PLAUSIBLE_MIN 0ul
+#define PHYS_PLAUSIBLE_MAX (64ul * GB)
 
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/loongarch/kernel/vmlinux.lds.S,
 // arch/loongarch/Makefile
-#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + IMAGE_BASE_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (VIRT_TEXT_PLAUSIBLE_MIN + IMAGE_BASE_OFFSET)
 
 /* KASLR-off ⇒ pin contract: arch/loongarch/kernel/relocate.c kaslr_disabled()
  * short-circuits the relocate path and the kernel stays at the link address
@@ -207,8 +207,9 @@ static inline unsigned long arch_default_phys_text_base(void) {
 // KASLR randomization: offset = get_random_boot() << 16, masked to
 // CONFIG_RANDOMIZE_BASE_MAX_OFFSET (default 16 MiB, max 256 MiB), 64 KiB
 // granularity. Virtual text = PAGE_OFFSET + IMAGE_BASE_OFFSET + offset.
-#define KASLR_VIRT_TEXT_MIN (PAGE_OFFSET + IMAGE_BASE_OFFSET)
-#define KASLR_VIRT_TEXT_MAX (PAGE_OFFSET + IMAGE_BASE_OFFSET + 0x100000000ul)
+#define VIRT_TEXT_MIN_DEFAULT_CONFIG (PAGE_OFFSET + IMAGE_BASE_OFFSET)
+#define VIRT_TEXT_MAX_DEFAULT_CONFIG                                           \
+  (PAGE_OFFSET + IMAGE_BASE_OFFSET + 0x100000000ul)
 
 #define KASLR_SUPPORTED 1
 

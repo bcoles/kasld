@@ -153,7 +153,7 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
   if (valign < (unsigned long)KASLR_VIRT_ALIGN)
     valign = (unsigned long)KASLR_VIRT_ALIGN;
   ceiling = kasld_floor_virt_text_bound(ceiling, valign);
-  if (ceiling <= KASLR_VIRT_TEXT_MIN)
+  if (ceiling <= VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0;
 
   struct constraint *c = &out[0];

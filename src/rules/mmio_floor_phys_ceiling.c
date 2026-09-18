@@ -84,7 +84,7 @@ int rule_mmio_floor_phys_ceiling(const struct evidence_set *ev,
 
   /* Underflow impossible: mmio_floor > dram_floor >= 0 => mmio_floor >= 1. */
   unsigned long ceiling = mmio_floor - 1;
-  if (ceiling <= KASLR_PHYS_MIN)
+  if (ceiling <= KERNEL_PHYS_DEFAULT)
     return 0;
 
   struct constraint *c = &out[0];

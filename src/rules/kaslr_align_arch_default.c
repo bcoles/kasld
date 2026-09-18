@@ -19,7 +19,7 @@
 // says the weaker thing.
 //
 // Physical alignment is emitted only where physical KASLR exists
-// (KASLR_PHYS_MIN defined) — matching the orchestrator's _PHYS_KASLR_ALIGN
+// (KERNEL_PHYS_DEFAULT defined) — matching the orchestrator's _PHYS_KASLR_ALIGN
 // guard.
 // ---
 // <bcoles@gmail.com>
@@ -57,7 +57,7 @@ int rule_kaslr_align_arch_default(const struct evidence_set *ev,
     snprintf(c->origin, ORIGIN_LEN, "kaslr_align_arch_default");
   }
 
-#if defined(KASLR_PHYS_MIN)
+#if defined(KERNEL_PHYS_DEFAULT)
   if (n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));

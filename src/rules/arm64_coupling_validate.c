@@ -10,19 +10,19 @@
 //   _PAGE_END(VA_BITS_VALIDATE_MIN = 39)) = [..., 0xffffffc000000000) MODULE /
 //   MODULE_REGION    in [MODULES_START,
 //   MODULES_END]   (union over kernel-version layouts) KERNEL_TEXT /
-//   KERNEL_IMAGE in [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX] (the
+//   KERNEL_IMAGE in [VIRT_TEXT_PLAUSIBLE_MIN, VIRT_TEXT_PLAUSIBLE_MAX] (the
 //   validation range) VMEMMAP                   in [VMEMMAP_START,
 //   0xffffffffc0000000) (VA48 floor; ~0xfffffdffc0000000)
 //
-// IMPORTANT: the KERNEL_TEXT / KERNEL_IMAGE check uses KERNEL_VIRT_TEXT_MIN/MAX
-// (the *validation* range that covers every in-scope kernel-version layout),
-// NOT KASLR_VIRT_TEXT_MIN/MAX (the narrower *per-formula KASLR randomization
-// window* derived from kaslr_early.c at one specific kernel version). The
-// kernel's KASLR algorithm has shifted across versions (v6.6 vs v6.12);
-// pinning the validation band to one formula's window would reject legitimate
-// text leaks produced by any other version sitting inside the wider arch VAS.
-// Same shape as the modules-window union widening — see api.h MODULES_*
-// validation-union contract.
+// IMPORTANT: the KERNEL_TEXT / KERNEL_IMAGE check uses
+// VIRT_TEXT_PLAUSIBLE_MIN/MAX (the *validation* range that covers every
+// in-scope kernel-version layout), NOT VIRT_TEXT_MIN_DEFAULT_CONFIG/MAX (the
+// narrower *per-formula KASLR randomization window* derived from kaslr_early.c
+// at one specific kernel version). The kernel's KASLR algorithm has shifted
+// across versions (v6.6 vs v6.12); pinning the validation band to one formula's
+// window would reject legitimate text leaks produced by any other version
+// sitting inside the wider arch VAS. Same shape as the modules-window union
+// widening — see api.h MODULES_* validation-union contract.
 //
 // The bands themselves are KASLR-invariant — the kernel image's KASLR slot
 // inside the KASLR window is the only randomized position; the band
@@ -92,14 +92,14 @@ static int arm64_va_band_bad(enum kasld_region region, unsigned long a) {
            (a > (unsigned long)MODULES_END);
   case REGION_KERNEL_TEXT:
   case REGION_KERNEL_IMAGE:
-    /* Inside the *validation* range — KERNEL_VIRT_TEXT_MIN/MAX (the arch's
-     * widest plausible text-base window) rather than KASLR_VIRT_TEXT_MIN/MAX
-     * (one specific KASLR formula's narrower randomization window). The latter
-     * would reject legitimate text leaks from kernel versions whose
-     * kaslr_early.c algorithm produces slots outside the current header's
-     * modelled window. */
-    return (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
-           (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
+    /* Inside the *validation* range — VIRT_TEXT_PLAUSIBLE_MIN/MAX (the arch's
+     * widest plausible text-base window) rather than
+     * VIRT_TEXT_MIN_DEFAULT_CONFIG/MAX (one specific KASLR formula's narrower
+     * randomization window). The latter would reject legitimate text leaks from
+     * kernel versions whose kaslr_early.c algorithm produces slots outside the
+     * current header's modelled window. */
+    return (a < (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN) ||
+           (a > (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX);
   case REGION_VMEMMAP:
     /* Above VA48 vmemmap floor *or* anywhere below it (VA52 territory); either
      * way, must be below VMEMMAP_END (= −SZ_1G). The arm64 va_bits-from-vmemmap

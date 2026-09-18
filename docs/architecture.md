@@ -108,7 +108,7 @@ With only this one leak the result is still a window — several slots wide:
 ```
   Quantity            Certainty   Window                                   Candidates  Grain
   ------------------  ----------  ---------------------------------------  ----------  --------
-  Virtual Image Base  guaranteed  0xffffffff81000000 - 0xffffffff81e00000    8 of 505  >= 2 MiB
+  Virtual Image Base  guaranteed  0xffffffff81000000 - 0xffffffff81e00000    8 of 512  >= 2 MiB
 ```
 
 A second observation — a `_stext` base witness, a DRAM floor, or the
@@ -123,7 +123,7 @@ base and its slide:
 ```
   Quantity            Certainty   Window                              Candidates  Grain
   ------------------  ----------  ----------------------------------  ----------  --------
-  Virtual Image Base  guaranteed  0xffffffff81e00000 slide +0xe00000    1 of 505  >= 2 MiB
+  Virtual Image Base  guaranteed  0xffffffff81e00000 slide +0xe00000    1 of 512  >= 2 MiB
 ```
 
 That is the whole path: a log line becomes an observation, a rule turns it into a

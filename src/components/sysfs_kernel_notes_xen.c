@@ -223,7 +223,7 @@ int main(void) {
           xen_hypercall = addr;
 
         if (type == XEN_ELFNOTE_PHYS32_ENTRY &&
-            kasld_addr_in_range(addr, KERNEL_PHYS_MIN, KERNEL_PHYS_MAX))
+            kasld_addr_in_range(addr, PHYS_PLAUSIBLE_MIN, PHYS_PLAUSIBLE_MAX))
           xen_phys32 = addr;
       }
 
@@ -254,8 +254,8 @@ int main(void) {
       memcpy(vals, desc, sizeof vals);
 
       for (int i = 0; i < 2; i++) {
-        if (vals[i] >= KERNEL_VIRT_TEXT_MIN &&
-            vals[i] <= KERNEL_VIRT_TEXT_MAX) {
+        if (vals[i] >= VIRT_TEXT_PLAUSIBLE_MIN &&
+            vals[i] <= VIRT_TEXT_PLAUSIBLE_MAX) {
           kasld_found("found kernel address in %s note (type %u, word %d): "
                       "%lx",
                       name, type, i, vals[i]);
@@ -280,7 +280,7 @@ int main(void) {
    * 2. v6.9+ (aaa8736370db): relocations in .notes are skipped.
    *    Values are static link-time addresses -> stale -> discard.
    *    Detected via PHYS32_ENTRY canary: pvh_start_xen sits near
-   *    _text in these kernels, so PHYS32 < KERNEL_PHYS_MIN +
+   *    _text in these kernels, so PHYS32 < PHYS_PLAUSIBLE_MIN +
    *    KASLR_VIRT_ALIGN when no KASLR slide is applied.
    *
    * 3. v6.13+ (223abe96ac0d): place-relative relocations encode
@@ -291,7 +291,7 @@ int main(void) {
   if (xen_entry || xen_hypercall || xen_phys32) {
     int stale = 0;
 
-    if (xen_phys32 && xen_phys32 < KERNEL_PHYS_MIN + KASLR_PHYS_ALIGN) {
+    if (xen_phys32 && xen_phys32 < PHYS_PLAUSIBLE_MIN + KASLR_PHYS_ALIGN) {
       stale = 1;
     } else {
       int ret = has_xen_elfnote_symbols();
@@ -323,7 +323,7 @@ int main(void) {
          * orchestrator floors to KASLR_VIRT_ALIGN to recover _text (see the
          * note above main()). The hardware physical load address is
          * independently randomized and is not recoverable from this note. */
-        unsigned long virt = KERNEL_VIRT_TEXT_MIN + xen_phys32;
+        unsigned long virt = VIRT_TEXT_PLAUSIBLE_MIN + xen_phys32;
         if (kasld_addr_is_kernel_text(virt)) {
           kasld_found("Xen PHYS32_ENTRY -> virtual: %lx", virt);
           kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt,

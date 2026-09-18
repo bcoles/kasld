@@ -10,7 +10,7 @@
 //       random_offset += ALIGN(kernel_length, 0xffff);
 //
 // — i.e. a slide that would land inside the original image is bumped past
-// the image to avoid overlap. The naive ceiling KASLR_VIRT_TEXT_MIN +
+// the image to avoid overlap. The naive ceiling VIRT_TEXT_MIN_DEFAULT_CONFIG +
 // MAX_OFFSET is therefore UNSOUND on kernels where kernel_length ≥ MAX_OFFSET
 // (every realistic kernel — typical image is 20–60 MiB, MAX_OFFSET defaults to
 // 16 MiB). Confirmed against arch/loongarch/kernel/relocate.c and
@@ -18,8 +18,8 @@
 //
 // Corrected ceiling:
 //
-//   virt_image_base ≤ KASLR_VIRT_TEXT_MIN + MAX_OFFSET + ALIGN(kernel_length,
-//   0xffff)
+//   virt_image_base ≤ VIRT_TEXT_MIN_DEFAULT_CONFIG + MAX_OFFSET +
+//   ALIGN(kernel_length, 0xffff)
 //
 // `kernel_length` is extracted from observations:
 //   * Preferred: PHYS iomem extent (kernel_text.lo..kernel_bss.hi or
@@ -30,8 +30,8 @@
 //     remaining engine rules (DRAM bounds, image-size ceilings) carry
 //     the constraint set in that case.
 //
-// `KASLR_VIRT_TEXT_MIN` is the KASLR window base — the offset is measured
-// from there, not from the engine's possibly-tightened lower edge.
+// `VIRT_TEXT_MIN_DEFAULT_CONFIG` is the KASLR window base — the offset is
+// measured from there, not from the engine's possibly-tightened lower edge.
 //
 // Naturally inert where SF_VIRT_RANDOMIZE_MAX_OFFSET is absent (x86, arm64,
 // riscv64, s390 emit no such scalar): absence yields no constraint.
@@ -129,8 +129,8 @@ int rule_config_max_offset_ceiling(const struct evidence_set *ev,
    * grain (literal 0xffff, not SZ_64K - 1). Reproduce verbatim. */
   unsigned long aligned_kl = (kernel_length + 0xffff) & ~0xfffful;
   unsigned long ceiling =
-      (unsigned long)KASLR_VIRT_TEXT_MIN + max_offset + aligned_kl;
-  if (ceiling <= (unsigned long)KASLR_VIRT_TEXT_MIN) /* overflow */
+      (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG + max_offset + aligned_kl;
+  if (ceiling <= (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG) /* overflow */
     return 0;
 
   struct constraint *c = &out[0];

@@ -188,7 +188,7 @@ static void record_hit(unsigned long v) {
 
 /* Region tag by arch band. A leaked timeline pointer is a kernel heap
  * object — a linear-map (direct-map / lowmem) allocation or a vmalloc one,
- * never kernel text or a module. Split at KERNEL_VIRT_TEXT_MAX: below it is
+ * never kernel text or a module. Split at VIRT_TEXT_PLAUSIBLE_MAX: below it is
  * confidently within the linear-map/text band, above it is vmalloc/vmemmap. The
  * exact lowmem/vmalloc boundary (high_memory) is a runtime value this
  * standalone probe cannot know, so the split is approximate — but the tag is
@@ -198,7 +198,7 @@ static void record_hit(unsigned long v) {
 static int emit_addr(unsigned long addr, int count) {
   /* The timeline is scanned for anything that looks like a kernel address, so
    * nothing but the value says which region it belongs to. The split above was
-   * one comparison against KERNEL_VIRT_TEXT_MAX, which is the top of the
+   * one comparison against VIRT_TEXT_PLAUSIBLE_MAX, which is the top of the
    * KASLR-admissible text window rather than any boundary between the linear
    * map and vmalloc. kasld_addr_classify() answers with the band tag wherever
    * the windows overlap instead of choosing between two regions it cannot

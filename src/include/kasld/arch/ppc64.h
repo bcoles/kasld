@@ -60,8 +60,8 @@
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
-#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
-#define KERNEL_VIRT_TEXT_MAX 0xffffffffff000000ul
+#define VIRT_TEXT_PLAUSIBLE_MIN PAGE_OFFSET
+#define VIRT_TEXT_PLAUSIBLE_MAX 0xffffffffff000000ul
 
 // 64-bit PowerPC defines no MODULES_VADDR, so modules come from the vmalloc
 // region -- whose base differs by MMU and page size, across a 32 TiB spread:
@@ -107,8 +107,8 @@
 #define MODULES_BASE_PPC64_HASH_4K 0xc0003d0000000000ul
 
 // Plausible physical address range for kernel image
-#define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (64ul * GB)
+#define PHYS_PLAUSIBLE_MIN 0ul
+#define PHYS_PLAUSIBLE_MAX (64ul * GB)
 
 // 16KiB (0x4000) aligned
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L595
@@ -119,7 +119,7 @@
 // Default: 0xc000000000000000 (PAGE_OFFSET, no text offset on PPC64).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/powerpc/kernel/vmlinux.lds.S
-#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + IMAGE_BASE_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (VIRT_TEXT_PLAUSIBLE_MIN + IMAGE_BASE_OFFSET)
 
 // PPC64 does not have mainline KASLR.
 #define KASLR_SUPPORTED 0

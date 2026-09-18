@@ -213,9 +213,9 @@ Running 117 of 120 components (3 experimental skipped; use -x to enable)...
 
   Quantity             Certainty   Window                                   Candidates        Grain
   -------------------  ----------  ---------------------------------------  ----------------  -----
-  Virtual Image Base   guaranteed  0xffffffff81000000 - 0xffffffffbd400000        483 of 505  2 MiB
+  Virtual Image Base   guaranteed  0xffffffff81000000 - 0xffffffffbd400000        483 of 512  2 MiB
   Virtual Image Base   likely      0xffffffff93400000 slide +0x12400000                    1  2 MiB
-  Physical Image Base  guaranteed           0x1000000 -         0x3d400000      474 of 8,185  2 MiB
+  Physical Image Base  guaranteed           0x1000000 -         0x3d400000               474  2 MiB
   Physical Image Base  likely               0x1000000 -         0x3c29d000               474  2 MiB
   Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000            37,547  1 GiB
   Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79,191 of 79,191  1 GiB
@@ -397,8 +397,8 @@ diagrams:
 KASLR analysis:
   Quantity             Certainty   Window                                   Candidates        Grain
   -------------------  ----------  ---------------------------------------  ----------------  -----
-  Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000              1 of 505  2 MiB
-  Physical Image Base  guaranteed          0x19600000 slide +0x18600000           1 of 8,185  2 MiB
+  Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000              1 of 512  2 MiB
+  Physical Image Base  guaranteed          0x19600000 slide +0x18600000                    1  2 MiB
   Direct Map Base      guaranteed  0xffff880000000000 - 0xffffa4aa80000000            29,355  1 GiB
   Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79,191 of 79,191  1 GiB
   Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000            85,504  1 GiB
@@ -406,8 +406,8 @@ KASLR analysis:
   Paging Level         guaranteed  48                                                 1 of 2  -
 
   Compile-time default: 0xffffffff81000000
-  Virtual entropy:      ~0 of 9 bits
-  Physical entropy:     ~0 of 13 bits
+  Virtual entropy:      0 of 9 bits
+  Physical entropy:     0 bits
   Direct map entropy:   ~15 of 15 bits
 
 ----------------------------------------
@@ -855,8 +855,8 @@ The fields a gate keys on:
   plausibly recover the base, accepting that this window is unproven.
 - `slots_initial` / `entropy_bits_initial` — the set the residual is measured
   against, in both units: `slots` out of `slots_initial` is the ratio the
-  readout prints (`32 of 505`). An **upper bound** on the set the kernel drew
-  from, not an identity: the count rests on an alignment this build can only
+  readout prints (`1,025 of 1,025`). An **upper bound** on the set the kernel
+  drew from, not an identity: the count rests on an alignment this build can only
   bound from below, and a derived window (the direct map's) is evaluated
   generously because its true size turns on build options a userspace binary
   cannot read. The slack runs one way, so a residual stated against it never
@@ -866,8 +866,15 @@ The fields a gate keys on:
   for the same purpose — `1 of 2` says one of the two levels this target could
   be running. Both are omitted where no such set is modelled
   for the quantity, which is the same thing a bare count means in the readout.
-  Take the ratio from the slots, not the bits: `ilog2` rounds, so
-  `2^entropy_bits_initial` is 512 where the set holds 505.
+  The physical image base is the notable omission, and permanently: where a
+  kernel lands in physical memory is set by where the board puts DRAM, so no
+  window is declared for it and the set the engine starts from is an address
+  width rather than a set of placements. A gate reads its `slots` and
+  `entropy_bits` alone. The virtual one is omitted too on an architecture with
+  no KASLR, where the same constants bound where a bootloader may have put the
+  image rather than a set the kernel drew from. Take the ratio from the slots, not the bits:
+  `ilog2` rounds, so `2^entropy_bits_initial` is 2,048 where the set holds
+  1,025.
 - `slots_upper_bound` — beside every `slots` figure: `true` where the grain the
   count stands on is a lower bound, so a kernel aligned more coarsely than the
   engine could prove sits on fewer placements than `slots` says. A gate reading

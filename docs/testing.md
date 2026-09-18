@@ -210,6 +210,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-property-arches` | every supported architecture has BOTH whole-engine property tests — `test_full_engine_property_<arch>` and `..._floor` — defined and wired into the `RUN()` list † |
 | `check-stext-gap` | the three statements of an architecture's `_text`→`_stext` head gap agree: `STEXT_OFFSET`, `STEXT_OFFSET_MIN`/`_MAX`, and `STEXT_GAP_CANDIDATES` † |
 | `check-confidence-floor` | every engine rule that emits a *collapsing* constraint — `C_EQUALS`, `C_STRIDE`, `C_AT_LEAST_ALIGN`, or `C_EXCLUDE` — is on a reviewed allowlist, each entry recording what the value rests on † |
+| `check-arch-bound-derivation` | an engine rule *derives* a bound only from the invariant `_ANY_CONFIG` window constants; a default-build or `_PLAUSIBLE_` constant may be compared against but not derived from, and each rule that does derive from one is on a reviewed allowlist recording what makes it safe † |
 | `check-text-provenance` | a component may claim `REGION_KERNEL_TEXT` in the sound band only where its *source* establishes image membership; a range test must yield `REGION_KERNEL_TEXT_BAND` instead † |
 | `check-env-docs` | every environment variable read outside `src/components/` has a `kasld(1)` ENVIRONMENT entry, and every entry is actually read † |
 | `check-validators` | no arithmetic-input validator in `extra/` accepts anything dangerous, and each still accepts a known-good value † |
@@ -433,6 +434,46 @@ no generator, or an evidence shape a generator does not produce; this list is
 the human half, and it discriminates only while it stays small enough to be
 read. Checked for staleness in both directions, since an entry naming a rule
 that no longer constrains is how the next one gets waved through.
+
+**`check-arch-bound-derivation`** — The arch headers carry three kinds of
+window constant, answering three different questions: `*_PLAUSIBLE_MIN/MAX` is
+this address absurd for this architecture, `*_MIN/MAX_ANY_CONFIG` what is the
+widest placement any build admits, and `VIRT_TEXT_MIN/MAX_DEFAULT_CONFIG`,
+`KERNEL_VIRT_TEXT_DEFAULT`, `KERNEL_PHYS_DEFAULT` where a *default* build puts
+the image. Only the middle kind is invariant, so only it may be derived from.
+The other two may be compared against.
+
+Comparing is safe because of what the comparison is for: the dominant use is the
+redundancy test — `if (ceiling <= VIRT_TEXT_MIN_DEFAULT_CONFIG) return 0;` —
+which declines to emit a bound no better than the architecture already implies,
+so a wrong constant suppresses a constraint rather than excluding the truth.
+Deriving is the opposite: the constant becomes the *value* of an emitted bound,
+and a bound inside the true window removes the base from the guaranteed answer.
+The two families diverge from `_ANY_CONFIG` on real architectures — x86_64 and
+s390x on the physical floor, x86_64, aarch64, s390x and riscv64 on the virtual
+one, aarch64 on the virtual ceiling — so a rule that reads one and is later
+extended to a diverging architecture becomes unsound with no signal in the code.
+
+Classification is mechanical and fails closed: a line counts as a comparison
+only where every occurrence sits directly against a relational operator and is
+followed by a close paren or a logical connective, with casts stripped first.
+Arithmetic, an assignment, an argument, or a comparison split across two lines
+all read as derivations and need an allowlist entry. Each entry must say which
+architectures the rule is gated to and that the constant equals its `_ANY_CONFIG`
+counterpart there — that fact is what makes such a rule safe, and nothing in the
+code records it.
+
+A rule can also reach a constant without naming it, through a shared inline
+helper, which the token scan alone cannot see — the hole `check-confidence-floor`
+was bitten by. Those helpers are discovered from the headers and classified by
+what they do with the value: masked to the image-base grid *phase* (whose low
+bits come from the linker rather than a Kconfig), used as a comparison *bound*
+only, or *returned*. Only the last puts its callers in scope. A helper that
+starts holding one of these constants fails the build until it is classified. An entry may instead record that the rule reads only the grid
+*phase* of a default (its low bits below the slide granule, which come from the
+linker rather than from a Kconfig), or that the derived bound is confined to
+`CONF_HEURISTIC` and so shapes `likely` alone. Checked for staleness in both
+directions.
 
 **`check-text-provenance`** — A component may claim `REGION_KERNEL_TEXT` in the
 sound band only where its *source* establishes image membership; where the
@@ -850,13 +891,21 @@ elsewhere, such as a self-built qemu in a non-standard prefix.
 make test-cross        # or: tests/test-cross
 ```
 
-Compiles eight suites — `test_engine`, `test_engine_integration`,
-`test_estimate`, `test_kasld`, `test_render`, `test_addr_parse`,
+Compiles nine suites — `test_engine`, `test_engine_integration`,
+`test_estimate`, `test_report`, `test_kasld`, `test_render`, `test_addr_parse`,
 `test_target_model` and `test_proc_kallsyms` — with each cross toolchain and
 runs them under qemu-user, so arch-gated rule bodies
 (`#if defined(__aarch64__)` …) execute on their own architecture instead of
 compiling to no-ops on the host. The engine tests are pure, syscall-free C, so
 this is sound under emulation.
+
+`test_report` is here for a variant of the same reason. Its assertions are about
+the report model rather than a rule, but several of the model's rules are stated
+per quantity and answered by an arch macro — whether the image base has a
+randomization window at all, for one. An assertion about such a rule is inert on
+a host whose answer is yes, and only bites on an architecture whose answer is no:
+running it on x86_64 alone once let a denominator reach every `KASLR_SUPPORTED 0`
+architecture unnoticed.
 
 The engine core and `src/rules/*.c` are compiled once per target and linked into
 both engine binaries; `USE_CCACHE=0` compiles without ccache, which is what CI

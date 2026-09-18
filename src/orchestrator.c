@@ -91,9 +91,9 @@ struct kasld_environment kasld_env = KASLD_ENV_UNKNOWN;
  * adjusted at runtime when a pageoffset result overrides PAGE_OFFSET)
  * =========================================================================
  */
-#ifdef KASLR_PHYS_MIN
-#define _PHYS_KASLR_TEXT_MIN KASLR_PHYS_MIN
-#define _PHYS_KASLR_TEXT_MAX KASLR_PHYS_MAX
+#ifdef KERNEL_PHYS_DEFAULT
+#define _PHYS_KASLR_TEXT_MIN KERNEL_PHYS_DEFAULT
+#define _PHYS_KASLR_TEXT_MAX PHYS_PLAUSIBLE_MAX
 #define _PHYS_KASLR_ALIGN KASLR_PHYS_ALIGN
 #else
 #define _PHYS_KASLR_TEXT_MIN 0ul
@@ -105,14 +105,14 @@ struct kasld_layout layout = {
     .virt_page_offset = PAGE_OFFSET,
     .virt_kernel_vas_start = KERNEL_VIRT_VAS_START,
     .virt_kernel_vas_end = KERNEL_VIRT_VAS_END,
-    .virt_image_base_min = KERNEL_VIRT_TEXT_MIN,
-    .virt_image_base_max = KERNEL_VIRT_TEXT_MAX,
+    .virt_image_base_min = VIRT_TEXT_PLAUSIBLE_MIN,
+    .virt_image_base_max = VIRT_TEXT_PLAUSIBLE_MAX,
     .modules_start = MODULES_START,
     .modules_end = MODULES_END,
     .image_align = IMAGE_ALIGN,
     .virt_image_base_default = KERNEL_VIRT_TEXT_DEFAULT,
-    .virt_kaslr_text_min = KASLR_VIRT_TEXT_MIN,
-    .virt_kaslr_text_max = KASLR_VIRT_TEXT_MAX,
+    .virt_kaslr_text_min = VIRT_TEXT_MIN_DEFAULT_CONFIG,
+    .virt_kaslr_text_max = VIRT_TEXT_MAX_DEFAULT_CONFIG,
     .virt_kaslr_align = KASLR_VIRT_ALIGN,
     /* Smallest page the architecture admits. The module band is placed on
        page boundaries, so this is the finest grid its base can sit on until
@@ -2678,7 +2678,7 @@ void kasld_project_posture(const char *const *exclude, int n_exclude,
         pe.constraints, pe.n_constraints, layout.virt_kaslr_align);
     out->vbits = slots > 0 ? ilog2(slots) : 0;
   }
-#ifdef KASLR_PHYS_MIN
+#ifdef KERNEL_PHYS_DEFAULT
   {
     unsigned long slots = quantity_slots(
         Q_PHYS_IMAGE_BASE, &pe.est[Q_PHYS_IMAGE_BASE], KASLD_SOUND_FLOOR,
@@ -2851,8 +2851,8 @@ static void engine_sync_authoritative(const struct engine *e) {
 #endif
 
   /* The physical window, on every architecture. api.h supplies a default
-   * KASLR_PHYS_MIN/MAX for any arch that declares none, so these fields are
-   * INITIALIZED from the architectural bracket everywhere -- leaving the
+   * KERNEL_PHYS_DEFAULT/MAX for any arch that declares none, so these fields
+   * are INITIALIZED from the architectural bracket everywhere -- leaving the
    * override to decoupled arches only meant that on the eight where text tracks
    * the direct map they kept that bracket for the life of the run, and a reader
    * asking whether the window was still a range got the architecture's answer
@@ -2901,7 +2901,7 @@ static void engine_sync_authoritative(const struct engine *e) {
    * being a meaningful (narrowed-or-pinned) value — the static band stays
    * when the engine has not narrowed text. */
 #define KASLD_MODULES_LEN (2ul * 1024 * 1024 * 1024)
-  if (vt->hi > vt->lo || vt->lo > (unsigned long)KASLR_VIRT_TEXT_MIN) {
+  if (vt->hi > vt->lo || vt->lo > (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG) {
 #if MODULES_BELOW_TEXT_START
     unsigned long band_end = vt->lo > (unsigned long)IMAGE_BASE_OFFSET
                                  ? vt->lo - (unsigned long)IMAGE_BASE_OFFSET

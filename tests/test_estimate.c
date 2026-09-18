@@ -760,22 +760,22 @@ static int interval_admits(enum kasld_quantity q, unsigned long v) {
 
 static void test_honest_tops_admit_known_values(void) {
   /* Every arch: the KASLR-off default text base must be inside the top. The
-   * virtual top is [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX]; the _WIDE
-   * floor is KASLR_VIRT_TEXT_MIN on arches without a configurable
-   * PHYSICAL_START, and is wider on arches like x86_64 where
-   * KASLR_VIRT_TEXT_MIN bakes in CONFIG_PHYSICAL_START at its compile-time
-   * default (a smaller config would otherwise leave text outside the window —
-   * soundness violation we now avoid). */
+   * virtual top is [VIRT_TEXT_MIN_ANY_CONFIG, VIRT_TEXT_MAX_DEFAULT_CONFIG];
+   * the _WIDE floor is VIRT_TEXT_MIN_DEFAULT_CONFIG on arches without a
+   * configurable PHYSICAL_START, and is wider on arches like x86_64 where
+   * VIRT_TEXT_MIN_DEFAULT_CONFIG bakes in CONFIG_PHYSICAL_START at its
+   * compile-time default (a smaller config would otherwise leave text outside
+   * the window — soundness violation we now avoid). */
   TH_CHECK(interval_admits(Q_VIRT_IMAGE_BASE,
                            (unsigned long)KERNEL_VIRT_TEXT_DEFAULT));
   TH_CHECK(interval_admits(Q_VIRT_IMAGE_BASE,
-                           (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE));
+                           (unsigned long)VIRT_TEXT_MIN_ANY_CONFIG));
   TH_CHECK(interval_admits(Q_VIRT_IMAGE_BASE,
-                           (unsigned long)KASLR_VIRT_TEXT_MAX - 1ul));
-  /* And the COMPILE-TIME KASLR_VIRT_TEXT_MIN (the heuristic floor) is admitted,
-   * sitting at-or-above the widened floor. */
-  TH_CHECK(
-      interval_admits(Q_VIRT_IMAGE_BASE, (unsigned long)KASLR_VIRT_TEXT_MIN));
+                           (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - 1ul));
+  /* And the COMPILE-TIME VIRT_TEXT_MIN_DEFAULT_CONFIG (the heuristic floor) is
+   * admitted, sitting at-or-above the widened floor. */
+  TH_CHECK(interval_admits(Q_VIRT_IMAGE_BASE,
+                           (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG));
 
 #if defined(__aarch64__)
   /* Pre-v5.4 arm64 layout: the kernel image sits LOW, below _PAGE_END, at
@@ -787,30 +787,31 @@ static void test_honest_tops_admit_known_values(void) {
    * and IMAGE_BASE_OFFSET is 0, so the honest top spans [DRAM base,
    * PHYS_ADDR_TOP] with no sub-offset floor gap. Admit the low DRAM-base floor
    * and a realistic ~1 GiB load (a real aarch64 boot loads at 0x40200000). A
-   * high load above the KERNEL_PHYS_MAX RAM heuristic is now admitted — the
+   * high load above the PHYS_PLAUSIBLE_MAX RAM heuristic is now admitted — the
    * honest top is the architectural PHYS_ADDR_TOP; reject only above that. */
   TH_CHECK(
-      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KASLR_PHYS_MIN_WIDE));
+      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)PHYS_MIN_ANY_CONFIG));
   TH_CHECK(interval_admits(Q_PHYS_IMAGE_BASE, 0x40200000ul));
-  TH_CHECK(
-      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KERNEL_PHYS_MAX + 1ul));
+  TH_CHECK(interval_admits(Q_PHYS_IMAGE_BASE,
+                           (unsigned long)PHYS_PLAUSIBLE_MAX + 1ul));
   TH_CHECK(!interval_admits(Q_PHYS_IMAGE_BASE, PHYS_ADDR_TOP + 1ul));
 #endif
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
   /* Physical image base: OpenSBI loads the kernel at DRAM base +
    * RISCV_PHYS_LOAD_OFFSET (2 MiB), so the honest top floors at that convention
-   * (KASLR_PHYS_MIN_WIDE == KERNEL_PHYS_DEFAULT) and spans to PHYS_ADDR_TOP.
+   * (PHYS_MIN_ANY_CONFIG == KERNEL_PHYS_DEFAULT) and spans to PHYS_ADDR_TOP.
    * Admit the firmware base and a mid-range load; reject below the floor (the
-   * OpenSBI-reserved head of DRAM). A high load above the KERNEL_PHYS_MAX RAM
-   * heuristic is now admitted (architectural top); reject only above that. */
+   * OpenSBI-reserved head of DRAM). A high load above the PHYS_PLAUSIBLE_MAX
+   * RAM heuristic is now admitted (architectural top); reject only above that.
+   */
   TH_CHECK(
-      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KASLR_PHYS_MIN_WIDE));
+      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)PHYS_MIN_ANY_CONFIG));
   TH_CHECK(interval_admits(Q_PHYS_IMAGE_BASE,
-                           (unsigned long)KERNEL_PHYS_MIN + 0x40000000ul));
+                           (unsigned long)PHYS_PLAUSIBLE_MIN + 0x40000000ul));
   TH_CHECK(!interval_admits(Q_PHYS_IMAGE_BASE,
-                            (unsigned long)KASLR_PHYS_MIN_WIDE - 1ul));
-  TH_CHECK(
-      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KERNEL_PHYS_MAX + 1ul));
+                            (unsigned long)PHYS_MIN_ANY_CONFIG - 1ul));
+  TH_CHECK(interval_admits(Q_PHYS_IMAGE_BASE,
+                           (unsigned long)PHYS_PLAUSIBLE_MAX + 1ul));
   TH_CHECK(!interval_admits(Q_PHYS_IMAGE_BASE, PHYS_ADDR_TOP + 1ul));
 #endif
 #if defined(__s390__) || defined(__s390x__)
@@ -821,28 +822,30 @@ static void test_honest_tops_admit_known_values(void) {
       interval_admits(Q_VIRT_IMAGE_BASE, (unsigned long)IMAGE_BASE_OFFSET));
   TH_CHECK(interval_admits(Q_VIRT_IMAGE_BASE, 0x200ul));
   /* The PHYSICAL image base (_text = __kaslr_offset_phys) is identity-mapped
-   * low too — as low as KERNEL_PHYS_MIN, IMAGE_BASE_OFFSET below _stext. A
+   * low too — as low as PHYS_PLAUSIBLE_MIN, IMAGE_BASE_OFFSET below _stext. A
    * real 4.14 boot shows iomem "Kernel code" starting at phys 0x200. The honest
-   * top must admit it; the derived KASLR_PHYS_MIN (= _stext floor, 0x100000)
-   * would exclude it and reject the parsed low-base pin — an unsound phys
-   * window. */
-  TH_CHECK(interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KERNEL_PHYS_MIN));
+   * top must admit it; the derived KERNEL_PHYS_DEFAULT (= _stext floor,
+   * 0x100000) would exclude it and reject the parsed low-base pin — an unsound
+   * phys window. */
+  TH_CHECK(
+      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)PHYS_PLAUSIBLE_MIN));
   TH_CHECK(interval_admits(Q_PHYS_IMAGE_BASE, 0x200ul));
 #endif
 
 #if defined(__x86_64__) || defined(__amd64__)
   /* Physical text base: the honest top must admit a HIGH load address —
-   * the whole point of demoting the 16 GiB KERNEL_PHYS_MAX heuristic.
+   * the whole point of demoting the 16 GiB PHYS_PLAUSIBLE_MAX heuristic.
    * 256 GiB would fail against the old hard cap. The FLOOR is now
-   * KASLR_PHYS_MIN_WIDE (== PHYSICAL_START_MIN_PRACTICAL = 2 MiB on x86_64)
+   * PHYS_MIN_ANY_CONFIG (== PHYSICAL_START_MIN_PRACTICAL = 2 MiB on x86_64)
    * so kernels built with a non-default CONFIG_PHYSICAL_START as low as
    * 2 MiB are admitted; addresses below that minimum are excluded. */
   TH_CHECK(interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)PHYSICAL_START));
-  TH_CHECK(interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KASLR_PHYS_MIN));
   TH_CHECK(
-      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KASLR_PHYS_MIN_WIDE));
+      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KERNEL_PHYS_DEFAULT));
+  TH_CHECK(
+      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)PHYS_MIN_ANY_CONFIG));
   TH_CHECK(!interval_admits(Q_PHYS_IMAGE_BASE,
-                            (unsigned long)KASLR_PHYS_MIN_WIDE - 1ul));
+                            (unsigned long)PHYS_MIN_ANY_CONFIG - 1ul));
   TH_CHECK(interval_admits(Q_PHYS_IMAGE_BASE, 0x4000000000ul)); /* 256 GiB */
   TH_CHECK(!interval_admits(Q_PHYS_IMAGE_BASE, PHYS_ADDR_TOP + 1ul));
 

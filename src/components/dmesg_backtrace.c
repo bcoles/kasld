@@ -24,7 +24,7 @@
 //    The dump header (CPU/PID/Comm) provides the discriminator; the register
 //    value itself cannot, as the kernel image base is not yet known.
 // 3. Direct-map virtual addresses: register values that fall in the
-//    PAGE_OFFSET..KERNEL_VIRT_TEXT_MIN range. This generalises across
+//    PAGE_OFFSET..VIRT_TEXT_PLAUSIBLE_MIN range. This generalises across
 //    architectures (x86 GPRs, arm64 x0-x30, riscv a*/s*/t*).
 //
 // Leak primitive:
@@ -95,16 +95,17 @@ struct btctx {
 
 /* True if an address is in the direct-map region: at/above PAGE_OFFSET but
  * below the text and module regions. On arches where the direct map overlaps
- * text (arm32, x86_32) PAGE_OFFSET >= KERNEL_VIRT_TEXT_MIN, so this is always
- * false — correctly, those arches expose no separable direct-map window here.
+ * text (arm32, x86_32) PAGE_OFFSET >= VIRT_TEXT_PLAUSIBLE_MIN, so this is
+ * always false — correctly, those arches expose no separable direct-map window
+ * here.
  */
 static int in_directmap_range(unsigned long val) {
 #if PAGE_OFFSET
   if (val < PAGE_OFFSET) /* vacuous where PAGE_OFFSET is 0 (s390) */
     return 0;
 #endif
-#if KERNEL_VIRT_TEXT_MIN
-  if (val >= KERNEL_VIRT_TEXT_MIN)
+#if VIRT_TEXT_PLAUSIBLE_MIN
+  if (val >= VIRT_TEXT_PLAUSIBLE_MIN)
     return 0;
 #else
   /* Text floors at 0 (s390): nothing sits below it, so there is no separable
@@ -176,7 +177,7 @@ static int parse_header(const char *line, int *swapper) {
  * register line in that architecture's show_regs() output; a matched line is
  * then scanned for all its hex values (the direct-map range check discards the
  * rest). Only architectures with a *separable* direct-map window are listed —
- * i.e. PAGE_OFFSET < KERNEL_VIRT_TEXT_MIN (equivalently
+ * i.e. PAGE_OFFSET < VIRT_TEXT_PLAUSIBLE_MIN (equivalently
  * !TEXT_TRACKS_DIRECTMAP):
  *
  *   x86_64   RAX/RBX/RCX, RDX/RSI/RDI, RBP/R8/R9, R10..R15  (+ CR3)

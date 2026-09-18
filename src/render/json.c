@@ -666,9 +666,10 @@ void render_json(const struct summary *s) {
      * posture. */
     printf("      \"slide_bytes\": %ld,\n", rv->slide);
     printf("      \"entropy_bits\": %d,\n", rv->guaranteed.bits);
-    /* The set the residual is measured against, in BOTH units. ilog2 rounds,
-     * so the bit figure cannot be turned back into the count the readout states
-     * beside it ("32 of 505", where 2^9 is 512); a consumer wanting the ratio
+    /* The set the residual is measured against, in BOTH units. ilog2 rounds up,
+     * so the bit figure recovers the count only where that count happens to be
+     * a power of two -- which it is on some architectures and not others, by
+     * coincidence of where the window edges fall. A consumer wanting the ratio
      * needs the slots. Omitted entirely where no set is modelled, which is the
      * same thing a bare count says in the readout. */
     if (kasld_entropy_baseline(rv, &rv->guaranteed) > 0)

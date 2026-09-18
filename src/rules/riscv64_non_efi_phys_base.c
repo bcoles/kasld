@@ -78,7 +78,7 @@ int rule_riscv64_non_efi_phys_base(const struct evidence_set *ev,
   /* phys _stext = DRAM base + firmware placement + image head. */
   unsigned long phys_exact =
       pdram_lo + RISCV_PHYS_LOAD_OFFSET + IMAGE_BASE_OFFSET;
-  if (phys_exact < (unsigned long)KASLR_PHYS_MIN)
+  if (phys_exact < (unsigned long)KERNEL_PHYS_DEFAULT)
     return 0;
 
   struct constraint *c = &out[0];

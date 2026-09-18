@@ -116,7 +116,7 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
     if (!kaslr_off_id)
       return 0;
     /* Guard against an implausible value pushing past the top. */
-    if (image_base >= (unsigned long)KERNEL_VIRT_TEXT_MAX)
+    if (image_base >= (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX)
       return 0;
     c->value = image_base;
     {
@@ -142,7 +142,7 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
       if (image_base > ULONG_MAX - (unsigned long)IMAGE_BASE_OFFSET)
         return 0;
       c->value = image_base + (unsigned long)IMAGE_BASE_OFFSET;
-      if (c->value >= (unsigned long)KERNEL_VIRT_TEXT_MAX)
+      if (c->value >= (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX)
         return 0;
       c->op = C_EQUALS;
       c->conf = kasld_conf_min(CONF_PARSED, kaslr_off_conf);

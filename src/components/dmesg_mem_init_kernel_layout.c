@@ -182,12 +182,12 @@ static const struct layout_entry entries[] = {
      * landing below _text. The head-gap arches (riscv/s390) report their image
      * span via the "kernel : 0x" / "vmalloc area:" needles. */
     {".text : 0x", KASLD_TYPE_VIRT, "kernel image base (.text)",
-     REGION_KERNEL_IMAGE, KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX,
+     REGION_KERNEL_IMAGE, VIRT_TEXT_PLAUSIBLE_MIN, VIRT_TEXT_PLAUSIBLE_MAX,
      LK_IMAGE_BASE},
     {".data : 0x", KASLD_TYPE_VIRT, "kernel .data start", REGION_KERNEL_DATA,
      KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},
     {".bss  : 0x", KASLD_TYPE_VIRT, "kernel .bss start", REGION_KERNEL_BSS,
-     KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
+     VIRT_TEXT_PLAUSIBLE_MIN, VIRT_TEXT_PLAUSIBLE_MAX, LK_BASE},
     /* riscv print_vm_layout() prints the kernel image span as
      * "kernel : 0x<virt_addr> - 0x<end>"; the low edge is kernel_map.virt_addr
      * = _start (KERNEL_LINK_ADDR, the image LOAD address), which on riscv sits
@@ -198,7 +198,7 @@ static const struct layout_entry entries[] = {
      * LK_BASE takes the first address; the high edge (ADDRESS_SPACE_END) is a
      * fixed VAS bound. */
     {"kernel : 0x", KASLD_TYPE_VIRT, "kernel image start", REGION_KERNEL_IMAGE,
-     KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
+     VIRT_TEXT_PLAUSIBLE_MIN, VIRT_TEXT_PLAUSIBLE_MAX, LK_BASE},
     {"lowmem  : 0x", KASLD_TYPE_VIRT, "kernel lowmem start", REGION_DIRECTMAP,
      KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},
     {"modules : 0x", KASLD_TYPE_VIRT, "kernel modules start",

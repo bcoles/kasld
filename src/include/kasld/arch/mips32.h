@@ -63,9 +63,9 @@
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffful
 
-#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
+#define VIRT_TEXT_PLAUSIBLE_MIN PAGE_OFFSET
 // Above this, addresses fall in the module region (kseg2).
-#define KERNEL_VIRT_TEXT_MAX 0xc0000000ul
+#define VIRT_TEXT_PLAUSIBLE_MAX 0xc0000000ul
 
 // Where the module band is anchored: a fixed address range, independent of both
 // the image and the linear map.
@@ -134,8 +134,8 @@
 #define STEXT_OFFSET_MAX 0x400ul
 
 // Plausible physical address range for kernel image
-#define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (512ul * MB)
+#define PHYS_PLAUSIBLE_MIN 0ul
+#define PHYS_PLAUSIBLE_MAX (512ul * MB)
 
 // Default: 0x80100000 (kseg0 + 1 MiB standard load offset). _stext is a
 // projection at +STEXT_OFFSET (0x80100400), not the image base.
@@ -146,7 +146,7 @@
 // architectures. Kernel source: arch/mips/kernel/vmlinux.lds.S,
 // arch/mips/kernel/head.S
 #define KERNEL_VIRT_TEXT_DEFAULT                                               \
-  (KERNEL_VIRT_TEXT_MIN + 0x100000ul + IMAGE_BASE_OFFSET)
+  (VIRT_TEXT_PLAUSIBLE_MIN + 0x100000ul + IMAGE_BASE_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

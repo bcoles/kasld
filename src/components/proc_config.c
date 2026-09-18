@@ -198,18 +198,33 @@ static FILE *open_proc_config(void) {
 #endif
 }
 
-static int kaslr_disabled_from_config(FILE *fp) {
-  /* Non-zero is "not compiled out": 1 for the CONFIG_RANDOMIZE_BASE=y line,
-   * and -1 where the config carried neither that nor the "is not set" comment
-   * -- a truncated or partly read file, which is no evidence the option is
-   * unset. Only an explicit 0 asserts disabled. */
-  if (kconfig_has_kaslr(fp) != 0)
-    return 0;
-
-  kasld_info(
-      "Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
-      " (KASLR not compiled in)");
-  return 1;
+/* CONFIG_RANDOMIZE_BASE, answered in both directions from one read.
+ *
+ * kconfig_has_kaslr is a tri-state and each answer says something different, so
+ * none of them is the absence of another. 0 is the option explicitly unset: the
+ * binary was built without KASLR support entirely, so both placements use
+ * compile-time defaults, and virt_kaslr_disabled_pin / phys_kaslr_disabled_pin
+ * each gate by its arch macro plus window-containment to decide whether to pin.
+ * 1 is worth stating in its own right: the option selects compile-time sizes
+ * that hold whether or not the randomizer ran this boot, which is what
+ * module_base_execmem_window needs in order to know where the module region
+ * begins. -1 is a truncated read and asserts nothing. */
+static void emit_randomize_base(FILE *fp) {
+  switch (kconfig_has_kaslr(fp)) {
+  case 0:
+    kasld_info(
+        "Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
+        " (KASLR not compiled in)");
+    kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+    kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
+    break;
+  case 1:
+    kasld_info("CONFIG_RANDOMIZE_BASE=y (KASLR compiled in)");
+    kasld_emit_scalar(SF_KASLR_COMPILED_IN, 1, CONF_PARSED);
+    break;
+  default:
+    break;
+  }
 }
 
 int main(void) {
@@ -248,16 +263,7 @@ int main(void) {
     kasld_emit_scalar(SF_PHYS_KERNEL_ALIGN, phys_align, CONF_PARSED);
   }
 
-  /* KASLR-off detection. CONFIG_RANDOMIZE_BASE=n in /proc/config.gz means
-   * the kernel binary was built without KASLR support — both virtual and
-   * physical placement use compile-time defaults. virt_kaslr_disabled_pin
-   * and phys_kaslr_disabled_pin each gate by its arch macro
-   * (KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS) + window-
-   * containment. */
-  if (kaslr_disabled_from_config(fp)) {
-    kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
-    kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
-  }
+  emit_randomize_base(fp);
 
   /* CONFIG_KASAN=y forces the direct-map randomization off at runtime —
    * kaslr_memory_enabled() = kaslr_enabled() && !IS_ENABLED(CONFIG_KASAN) —

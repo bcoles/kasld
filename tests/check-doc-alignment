@@ -15,15 +15,26 @@
 # the row:
 #
 #     doc `kernel_alignment` column  ==  the row's Grain
-#     doc `Image-base slots` column  ==  the denominator of its Candidates
 #
 # Deliberately end-to-end rather than a read of the capture's setup header. The
 # header value is what the document names, but what the document CLAIMS is that
-# the value reaches the readout and thins the slot count in proportion. Reading
-# the header would confirm the input and leave the claim untested; running the
-# tool tests the sentence that was actually written. It therefore also catches
-# an engine or renderer change that stops the value being honoured, which a
-# byte-comparison never would.
+# the value reaches the readout. Reading the header would confirm the input and
+# leave the claim untested; running the tool tests the sentence that was
+# actually written. It therefore also catches an engine or renderer change that
+# stops the value being honoured, which a byte-comparison never would.
+#
+# The `Image-base slots` column is NOT checked. It used to be compared against
+# the denominator of the row's Candidates, and the two have since become
+# different quantities. The document states the slots a DEFAULT build randomizes
+# over; the readout's denominator is the set the engine started from, which spans
+# every configuration the architecture admits. On x86_64 that is 505 against 512
+# -- close enough to look comparable and wrong to assert, since the two agree at
+# 16 MiB and differ at 2 MiB for reasons that have nothing to do with each other.
+# The slot figure in the document is arithmetic on the window and the grain, both
+# stated in the prose around the table, and stays there because it is what the
+# sentence is about. Should a per-architecture window ever be derived from
+# resolved facts and published as the denominator, the two would name the same
+# thing again and the comparison would belong back here.
 #
 # Rows are read from the table marked in the document, so the guard and the
 # prose cannot disagree about which figures are under test:
@@ -125,7 +136,6 @@ echo "$rows" | while IFS= read -r row; do
   capture=$(printf '%s' "$row" | tr -d "$BQ" |
     awk -F'|' '{ gsub(/^ +| +$/, "", $2); print $2 }')
   want_grain=$(printf '%s' "$row" | awk -F'|' '{gsub(/^ +| +$/,"",$3); print $3}')
-  want_slots=$(printf '%s' "$row" | awk -F'|' '{gsub(/^ +| +$/,"",$4); print $4}')
   [ -n "$capture" ] || continue
 
   dir="$ROOT/tests/fixtures/$arch/$capture"
@@ -142,9 +152,7 @@ echo "$rows" | while IFS= read -r row; do
     continue
   }
 
-  # The guaranteed virtual image-base row carries both figures. `Candidates` is
-  # `N of M` where M is the set the row narrows -- the slot count the document
-  # states -- and `Grain` is its spacing.
+  # The guaranteed virtual image-base row carries the grain in its last column.
   line=$(KASLD_SYSROOT="$dir/sysroot" "$bin" -q 2>/dev/null |
     sed -n 's/^  Virtual Image Base   guaranteed  //p' | head -n 1)
   if [ -z "$line" ]; then
@@ -153,20 +161,14 @@ echo "$rows" | while IFS= read -r row; do
     continue
   fi
   got_grain=$(printf '%s' "$line" | sed -n 's/.*  \([0-9]* [KMG]iB\) *$/\1/p')
-  got_slots=$(printf '%s' "$line" | sed -n 's/.*[0-9] of \([0-9]*\)  .*/\1/p')
 
-  ok=1
   if [ "$got_grain" != "$want_grain" ]; then
     printf '  %s: document says grain %s, readout says %s\n' \
       "$capture" "$want_grain" "${got_grain:-<none>}"
-    ok=0
+    echo BAD >>"$ROOT/.doc-align.$$"
+  else
+    echo OK >>"$ROOT/.doc-align.$$"
   fi
-  if [ "$got_slots" != "$want_slots" ]; then
-    printf '  %s: document says %s slots, readout says %s\n' \
-      "$capture" "$want_slots" "${got_slots:-<none>}"
-    ok=0
-  fi
-  [ "$ok" -eq 1 ] && echo OK >>"$ROOT/.doc-align.$$" || echo BAD >>"$ROOT/.doc-align.$$"
 done
 
 # The loop above runs in a subshell (piped from `echo`), so its tallies come back

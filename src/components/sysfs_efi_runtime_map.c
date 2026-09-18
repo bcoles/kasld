@@ -192,7 +192,7 @@ int main(void) {
     unsigned long virt_page_offset = virt - phys;
     if (!kasld_addr_in_window(virt_page_offset,
                               (unsigned long)KERNEL_VIRT_VAS_START,
-                              (unsigned long)KERNEL_VIRT_TEXT_MIN))
+                              (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN))
       continue;
 
     kasld_info("EFI runtime entry %s: virt=0x%016lx phys=0x%016lx"

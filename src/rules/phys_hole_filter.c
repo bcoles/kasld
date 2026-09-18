@@ -103,7 +103,7 @@ int rule_phys_hole_filter(const struct evidence_set *ev,
       new_max = hi[i];
       found = 1;
     }
-  if (!found || new_max <= KASLR_PHYS_MIN)
+  if (!found || new_max <= KERNEL_PHYS_DEFAULT)
     return 0;
 
   struct constraint *c = &out[0];

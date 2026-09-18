@@ -121,8 +121,9 @@ static void test_boot_params_e820_covering(void) {
 
 /* ACPI data (type 3) and ACPI NVS (type 4) entries are emitted as forbidden
  * bands (REGION_ACPI_TABLE / REGION_ACPI_NVS). A band entirely below
- * KASLR_PHYS_MIN is skipped: the image is never placed that low, so it would
- * exclude nothing and is the only band that could perturb a DRAM floor. */
+ * KERNEL_PHYS_DEFAULT is skipped: the image is never placed that low, so it
+ * would exclude nothing and is the only band that could perturb a DRAM floor.
+ */
 static void test_boot_params_e820_acpi_bands(void) {
   memset(zp, 0, sizeof(zp));
   e820_set(0, 0x1000, 0xbffdf000, E820_TYPE_RAM);   /* RAM low             */
@@ -138,7 +139,7 @@ static void test_boot_params_e820_acpi_bands(void) {
       strstr(cap,
              "acpi_nvs pos=base conf=parsed lo=0xbf000000 hi=0xbf00ffff") !=
       NULL);
-  /* the sub-KASLR_PHYS_MIN ACPI band is not emitted */
+  /* the sub-KERNEL_PHYS_DEFAULT ACPI band is not emitted */
   TH_CHECK(strstr(cap, "lo=0x1000 hi=0x1fff") == NULL);
 }
 

@@ -69,8 +69,8 @@
 <text class="val" x="160.0" y="424" fill="#90a4ae">no KASLR in mainline</text>
 <text class="note" x="24" y="466">Best and worst case across configurations, with KASLR enabled. The configs that set an end: arm64 spans two placement formulas as well as every VA_BITS -- its</text>
 <text class="note" x="24" y="483">low end is VA_BITS 36 under the older 2 MiB-granular formula and its high end VA_BITS 48 under the current one, the VA_BITS 39 common on Android giving 16</text>
-<text class="note" x="24" y="500">and 21 respectively. s390 floors at CONFIG_KERNEL_IMAGE_BASE and reaches 39 only on 4-level paging, which CONFIG_KASAN alone selects; older s390 kernels</text>
-<text class="note" x="24" y="517">instead randomise within physical memory, so their entropy tracks guest RAM rather than a configuration choice, falling away entirely on a small enough guest.</text>
+<text class="note" x="24" y="500">and 21 respectively. s390 floors at a 2 GiB window and reaches 39 only on 4-level paging, which a large guest selects; KASAN selects it</text>
+<text class="note" x="24" y="517">too but quadruples the slot pitch, capping near 37. Older s390 kernels randomise within physical memory, so their entropy tracks guest RAM instead.</text>
 <text class="note" x="24" y="534">mips32 reaches 14 only with EVA; x86 spans CONFIG_PHYSICAL_ALIGN, 2 MiB to 16 MiB. What survives a given vantage is a separate question, answered by the</text>
 <text class="note" x="24" y="551">residual matrix in reproducibility.md. MIPS and LoongArch end at 7 rather than the 8 their default window would suggest: a draw that would place the image over</text>
 <text class="note" x="24" y="568">itself is pushed past it, so the bottom of the window is never used.</text>

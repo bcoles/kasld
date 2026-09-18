@@ -165,8 +165,8 @@ static inline void kasld_perf_min_cb(unsigned long a, enum kasld_perf_br kind,
   struct kasld_perf_min *m = (struct kasld_perf_min *)ctx;
   if (m->from_only && kind != KASLD_PERF_FROM)
     return;
-  if (a < (unsigned long)KERNEL_VIRT_TEXT_MIN ||
-      a > (unsigned long)KERNEL_VIRT_TEXT_MAX)
+  if (a < (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN ||
+      a > (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX)
     return;
   m->n++;
   if (a < m->min_addr)

@@ -88,8 +88,8 @@ static enum tb_class classify_timer_base(unsigned long val) {
   if (val & (TIMER_BASE_ALIGN - 1))
     return TB_HASHED;
   /* Direct-map range: PAGE_OFFSET to start of kernel text. On 32-bit or coupled
-   * arches that window is empty (PAGE_OFFSET == KERNEL_VIRT_TEXT_MIN), so the
-   * kernel-VAS fallback accepts any kernel VA. */
+   * arches that window is empty (PAGE_OFFSET == VIRT_TEXT_PLAUSIBLE_MIN), so
+   * the kernel-VAS fallback accepts any kernel VA. */
   if (kasld_addr_is_directmap(val) || kasld_addr_is_kernel_vas(val))
     return TB_CANDIDATE;
   return TB_SKIP;

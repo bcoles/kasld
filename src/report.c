@@ -203,6 +203,60 @@ static int report_bits(unsigned long v) {
   return r;
 }
 
+/* Whether this quantity's honest top is a WINDOW the value was placed within,
+ * as opposed to a bound on how wide an address can be.
+ *
+ * It decides whether the a-priori count may stand as a denominator when no
+ * proved window is available. The distinction is the difference between "one of
+ * the 512 placements this architecture admits" and "one of the 2^31 addresses
+ * that fit" -- the first is a derandomization result, the second is a property
+ * of the pointer. It follows from which constant quantities.c seeds the top
+ * with, so it is a question about the quantity, answered per architecture only
+ * where the architecture changes what that constant means.
+ *
+ * The image base's top is [VIRT_TEXT_MIN_ANY_CONFIG, VIRT_TEXT_MAX_ANY_CONFIG],
+ * which the arch headers define as the widest placement any build admits: a
+ * window, loose on an architecture with several VA layouts but a window still.
+ * That holds only where the architecture randomizes the base at all. Where it
+ * does not, the same constants bound where a bootloader may have put the image
+ * -- a real unknown, and one this tool narrows, but not a set the kernel drew
+ * from. A ratio against it would read as entropy that was never there, so those
+ * architectures state the count alone.
+ *
+ * The physical base has no counterpart and can have none -- where a kernel
+ * lands physically is set by where the board puts DRAM, so its top is
+ * PHYS_ADDR_TOP, an address width. The memory-KASLR regions are drawn from a
+ * shared RAM budget rather than from the address space their top spans; the
+ * two that can prove that budget receive it through points[], and the third
+ * states a bare count rather than counting the whole kernel VAS. */
+static int q_top_is_window(enum kasld_quantity q) {
+  switch (q) {
+  case Q_VIRT_IMAGE_BASE:
+    return KASLR_SUPPORTED;
+  case Q_MODULE_BASE:
+    /* The module band is a declared region, but on most architectures it is not
+     * a set the base was DRAWN from: it is fixed, it rides the text slide, or
+     * it brackets the image. Counting it would state a reduction against
+     * addresses the allocator never chose among. Where an architecture does
+     * randomize the base within a span of its own, q_entropy_top supplies that
+     * span and this fallback is not reached. */
+    return 0;
+  case Q_VA_BITS:
+    /* Moot: a finite set is its own denominator, and RSHAPE_SET is read from
+     * search_top directly without passing through here. */
+    return 1;
+  case Q_PHYS_IMAGE_BASE:
+  case Q_PAGE_OFFSET:
+  case Q_VMALLOC_BASE:
+  case Q_VMEMMAP_BASE:
+  case Q_VIRT_KASLR_ALIGN:
+  case Q_PHYS_KASLR_ALIGN:
+  case Q__COUNT:
+    return 0;
+  }
+  return 0;
+}
+
 /* The window the kernel's own randomization draws from, in candidates.
  *
  * A static property of the architecture, so it is read from the arch header
@@ -211,18 +265,26 @@ static int report_bits(unsigned long v) {
  * for the quantity: the memory-KASLR regions are bounded by a budget derived
  * from observed RAM rather than by a constant, so their denominator is resolved
  * rather than declared and does not belong here. A finite set is its own
- * denominator and needs none. */
+ * denominator and needs none.
+ *
+ * The image bases are zero for the same reason, which the constants' names say
+ * outright: the only arch-declared window for them is the DEFAULT_CONFIG pair,
+ * and that holds for a default build rather than for the kernel being measured.
+ * Published as a denominator it states a figure that is wrong wherever the
+ * build differs -- an arm64 kernel at VA_BITS 39 randomises over 22 bits
+ * against a declared 31; a 3-level s390 over at most 28 against a declared 39.
+ * Where the window IS derivable from resolved facts it reaches the item through
+ * the caller's points[], the same route the memory regions take.
+ *
+ * Zero here does not mean the row goes without a denominator. It means this
+ * function has nothing to say, and the caller falls back to the set the engine
+ * started from -- see the two tiers where entropy_top is assigned. */
 static unsigned long q_entropy_top(enum kasld_quantity q, unsigned long grain) {
   unsigned long lo = 0, hi = 0;
   switch (q) {
   case Q_VIRT_IMAGE_BASE:
-    lo = (unsigned long)KASLR_VIRT_TEXT_MIN;
-    hi = (unsigned long)KASLR_VIRT_TEXT_MAX;
-    break;
   case Q_PHYS_IMAGE_BASE:
-    lo = (unsigned long)KASLR_PHYS_MIN;
-    hi = (unsigned long)KASLR_PHYS_MAX;
-    break;
+    return 0;
 #if defined(MODULES_BASE_RANDOMIZED) && defined(MODULES_BASE_RANDOM_SPAN)
   case Q_MODULE_BASE:
     /* The allocator draws the module base from a span above a fixed point,
@@ -393,7 +455,7 @@ static void collect_holes(struct kasld_report_window *w, enum kasld_quantity q,
  * nothing has bounded yet. Testing the value dropped a pin at zero; admitting
  * the binding as well then discarded a proven ceiling wherever the floor the
  * architecture states happens to be zero -- which is every architecture
- * defining no KASLR_PHYS_MIN, for the physical base.
+ * defining no KERNEL_PHYS_DEFAULT, for the physical base.
  *
  * An alignment is the one genuinely one-sided quantity, and for a structural
  * reason rather than an evidential one: it states a floor and has no ceiling to
@@ -496,11 +558,33 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
         it->search_top =
             quantity_slots(q, &top, guaranteed.floor, NULL, 0, grain);
     }
-    /* The caller's denominator where it has one -- it may know a window the
-     * builder cannot derive -- and the architecture's own otherwise. */
+    /* The set the residual is stated against, in two tiers.
+     *
+     * First a window PROVED from this run: the caller may know one the builder
+     * cannot derive -- the memory regions' RAM budget is the worked example --
+     * and an architecture that declares its own randomization window supplies
+     * it through q_entropy_top. Either is the set the kernel actually drew
+     * from, so it is the tightest honest denominator there is.
+     *
+     * Failing that, and only where the quantity's honest top is a WINDOW, the
+     * set the engine started from: search_top, the top counted at the same
+     * grain the resolved window is counted at. That is an upper bound on the
+     * kernel's window rather than the window itself, since an architecture
+     * admitting several layouts has to seed a top spanning all of them -- so
+     * the reduction it implies is a ceiling, which is what the output contract
+     * already says of this figure. It is never BELOW the numerator: the
+     * resolved window is a subset of the top it narrowed from, counted on the
+     * same grain, and the top is counted with no holes carved while the
+     * numerator carries them -- so an exclusion-only narrowing shows in the
+     * ratio rather than hiding behind an unchanged hull.
+     *
+     * Assigned here rather than at the two places that read it, so the count
+     * and the bit figure below cannot answer this question differently. */
     it->entropy_top = (points && points[q].entropy_top)
                           ? points[q].entropy_top
                           : q_entropy_top(q, grain);
+    if (it->entropy_top == 0 && q_top_is_window(q))
+      it->entropy_top = it->search_top;
 
     build_window(&it->guaranteed, q, guaranteed, grain);
     build_window(&it->likely, q, likely, grain);

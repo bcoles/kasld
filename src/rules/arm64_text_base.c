@@ -27,7 +27,7 @@
 //   Consequently:
 //     * PAGE_OFFSET == 0xffff800000000000 (va == 47) is ambiguous (modern VA47
 //       or pre-v5.4 VA48) — emit NO floor. The honest-top floor
-//       KASLR_VIRT_TEXT_MIN_WIDE (the lowest KIMAGE across all layouts) already
+//       VIRT_TEXT_MIN_ANY_CONFIG (the lowest KIMAGE across all layouts) already
 //       bounds below and admits the low old-VA48 image. Forcing the modern
 //       _PAGE_END(47)+128M floor here would exclude that image — unsound.
 //     * ANY OTHER resolved PAGE_OFFSET (va in {39,42,48,52}) proves the modern
@@ -72,7 +72,7 @@
 /* Widest plausible KASLR offset above KIMAGE_VADDR for VA_BITS_MIN, from the
  * v6.6 kaslr_early.c formula BIT(VA_BITS_MIN-3) + GENMASK(VA_BITS_MIN-3, 0)
  * (>= the v6.12 window). For VA_BITS_MIN=48 this is (1<<45)+(1<<46), so
- * KIMAGE_VADDR(48) + this == KASLR_VIRT_TEXT_MAX. */
+ * KIMAGE_VADDR(48) + this == VIRT_TEXT_MAX_DEFAULT_CONFIG. */
 static unsigned long arm64_kaslr_offset_max(unsigned long va_min) {
   return (1UL << (va_min - 3)) + (1UL << (va_min - 2));
 }

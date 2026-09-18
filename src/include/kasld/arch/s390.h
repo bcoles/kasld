@@ -169,8 +169,8 @@
 //   MiB)
 // With KASLR, the kernel is placed near the top of the ASCE limit within a
 // 2 GiB window (KASLR_LEN = 1 << 31).
-#define KERNEL_VIRT_TEXT_MIN 0ul
-#define KERNEL_VIRT_TEXT_MAX 0x20000000000000ul
+#define VIRT_TEXT_PLAUSIBLE_MIN 0ul
+#define VIRT_TEXT_PLAUSIBLE_MAX 0x20000000000000ul
 
 // Modules: 2 GiB (MODULES_LEN = 1 << 31) placed immediately below the kernel
 // image base. MODULES_END = round_down(__kaslr_offset, _SEGMENT_SIZE) ≈
@@ -238,10 +238,10 @@
 
 // Plausible physical address range for kernel image base (__kaslr_offset_phys).
 // Physical text address = __kaslr_offset_phys + IMAGE_BASE_OFFSET >=
-// IMAGE_BASE_OFFSET. KERNEL_PHYS_MAX is a RAM heuristic (a defeasible ceiling),
-// NOT an architectural limit. The honest top is PHYS_ADDR_TOP below.
-#define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (64ul * GB)
+// IMAGE_BASE_OFFSET. PHYS_PLAUSIBLE_MAX is a RAM heuristic (a defeasible
+// ceiling), NOT an architectural limit. The honest top is PHYS_ADDR_TOP below.
+#define PHYS_PLAUSIBLE_MIN 0ul
+#define PHYS_PLAUSIBLE_MAX (64ul * GB)
 
 // Honest architectural phys top: 2^MAX_PHYSMEM_BITS. s390
 // CONFIG_MAX_PHYSMEM_BITS ranges 42..53 (default 46), so 53 bits (8 PiB) is the
@@ -261,42 +261,52 @@
 // the maximum is vmax - image_size (boot-time, tracks the ASCE limit).
 // On 4-level systems vmax = 8 PiB, so _stext can be anywhere from
 // CONFIG_KERNEL_IMAGE_BASE up to ~8 PiB — a much wider range than 3-level.
-#define KASLR_VIRT_TEXT_MIN (0x3FFE0000000ul + IMAGE_BASE_OFFSET)
-#define KASLR_VIRT_TEXT_MAX KERNEL_VIRT_TEXT_MAX
+#define VIRT_TEXT_MIN_DEFAULT_CONFIG (0x3FFE0000000ul + IMAGE_BASE_OFFSET)
+#define VIRT_TEXT_MAX_DEFAULT_CONFIG VIRT_TEXT_PLAUSIBLE_MAX
 
-/* Honest-top floor for Q_VIRT_IMAGE_BASE. KASLR_VIRT_TEXT_MIN is the modern
- * (v6.10+ CONFIG_KERNEL_IMAGE_BASE) high-kernel KASLR floor (~4 TiB). Pre-v6.10
- * kernels run identity-mapped: kernel text lives near address 0 (image base at
- * the bottom of RAM, _stext at IMAGE_BASE_OFFSET = 0x100000). With no narrowing
- * leak (the unprivileged/hardened case) flooring Q_VIRT_IMAGE_BASE at the
- * modern KASLR_VIRT_TEXT_MIN would report a window EXCLUDING that low
- * identity-mapped text base — unsound. Widen the floor to 0 (the identity-map
- * base) so the honest window admits both the identity-mapped and the high
- * relocated layouts. 0 is not a conservative stand-in for a low address: the
- * linker script placed _text at absolute 0 before the image moved to 0x100000,
- * so an image base of exactly 0 is a value this window has to contain. The
- * validation range floors at 0 alongside it, since a text address the window
- * admits must not be rejected as implausible. Widen-only — never narrows — so
- * it cannot eliminate a true leak; a real text or module leak narrows
- * Q_VIRT_IMAGE_BASE back up. The trade-off is a very loose unresolved window
- * ([0, ASCE limit]); soundness across kernels without trusting version numbers
- * takes priority over tightness. */
-#define KASLR_VIRT_TEXT_MIN_WIDE 0ul
+/* Honest-top floor for Q_VIRT_IMAGE_BASE. VIRT_TEXT_MIN_DEFAULT_CONFIG is the
+ * modern (v6.10+ CONFIG_KERNEL_IMAGE_BASE) high-kernel KASLR floor (~4 TiB).
+ * Pre-v6.10 kernels run identity-mapped: kernel text lives near address 0
+ * (image base at the bottom of RAM, _stext at IMAGE_BASE_OFFSET = 0x100000).
+ * With no narrowing leak (the unprivileged/hardened case) flooring
+ * Q_VIRT_IMAGE_BASE at the modern VIRT_TEXT_MIN_DEFAULT_CONFIG would report a
+ * window EXCLUDING that low identity-mapped text base — unsound. Widen the
+ * floor to 0 so the honest window admits both the identity-mapped and the high
+ * relocated layouts.
+ *
+ * 0 is a conservative stand-in, deliberately, and the temptation is to replace
+ * it with a tighter value read off the old linker script — which opens at
+ * `. = 0x00000000;` and then sets `_text = 0x200;`. That 0x200 is not a layout
+ * fact and must not be used as one. The script gives its own reason: perf
+ * dislikes a symbol at address zero, so _text skips the initial PSW and channel
+ * program. The megabyte it sits in was cut off the image before loading, by an
+ * `.org 0x100000` in head64.S and a `tail -c` trim in the boot Makefile, both
+ * removed once the image was simply linked at 0x100000. So the symbol points at
+ * padding that was never loaded, the era offers no sound floor to read, and 0
+ * stands because nothing better can be derived — not because 0 is attainable.
+ *
+ * The validation range floors at 0 alongside it, since a text address the
+ * window admits must not be rejected as implausible. Widen-only — never
+ * narrows — so it cannot eliminate a true leak; a real text or module leak
+ * narrows Q_VIRT_IMAGE_BASE back up. The trade-off is a very loose unresolved
+ * window ([0, ASCE limit]); soundness across kernels without trusting version
+ * numbers takes priority over tightness. */
+#define VIRT_TEXT_MIN_ANY_CONFIG 0ul
 
 /* Honest-top floor for Q_PHYS_IMAGE_BASE. Without an explicit floor the generic
- * chain sets KASLR_PHYS_MIN = KERNEL_PHYS_MIN + IMAGE_BASE_OFFSET = 0x100000 —
- * that is the minimum physical _stext, but Q_PHYS_IMAGE_BASE solves the
- * physical IMAGE base (_text = __kaslr_offset_phys), which sits
- * IMAGE_BASE_OFFSET below _stext and can be as low as KERNEL_PHYS_MIN (0). A
+ * chain sets KERNEL_PHYS_DEFAULT = PHYS_PLAUSIBLE_MIN + IMAGE_BASE_OFFSET =
+ * 0x100000 — that is the minimum physical _stext, but Q_PHYS_IMAGE_BASE solves
+ * the physical IMAGE base (_text = __kaslr_offset_phys), which sits
+ * IMAGE_BASE_OFFSET below _stext and can be as low as PHYS_PLAUSIBLE_MIN (0). A
  * pre-v6.10 identity-mapped kernel loads the image at the bottom of RAM
  * (physical _text near 0; a real 4.14 boot shows iomem "Kernel code" starting
  * at 0x200), below 0x100000 — flooring Q_PHYS_IMAGE_BASE at 0x100000 reports a
  * window EXCLUDING that base, and rejects the parsed low-base pin, unsound.
- * Widen the floor to KERNEL_PHYS_MIN so the honest window admits the low
+ * Widen the floor to PHYS_PLAUSIBLE_MIN so the honest window admits the low
  * identity-mapped image base. Widen-only — a real physical leak (iomem "Kernel
  * code", firmware reservation) narrows Q_PHYS_IMAGE_BASE back up. Mirrors
- * KASLR_VIRT_TEXT_MIN_WIDE on the virtual side. */
-#define KASLR_PHYS_MIN_WIDE KERNEL_PHYS_MIN
+ * VIRT_TEXT_MIN_ANY_CONFIG on the virtual side. */
+#define PHYS_MIN_ANY_CONFIG PHYS_PLAUSIBLE_MIN
 
 // Default kernel text virtual address without KASLR.
 // CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.10) default = 0x3FFE0000000

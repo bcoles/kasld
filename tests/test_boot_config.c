@@ -46,6 +46,12 @@ static const char *CFG =
  * run still emits a fact the assertions can key a positive on. */
 static const char *PARTIAL_CFG = "CONFIG_PHYSICAL_START=0x1000000\n";
 
+/* KASLR compiled IN. The third answer the option has, and not the absence of
+ * the other two: it fixes the compile-time sizes the option selects, which is
+ * what module_base_execmem_window reads. */
+static const char *ENABLED_CFG =
+    "CONFIG_RANDOMIZE_BASE=y\nCONFIG_PHYSICAL_START=0x1000000\n";
+
 static void write_file(const char *rel, const char *content) {
   th_sysroot_write(rel, content);
 }
@@ -163,6 +169,35 @@ static void test_partial_config_asserts_nothing(void) {
   TH_CHECK(strstr(cap, "physical_start") != NULL);
   TH_CHECK(strstr(cap, "virt_kaslr_disabled") == NULL);
   TH_CHECK(strstr(cap, "phys_kaslr_disabled") == NULL);
+  /* Nor the positive: a file that never reached the line says nothing in
+   * either direction, and claiming the option from silence would license the
+   * module window on a kernel that may not have it. */
+  TH_CHECK(strstr(cap, "kaslr_compiled_in") == NULL);
+}
+
+/* CONFIG_RANDOMIZE_BASE=y is stated in its own right rather than inferred from
+ * the absence of the disabled signal, and carries the provenance of the file it
+ * came from -- an unkeyed config is not bound to the running kernel, so its
+ * answer stays below the guaranteed floor like every other fact from it. */
+static void test_enabled_config_states_the_option(void) {
+  char keyed[300];
+  stage_identity();
+  snprintf(keyed, sizeof(keyed), "/boot/config-%s", STAGED_RELEASE);
+  write_file(keyed, ENABLED_CFG);
+  run_capture();
+  rm_file(keyed);
+
+  TH_CHECK(strstr(cap, "kaslr_compiled_in conf=parsed") != NULL);
+  /* The option is set, so neither disabled fact may fire. */
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled") == NULL);
+  TH_CHECK(strstr(cap, "phys_kaslr_disabled") == NULL);
+
+  write_file("/boot/config", ENABLED_CFG);
+  run_capture();
+  rm_file("/boot/config");
+
+  TH_CHECK(strstr(cap, "kaslr_compiled_in conf=heuristic") != NULL);
+  TH_CHECK(strstr(cap, "conf=parsed") == NULL);
 }
 
 int main(void) {
@@ -174,5 +209,6 @@ int main(void) {
   RUN(test_keyed_config_is_parsed);
   RUN(test_keyed_beats_unkeyed);
   RUN(test_partial_config_asserts_nothing);
+  RUN(test_enabled_config_states_the_option);
   return TEST_DONE();
 }

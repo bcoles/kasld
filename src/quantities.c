@@ -79,45 +79,42 @@ static void top_finset(struct estimate *e, int n) {
 
 static void top_virt_image_base(struct estimate *e) {
   /* The virtual kernel-text base lives in the virtual KASLR window
-   * [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX_WIDE] — fixed per-arch by
+   * [VIRT_TEXT_MIN_ANY_CONFIG, VIRT_TEXT_MAX_ANY_CONFIG] — fixed per-arch by
    * the kernel's VA layout (unlike the physical base, this does not depend on
    * DRAM placement), so it is a sound and tighter honest top than the raw
-   * mapping-region bounds KERNEL_VIRT_TEXT_MIN/MAX.
+   * mapping-region bounds VIRT_TEXT_PLAUSIBLE_MIN/MAX.
    *
-   * Both edges are the conservative (_WIDE) variants: same value as
-   * KASLR_VIRT_TEXT_MIN/MAX where the arch's KASLR window already spans every
-   * layout, wider where it does not (x86_64 CONFIG_PHYSICAL_START at the floor;
-   * arm64 sub-48 VA_BITS at the ceiling).
-   *
-   * The _WIDE floor is the conservative variant of KASLR_VIRT_TEXT_MIN — same
-   * value where the arch's KASLR_VIRT_TEXT_MIN does not bake in a configurable
-   * Kconfig knob; *wider* on arches like x86_64 where KASLR_VIRT_TEXT_MIN
-   * embeds CONFIG_PHYSICAL_START at its compile-time default. The
+   * Both edges are the ANY_CONFIG variants, which is what a top requires: the
+   * DEFAULT_CONFIG pair holds only for a default build, and a top has to
+   * contain every value the quantity can take on this arch. They are the same
+   * number wherever the arch's window already spans every layout, and wider
+   * where it does not — x86_64 CONFIG_PHYSICAL_START at the floor, arm64
+   * sub-48 VA_BITS at the ceiling. The
    * physical_start_lower_bound rule restores the tight floor at the
    * appropriate confidence (CONF_PARSED from a learned SF_PHYSICAL_START,
    * CONF_HEURISTIC from the compile-time default — overridable by any
    * real evidence). */
-  top_interval(e, (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE,
-               (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
+  top_interval(e, (unsigned long)VIRT_TEXT_MIN_ANY_CONFIG,
+               (unsigned long)VIRT_TEXT_MAX_ANY_CONFIG);
 }
 
 static void top_phys_image_base(struct estimate *e) {
   /* Floor: the arch's minimum physical load address. Same widening
-   * rationale as top_virt_image_base — KASLR_PHYS_MIN_WIDE is the
-   * conservative variant of KASLR_PHYS_MIN. */
-#if defined(KASLR_PHYS_MIN_WIDE)
-  unsigned long lo = (unsigned long)KASLR_PHYS_MIN_WIDE;
-#elif defined(KASLR_PHYS_MIN)
-  unsigned long lo = (unsigned long)KASLR_PHYS_MIN;
+   * rationale as top_virt_image_base — PHYS_MIN_ANY_CONFIG is the
+   * conservative variant of KERNEL_PHYS_DEFAULT. */
+#if defined(PHYS_MIN_ANY_CONFIG)
+  unsigned long lo = (unsigned long)PHYS_MIN_ANY_CONFIG;
+#elif defined(KERNEL_PHYS_DEFAULT)
+  unsigned long lo = (unsigned long)KERNEL_PHYS_DEFAULT;
 #else
   unsigned long lo = 0ul;
 #endif
 #if defined(PHYS_ADDR_TOP)
   top_interval(e, lo, (unsigned long)PHYS_ADDR_TOP);
-#elif defined(KERNEL_PHYS_MAX)
+#elif defined(PHYS_PLAUSIBLE_MAX)
   /* Fallback: the heuristic ceiling, until this arch gets PHYS_ADDR_TOP.
-   * Sound only insofar as KERNEL_PHYS_MAX is honest for the arch. */
-  top_interval(e, lo, (unsigned long)KERNEL_PHYS_MAX);
+   * Sound only insofar as PHYS_PLAUSIBLE_MAX is honest for the arch. */
+  top_interval(e, lo, (unsigned long)PHYS_PLAUSIBLE_MAX);
 #else
   /* Coupled arch with no independent physical KASLR: quantity inactive,
    * fully unknown. It simply never gets constrained. */

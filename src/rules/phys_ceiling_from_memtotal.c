@@ -128,7 +128,7 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
     palign = (unsigned long)KASLR_PHYS_ALIGN;
   if (palign > 0)
     ceiling &= ~(palign - 1);
-  if (ceiling <= KASLR_PHYS_MIN || out_max < 1)
+  if (ceiling <= KERNEL_PHYS_DEFAULT || out_max < 1)
     return 0;
 
   struct constraint *c = &out[0];

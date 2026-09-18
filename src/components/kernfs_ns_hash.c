@@ -347,7 +347,8 @@ static int kernfs_scan(const struct kernfs_pair *pr, int n, unsigned long lo,
  * window is too large for this arch. */
 static int kernfs_recover(const struct kernfs_pair *pr, int n, uint32_t off,
                           unsigned long *salt) {
-  unsigned long lo = KASLR_VIRT_TEXT_MIN, hi = KASLR_VIRT_TEXT_MAX;
+  unsigned long lo = VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                hi = VIRT_TEXT_MAX_DEFAULT_CONFIG;
   unsigned long step = off ? (unsigned long)KASLR_VIRT_ALIGN : sizeof(long);
   if (step == 0 || (hi - lo) / step > KERNFS_MAX_SLOTS)
     return 0; /* window too large for this arch — skip (documented) */

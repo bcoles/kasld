@@ -49,7 +49,7 @@ int rule_page_offset_text_floor(const struct evidence_set *ev,
   /* Round DOWN to a slot: a lower bound only weakens by doing so. */
   if (KASLR_VIRT_ALIGN > 0)
     virt_lo &= ~(KASLR_VIRT_ALIGN - 1); /* virt-floor-ok */
-  if (virt_lo <= KASLR_VIRT_TEXT_MIN)
+  if (virt_lo <= VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0; /* the honest top already says at least this much */
 
   struct constraint *c = &out[0];

@@ -138,6 +138,28 @@ int main(void) {
             r.quantities[i].search_top);
     /* A likely view that was not supplied is absent, never fabricated. */
     CHECK(!r.quantities[i].likely.present);
+
+    /* Which quantities may state a denominator at all, with nothing resolved
+     * and no caller-supplied window -- the two tiers reduced to their second.
+     *
+     * The virtual image base answers from the set the engine started from,
+     * where the architecture randomizes it: its top is then the widest
+     * placement any build admits, which is a set of placements however loose.
+     * Where the architecture has no KASLR the same constants bound where a
+     * bootloader may have put the image, which is not a set the kernel drew
+     * from, so the count stands alone.
+     *
+     * The physical base never answers, and the rule is structural rather than a
+     * per-architecture opinion: where a kernel lands physically is set by where
+     * the board puts DRAM, so its top is an address width, and a ratio against
+     * that would claim a reduction over addresses nothing ever chose among. */
+    if (r.quantities[i].q == Q_VIRT_IMAGE_BASE) {
+      CHECK(r.quantities[i].search_top > 0);
+      CHECK(r.quantities[i].entropy_top ==
+            (KASLR_SUPPORTED ? r.quantities[i].search_top : 0ul));
+    }
+    if (r.quantities[i].q == Q_PHYS_IMAGE_BASE)
+      CHECK(r.quantities[i].entropy_top == 0);
   }
 
   /* 2. A narrowed guaranteed window, plus a likely view narrower still. The

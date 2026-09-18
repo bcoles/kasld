@@ -201,6 +201,14 @@ run_target() {
   # here, so a phys/virt floor that excludes a valid base fails on the arch it
   # affects.
   compile_obj "$ROOT/tests/test_estimate.c" "$obj/test_estimate.o" || { echo fail >"$st"; return; }
+  # The report-model invariant suite. A single TU that includes estimate.c,
+  # quantities.c and report.c, reads nothing from the machine and stages no
+  # sysroot, so every architecture answers from its own quantity table. That is
+  # what this target is for here: several of the model's rules are stated per
+  # quantity but read an arch macro to answer -- whether the image base has a
+  # randomization window at all, for one -- so an assertion about them is inert
+  # on a host that answers yes and only bites on an arch that answers no.
+  compile_obj "$ROOT/tests/test_report.c" "$obj/test_report.o" || { echo fail >"$st"; return; }
   # The width-sensitive suites. These are the reason the 32-bit targets matter:
   # kasld_addr_t is the build's word, so on a 64-bit host the too-wide branch of
   # kasld_addr_parse is unreachable and the refusal that the parser exists for
@@ -216,18 +224,19 @@ run_target() {
   link_bin "$d/test_kasld" "$obj/test_kasld.o" -lpthread || { echo fail >"$st"; return; }
   link_bin "$d/test_render" "$obj/test_render.o" -lpthread || { echo fail >"$st"; return; }
   link_bin "$d/test_estimate" "$obj/test_estimate.o" "$sh_obj/estimate.o" "$sh_obj/quantities.o" || { echo fail >"$st"; return; }
+  link_bin "$d/test_report" "$obj/test_report.o" || { echo fail >"$st"; return; }
   for t in test_addr_parse test_target_model test_proc_kallsyms; do
     link_bin "$d/$t" "$obj/$t.o" || { echo fail >"$st"; return; }
   done
   ok=1
-  for t in test_engine test_integration test_estimate test_kasld test_render \
-           test_addr_parse test_target_model test_proc_kallsyms; do
+  for t in test_engine test_integration test_estimate test_report test_kasld \
+           test_render test_addr_parse test_target_model test_proc_kallsyms; do
     if ! "$qemu" "$d/$t" >/dev/null 2>"$d/$t.run"; then
       printf 'FAIL  %-30s (%s under qemu)\n' "$triple" "$t"; tail -3 "$d/$t.run" | sed 's/^/      /'; ok=0
     fi
   done
   if [ "$ok" = 1 ]; then
-    printf 'PASS  %-30s engine + integration + estimate + kasld + render + addr_parse + target_model + proc_kallsyms\n' "$triple"; echo pass >"$st"
+    printf 'PASS  %-30s engine + integration + estimate + report + kasld + render + addr_parse + target_model + proc_kallsyms\n' "$triple"; echo pass >"$st"
   else
     echo fail >"$st"
   fi

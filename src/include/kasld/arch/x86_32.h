@@ -69,21 +69,21 @@
 
 // Minimum possible kernel base across all vmsplit configurations.
 // CONFIG_VMSPLIT_1G sets PAGE_OFFSET=0x40000000, the lowest possible value.
-// This is KERNEL_VIRT_TEXT_MIN to accept kernel addresses from all
+// This is VIRT_TEXT_PLAUSIBLE_MIN to accept kernel addresses from all
 // vmsplits.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L1474
-#define KERNEL_VIRT_TEXT_MIN 0x40000000ul
+#define VIRT_TEXT_PLAUSIBLE_MIN 0x40000000ul
 
 // VAS start uses the lowest possible PAGE_OFFSET to cover all vmsplit
 // configurations. The orchestrator adjusts at runtime once vmsplit is detected.
-#define KERNEL_VIRT_VAS_START KERNEL_VIRT_TEXT_MIN
+#define KERNEL_VIRT_VAS_START VIRT_TEXT_PLAUSIBLE_MIN
 #define KERNEL_VIRT_VAS_END 0xfffffffful
 // Kernel text ceiling, and a deliberate over-estimate rather than a region
 // boundary: the image sits within KERNEL_IMAGE_SIZE (512 MiB) of PAGE_OFFSET,
 // so even the highest split puts it no higher than 0xe0000000. What lies above
 // the image is the rest of the linear map, whose top is the runtime lowmem
 // size -- there is no fixed address at which the module region begins.
-#define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
+#define VIRT_TEXT_PLAUSIBLE_MAX 0xf0000000ul
 
 // x86_32 has no module region at a fixed address. MODULES_VADDR is
 // VMALLOC_START, which is `high_memory + VMALLOC_OFFSET` (8 MiB), and
@@ -139,8 +139,8 @@
 // (arch/x86/boot/compressed/kaslr.c: `if (IS_ENABLED(CONFIG_X86_32)) mem_limit
 // = KERNEL_IMAGE_SIZE`). Physical and virtual are coupled on x86-32
 // (TEXT_TRACKS_DIRECTMAP = 1).
-#define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (512ul * MB)
+#define PHYS_PLAUSIBLE_MIN 0ul
+#define PHYS_PLAUSIBLE_MAX (512ul * MB)
 
 // Default: 0xc0000000 (PAGE_OFFSET with 3GB vmsplit, no offset).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all

@@ -154,7 +154,7 @@ int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
   unsigned long ceiling = po_hi + cap - min_image;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
-  if (ceiling <= (unsigned long)KASLR_VIRT_TEXT_MIN)
+  if (ceiling <= (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0;
   c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;

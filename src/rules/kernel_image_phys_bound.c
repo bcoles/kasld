@@ -118,7 +118,7 @@ int rule_kernel_image_phys_bound(const struct evidence_set *ev,
   /* Upper bound (sound): phys_image_base ≤ lo_tight. Every kernel-image
    * witness sits at or above the text base, so the raw witness is always
    * a sound upper bound — independent of alignment assumptions. */
-  if (lo_tight > (unsigned long)KASLR_PHYS_MIN && n < out_max) {
+  if (lo_tight > (unsigned long)KERNEL_PHYS_DEFAULT && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
     c->q = Q_PHYS_IMAGE_BASE;
@@ -143,7 +143,7 @@ int rule_kernel_image_phys_bound(const struct evidence_set *ev,
    * actually tightens (lo_tight isn't already palign-aligned). */
   if (palign > 0 && (lo_tight & (palign - 1)) != 0 && n < out_max) {
     unsigned long pmax = lo_tight & ~(palign - 1);
-    if (pmax > (unsigned long)KASLR_PHYS_MIN) {
+    if (pmax > (unsigned long)KERNEL_PHYS_DEFAULT) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_PHYS_IMAGE_BASE;
@@ -162,7 +162,7 @@ int rule_kernel_image_phys_bound(const struct evidence_set *ev,
    * bound is alignment-free and sound. */
   if (hi >= MAX_KERNEL_IMAGE_SIZE && n < out_max) {
     unsigned long pmin = hi - MAX_KERNEL_IMAGE_SIZE + 1;
-    if (pmin > (unsigned long)KASLR_PHYS_MIN) {
+    if (pmin > (unsigned long)KERNEL_PHYS_DEFAULT) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_PHYS_IMAGE_BASE;
@@ -183,7 +183,7 @@ int rule_kernel_image_phys_bound(const struct evidence_set *ev,
      * Only when it actually tightens (pmin isn't already palign-aligned). */
     if (palign > 0 && (pmin & (palign - 1)) != 0 && n < out_max) {
       unsigned long pmin_a = (pmin + palign - 1) & ~(palign - 1);
-      if (pmin_a > (unsigned long)KASLR_PHYS_MIN) {
+      if (pmin_a > (unsigned long)KERNEL_PHYS_DEFAULT) {
         struct constraint *c = &out[n++];
         memset(c, 0, sizeof(*c));
         c->q = Q_PHYS_IMAGE_BASE;

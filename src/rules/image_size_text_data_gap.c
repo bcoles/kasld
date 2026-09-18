@@ -7,8 +7,14 @@
 // below (gap = max_data - min_text); the base then cannot sit so high that
 // base + gap overflows the KASLR window:
 //
-//   virt_image_base <= align_down(KASLR_VIRT_TEXT_MAX - gap, virt_kaslr_align)
-//   phys_image_base <= align_down(KASLR_PHYS_MAX - gap, phys_align) (decoupled)
+//   virt_image_base <= align_down(VIRT_TEXT_MAX_ANY_CONFIG - gap,
+//   virt_kaslr_align) phys_image_base <= align_down(PHYS_ADDR_TOP - gap,
+//   phys_align) (decoupled)
+//
+// Both edges are the widest the architecture admits, never a default build's or
+// a plausibility heuristic's: these bounds reach the guaranteed answer, so an
+// edge that holds for most kernels rather than all of them would exclude the
+// base on the rest.
 //
 // Reads VIRT kernel TEXT/IMAGE (min) and DATA/BSS (max) leaks; aligns to the
 // resolved Q_VIRT_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN. Inert when no such
@@ -55,17 +61,18 @@ int rule_image_size_text_data_gap(const struct evidence_set *ev,
   unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
   if (valign < (unsigned long)KASLR_VIRT_ALIGN)
     valign = (unsigned long)KASLR_VIRT_ALIGN;
-  /* WIDE honest top/floor, not the raw 48-bit KASLR_VIRT_TEXT_MAX/MIN: the raw
-   * MAX is below an arm64 sub-48 VA_BITS text base, so a raw-MAX ceiling would
-   * exclude the true base. Equal to the raw values on arches whose KASLR window
-   * already spans every layout (x86_64). Same fix as ceiling_from_image_size.
+  /* WIDE honest top/floor, not the raw 48-bit VIRT_TEXT_MAX_DEFAULT_CONFIG/MIN:
+   * the raw MAX is below an arm64 sub-48 VA_BITS text base, so a raw-MAX
+   * ceiling would exclude the true base. Equal to the raw values on arches
+   * whose KASLR window already spans every layout (x86_64). Same fix as
+   * ceiling_from_image_size.
    */
-  if (gap < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE -
-                (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE &&
+  if (gap < (unsigned long)VIRT_TEXT_MAX_ANY_CONFIG -
+                (unsigned long)VIRT_TEXT_MIN_ANY_CONFIG &&
       n < out_max) {
-    unsigned long vmax = (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE - gap;
+    unsigned long vmax = (unsigned long)VIRT_TEXT_MAX_ANY_CONFIG - gap;
     vmax = kasld_floor_virt_text_bound(vmax, valign);
-    if (vmax > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE) {
+    if (vmax > (unsigned long)VIRT_TEXT_MIN_ANY_CONFIG) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VIRT_IMAGE_BASE;
@@ -82,12 +89,16 @@ int rule_image_size_text_data_gap(const struct evidence_set *ev,
   unsigned long palign = est[Q_PHYS_KASLR_ALIGN].lo;
   if (palign < (unsigned long)KASLR_PHYS_ALIGN)
     palign = (unsigned long)KASLR_PHYS_ALIGN;
-  if (gap < (unsigned long)KASLR_PHYS_MAX - (unsigned long)KASLR_PHYS_MIN &&
+  /* PHYS_ADDR_TOP, not PHYS_PLAUSIBLE_MAX: the ceiling below is emitted at the
+   * sound floor, and the plausibility constant is a heuristic about where
+   * kernels are usually loaded rather than a limit on where they can be. See
+   * ceiling_from_image_size, which bounds this same quantity the same way. */
+  if (gap < (unsigned long)PHYS_ADDR_TOP - (unsigned long)KERNEL_PHYS_DEFAULT &&
       n < out_max) {
-    unsigned long pmax = (unsigned long)KASLR_PHYS_MAX - gap;
+    unsigned long pmax = (unsigned long)PHYS_ADDR_TOP - gap;
     if (palign > 0)
       pmax &= ~(palign - 1);
-    if (pmax > (unsigned long)KASLR_PHYS_MIN) {
+    if (pmax > (unsigned long)KERNEL_PHYS_DEFAULT) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_PHYS_IMAGE_BASE;

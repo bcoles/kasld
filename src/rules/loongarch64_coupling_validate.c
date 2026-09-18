@@ -18,7 +18,8 @@
 //
 // Per-region bands (using KASLR-invariant boundaries):
 //
-//   KERNEL_TEXT / KERNEL_IMAGE in [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX]
+//   KERNEL_TEXT / KERNEL_IMAGE in [VIRT_TEXT_PLAUSIBLE_MIN,
+//   VIRT_TEXT_PLAUSIBLE_MAX]
 //     (XKPRANGE DMW1 + 8 GiB headroom for the KASLR slide)
 //   MODULE / MODULE_REGION    in [MODULES_START, MODULES_END]
 //     (the XKVRANGE module-and-vmalloc span)
@@ -32,13 +33,13 @@
 //     (XKPRANGE span: 0x8000_..., 0xa000_..._fffffffe)
 //
 // The bands are KASLR-invariant — KASLR randomizes only the kernel text
-// slot within KERNEL_VIRT_TEXT_MIN/MAX; the band containers are fixed by
+// slot within VIRT_TEXT_PLAUSIBLE_MIN/MAX; the band containers are fixed by
 // hardware DMW windows or by vm_map_base which is set from cpu_vabits at
 // boot and never moves. An observation whose eff_region claims one band
 // but whose address falls in another is misclassified — typically a
 // heap pointer, percpu offset, or stack pointer mistakenly tagged.
 //
-// IMPORTANT: KERNEL_TEXT / KERNEL_IMAGE uses KERNEL_VIRT_TEXT_MIN/MAX (the
+// IMPORTANT: KERNEL_TEXT / KERNEL_IMAGE uses VIRT_TEXT_PLAUSIBLE_MIN/MAX (the
 // validation range across all in-scope kernel-version layouts), not a
 // narrower per-formula KASLR-window subset — same role distinction as
 // the parallel x86_64 / arm64 / riscv64 rules. See api.h MODULES_*
@@ -86,8 +87,8 @@ static int loongarch64_va_band_bad(enum kasld_region region, unsigned long a) {
   case REGION_KERNEL_TEXT:
   case REGION_KERNEL_IMAGE:
     /* Inside the validation range (covers KASLR slide + headroom). */
-    return (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
-           (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
+    return (a < (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN) ||
+           (a > (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX);
   default:
     return 0; /* no band check for this region kind */
   }

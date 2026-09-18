@@ -134,11 +134,12 @@ static inline uint64_t read_le64(const uint8_t *p) {
  * phys_reservation_exclude carves it from the candidate base set (the image
  * never loads outside E820_TYPE_RAM). Skipped when: size is zero or one byte;
  * the band is not representable in unsigned long (32-bit / PAE truncation would
- * corrupt it); or it lies entirely below KASLR_PHYS_MIN — the image is never
- * that low, so such a band excludes nothing and is the only one that could
- * perturb a memtotal-derived DRAM floor. ACPI regions are firmware-reserved
- * DRAM at high addresses, so this never lowers a DRAM floor below the true RAM
- * base. A forbidden band, not a RAM-map member: range, never a covering. */
+ * corrupt it); or it lies entirely below KERNEL_PHYS_DEFAULT — the image is
+ * never that low, so such a band excludes nothing and is the only one that
+ * could perturb a memtotal-derived DRAM floor. ACPI regions are
+ * firmware-reserved DRAM at high addresses, so this never lowers a DRAM floor
+ * below the true RAM base. A forbidden band, not a RAM-map member: range, never
+ * a covering. */
 static void emit_acpi_band(uint32_t type, uint64_t start, uint64_t size) {
   if (size == 0)
     return;
@@ -147,8 +148,8 @@ static void emit_acpi_band(uint32_t type, uint64_t start, uint64_t size) {
     return;
   /* `<=` not `<`: a band ending at-or-below the floor is equally useless to
    * carve, and `<=` avoids a -Wtype-limits tautology on arch headers where
-   * KASLR_PHYS_MIN folds to 0 (x86_32). */
-  if (end <= start || end <= (uint64_t)KASLR_PHYS_MIN)
+   * KERNEL_PHYS_DEFAULT folds to 0 (x86_32). */
+  if (end <= start || end <= (uint64_t)KERNEL_PHYS_DEFAULT)
     return;
   enum kasld_region region =
       (type == E820_TYPE_NVS) ? REGION_ACPI_NVS : REGION_ACPI_TABLE;

@@ -127,10 +127,11 @@ int rule_module_text_bracket(const struct evidence_set *ev,
      * bound inside the quantity's honest top, so a ceiling below that window's
      * floor means the observation was not what it claimed — emitting it would
      * empty the estimate rather than narrow it. Dropping widens, which is the
-     * safe direction. The floor is the _WIDE variant (the same window
-     * top_virt_image_base uses), not KERNEL_VIRT_TEXT_MIN: on arm64 the latter
-     * sits above the honest top's floor and would discard sound bounds. */
-    if (new_max >= (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE && n < out_max) {
+     * safe direction. The floor is the ANY_CONFIG variant (the same window
+     * top_virt_image_base uses), not VIRT_TEXT_PLAUSIBLE_MIN: on arm64 the
+     * latter sits above the honest top's floor and would discard sound bounds.
+     */
+    if (new_max >= (unsigned long)VIRT_TEXT_MIN_ANY_CONFIG && n < out_max) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VIRT_IMAGE_BASE;
@@ -148,7 +149,7 @@ int rule_module_text_bracket(const struct evidence_set *ev,
   if (vmod_hi >= w) {
     unsigned long new_min = kasld_ceil_aligned_suboffset(
         vmod_hi - w + 1, valign, (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
-    if (new_min <= (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE && n < out_max) {
+    if (new_min <= (unsigned long)VIRT_TEXT_MAX_ANY_CONFIG && n < out_max) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VIRT_IMAGE_BASE;

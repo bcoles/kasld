@@ -1238,12 +1238,12 @@ static void test_phys_ceiling_from_memtotal(void) {
   struct estimate top;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   unsigned long ceiling = (floor + mem - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
-  if (ceiling > (unsigned long)KASLR_PHYS_MIN)
+  if (ceiling > (unsigned long)KERNEL_PHYS_DEFAULT)
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi ==
              min_ul(ceiling, top.hi)); /* fired */
   else
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi ==
-             top.hi); /* below KASLR_PHYS_MIN: inert */
+             top.hi); /* below KERNEL_PHYS_DEFAULT: inert */
 #endif
 }
 
@@ -1259,7 +1259,7 @@ static void test_phys_ceiling_prefers_dram_top_over_memtotal(void) {
   engine_init(&e);
   const unsigned long P = (unsigned long)PHYS_OFFSET;
   /* Arm64-fixture-shaped numbers, scaled down so the spanned DRAM hi
-   * stays under every decoupled arch's KERNEL_PHYS_MAX (the smallest
+   * stays under every decoupled arch's PHYS_PLAUSIBLE_MAX (the smallest
    * is riscv64 at PHYS_OFFSET + 4 GiB). Preserves the bug shape:
    * kernel sits above floor+memtotal but inside the spanned extent.
    *   memtotal      = 1.0 GiB (usable RAM)
@@ -1321,7 +1321,7 @@ static void test_phys_ceiling_memtotal_fallback_likely_only(void) {
   struct estimate top;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   unsigned long ceiling = (floor + mem - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
-  if (ceiling > (unsigned long)KASLR_PHYS_MIN && ceiling < top.hi) {
+  if (ceiling > (unsigned long)KERNEL_PHYS_DEFAULT && ceiling < top.hi) {
     /* LIKELY: the convention fallback caps the ceiling. */
     engine_run(&e, rules, 1);
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi == ceiling);
@@ -1361,7 +1361,7 @@ static void test_phys_ceiling_dram_top_stays_guaranteed(void) {
   unsigned long ceiling =
       (top_dram - (4ul << 20) + 1ul) & ~(KASLR_PHYS_ALIGN - 1);
   engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
-  if (ceiling > (unsigned long)KASLR_PHYS_MIN && ceiling < top.hi)
+  if (ceiling > (unsigned long)KERNEL_PHYS_DEFAULT && ceiling < top.hi)
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi ==
              ceiling); /* sound: reaches guaranteed */
 #endif
@@ -1382,7 +1382,7 @@ static void test_phys_ceiling_no_dram_floor(void) {
 
   unsigned long expect =
       (PHYS_OFFSET + mem - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
-  if (expect > KASLR_PHYS_MIN)
+  if (expect > KERNEL_PHYS_DEFAULT)
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi == expect);
 #endif
 }
@@ -1401,26 +1401,31 @@ static void test_ceiling_from_image_size(void) {
 
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
-  /* The ceiling is derived from the WIDE honest top (KASLR_VIRT_TEXT_MAX_WIDE),
-   * not the raw 48-bit KASLR_VIRT_TEXT_MAX: on arm64 sub-48 VA_BITS the true
-   * text base sits above the raw MAX, so a raw-MAX ceiling would exclude it.
-   * The two are equal where the arch window already spans every layout
-   * (x86_64), so this assertion is unchanged there and pins the arm64 fix. The
-   * rule floors through kasld_floor_virt_text_bound (residue-aware), so match
-   * that. */
+  /* The ceiling is derived from the WIDE honest top (VIRT_TEXT_MAX_ANY_CONFIG),
+   * not the raw 48-bit VIRT_TEXT_MAX_DEFAULT_CONFIG: on arm64 sub-48 VA_BITS
+   * the true text base sits above the raw MAX, so a raw-MAX ceiling would
+   * exclude it. The two are equal where the arch window already spans every
+   * layout (x86_64), so this assertion is unchanged there and pins the arm64
+   * fix. The rule floors through kasld_floor_virt_text_bound (residue-aware),
+   * so match that. */
   unsigned long expect =
-      min_ul(kasld_floor_virt_text_bound(KASLR_VIRT_TEXT_MAX_WIDE - ksize,
+      min_ul(kasld_floor_virt_text_bound(VIRT_TEXT_MAX_ANY_CONFIG - ksize,
                                          KASLR_VIRT_ALIGN),
              top.hi);
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi < top.hi); /* the rule actually fired */
 
 #if !TEXT_TRACKS_DIRECTMAP
+  /* The physical ceiling comes off PHYS_ADDR_TOP for the same reason: a ceiling
+   * derived from PHYS_PLAUSIBLE_MAX would rest on where kernels are USUALLY
+   * loaded, and this bound reaches the guaranteed window. The honest top is the
+   * quantity's own, so the ceiling lands exactly one image below it. */
   struct estimate ptop;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&ptop);
   unsigned long pexpect =
-      min_ul((KASLR_PHYS_MAX - ksize) & ~(KASLR_PHYS_ALIGN - 1), ptop.hi);
+      min_ul((PHYS_ADDR_TOP - ksize) & ~(KASLR_PHYS_ALIGN - 1), ptop.hi);
   TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi == pexpect);
+  TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi < ptop.hi); /* the rule actually fired */
 #endif
 }
 
@@ -1442,7 +1447,7 @@ static void test_ceiling_prefers_exact_init_size(void) {
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long expect =
-      min_ul(kasld_floor_virt_text_bound(KASLR_VIRT_TEXT_MAX_WIDE - init_size,
+      min_ul(kasld_floor_virt_text_bound(VIRT_TEXT_MAX_ANY_CONFIG - init_size,
                                          KASLR_VIRT_ALIGN),
              top.hi);
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect); /* exact init_size wins */
@@ -1492,7 +1497,7 @@ static void test_dram_floor_bound(void) {
   /* Physical floor: min DRAM rounded UP to a slot. */
   unsigned long expect =
       (floor + KASLR_PHYS_ALIGN - 1) & ~(KASLR_PHYS_ALIGN - 1);
-  if (expect > KASLR_PHYS_MIN) {
+  if (expect > KERNEL_PHYS_DEFAULT) {
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].lo == expect);
     struct estimate top;
     quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
@@ -1722,7 +1727,7 @@ static void test_virt_ceiling_from_memtotal(void) {
   /* phys_floor == PHYS_OFFSET so the offset term is zero. */
   unsigned long expect = kasld_floor_virt_text_bound(
       po + mem - (4ul << 20) + IMAGE_BASE_OFFSET, KASLR_VIRT_ALIGN);
-  if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+  if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #endif
 }
@@ -1750,7 +1755,7 @@ static void test_phys_bits_ceiling(void) {
       ((1UL << bits) - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
   struct estimate top;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
-  if (expect > KASLR_PHYS_MIN && expect < top.hi)
+  if (expect > KERNEL_PHYS_DEFAULT && expect < top.hi)
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi == expect);
 #else
   unsigned long expect = (PAGE_OFFSET + IMAGE_BASE_OFFSET +
@@ -1758,7 +1763,7 @@ static void test_phys_bits_ceiling(void) {
                          ~(KASLR_VIRT_ALIGN - 1);
   struct estimate vtop;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
-  if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+  if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #endif
 #endif /* __SIZEOF_LONG__ >= 8 */
@@ -1815,7 +1820,7 @@ static void test_dram_ceiling(void) {
   unsigned long expect = kasld_floor_virt_text_bound(
       ((dram_top - ksize) - PHYS_OFFSET) + po + IMAGE_BASE_OFFSET,
       KASLR_VIRT_ALIGN);
-  if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+  if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #endif
 }
@@ -1841,11 +1846,12 @@ static void test_dram_ceiling_no_highmem_wrap(void) {
   evidence_add(&e.ev, &pl);
 
   /* Choose a highmem DRAM top whose phys->virt projection wraps a 32-bit
-   * unsigned long to a phantom ceiling `target` inside (KASLR_VIRT_TEXT_MIN,
-   * vtop.hi): above the rule's low-ceiling self-reject, below the honest top so
-   * a buggy cap would visibly lower it. Unsigned arithmetic is well-defined;
-   * the values are unused on 64-bit / decoupled builds. */
-  unsigned long vmin = (unsigned long)KASLR_VIRT_TEXT_MIN;
+   * unsigned long to a phantom ceiling `target` inside
+   * (VIRT_TEXT_MIN_DEFAULT_CONFIG, vtop.hi): above the rule's low-ceiling
+   * self-reject, below the honest top so a buggy cap would visibly lower it.
+   * Unsigned arithmetic is well-defined; the values are unused on 64-bit /
+   * decoupled builds. */
+  unsigned long vmin = (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG;
   unsigned long target = vmin + (vtop.hi - vmin) / 2;
   unsigned long phys_span = target - po - (unsigned long)IMAGE_BASE_OFFSET;
   unsigned long dram_top = (unsigned long)PHYS_OFFSET + ksize + phys_span;
@@ -1886,14 +1892,16 @@ static void test_coupling_validate(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
-  /* DIRECTMAP at/above KERNEL_VIRT_TEXT_MIN is misclassified -> invalidated. */
-  struct observation bad =
-      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, KERNEL_VIRT_TEXT_MIN + 0x1000ul,
-             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  /* DIRECTMAP at/above VIRT_TEXT_PLAUSIBLE_MIN is misclassified -> invalidated.
+   */
+  struct observation bad = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP,
+                                  VIRT_TEXT_PLAUSIBLE_MIN + 0x1000ul,
+                                  LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   uint32_t bid = evidence_add(&e.ev, &bad);
-  /* A legitimate directmap address below KERNEL_VIRT_TEXT_MIN stays valid. */
+  /* A legitimate directmap address below VIRT_TEXT_PLAUSIBLE_MIN stays valid.
+   */
   struct observation ok = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP,
-                                 KERNEL_VIRT_TEXT_MIN - 0x1000000ul,
+                                 VIRT_TEXT_PLAUSIBLE_MIN - 0x1000000ul,
                                  LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   uint32_t okid = evidence_add(&e.ev, &ok);
 
@@ -2395,7 +2403,7 @@ static void test_cmdline_mem_phys_ceiling(void) {
   unsigned long expect = (mem - ksize) & ~(KASLR_PHYS_ALIGN - 1);
   struct estimate top;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
-  if (expect > (unsigned long)KASLR_PHYS_MIN)
+  if (expect > (unsigned long)KERNEL_PHYS_DEFAULT)
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi == min_ul(expect, top.hi));
   else
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi); /* below floor: inert */
@@ -2461,7 +2469,8 @@ static void test_cmdline_mem_virt_ceiling(void) {
     unsigned long pin = po_lo(&e.est[Q_PAGE_OFFSET]);
     unsigned long expect = kasld_floor_virt_text_bound(
         pin + mem - ksize + (unsigned long)IMAGE_BASE_OFFSET, valign);
-    if (expect > (unsigned long)KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+    if (expect > (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG &&
+        expect < vtop.hi)
       TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
   }
 #else
@@ -2482,7 +2491,7 @@ static void test_cmdline_mem_virt_ceiling_no_highmem_wrap(void) {
   quantities[Q_PAGE_OFFSET].init_top(&potop);
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
   unsigned long po = po_hi(&potop);
-  unsigned long vmin = (unsigned long)KASLR_VIRT_TEXT_MIN;
+  unsigned long vmin = (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG;
   unsigned long target = vmin + (vtop.hi - vmin) / 2;
   unsigned long span = target - po - (unsigned long)IMAGE_BASE_OFFSET;
   unsigned long mem = span + ksize;
@@ -2846,10 +2855,10 @@ static void seed_zero_setup(struct engine *e, unsigned long base, int with_mem,
 __attribute__((unused)) static void test_x86_64_efi_phys_seed_zero_mem(void) {
 #if defined(__x86_64__)
   unsigned long base =
-      (unsigned long)KASLR_PHYS_MIN + 0x4000000ul; /* 16+64 MiB */
+      (unsigned long)KERNEL_PHYS_DEFAULT + 0x4000000ul; /* 16+64 MiB */
   /* Align to KASLR_PHYS_ALIGN (the rule rejects misaligned candidates). */
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
-  if (base < (unsigned long)KASLR_PHYS_MIN)
+  if (base < (unsigned long)KERNEL_PHYS_DEFAULT)
     return; /* arch parameters degenerate; skip */
   struct engine e;
   seed_zero_setup(&e, base, 1, 0, 0); /* mem= trigger only */
@@ -2864,9 +2873,9 @@ __attribute__((unused)) static void test_x86_64_efi_phys_seed_zero_mem(void) {
 __attribute__((unused)) static void
 test_x86_64_efi_phys_seed_zero_memmap(void) {
 #if defined(__x86_64__)
-  unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
+  unsigned long base = (unsigned long)KERNEL_PHYS_DEFAULT + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
-  if (base < (unsigned long)KASLR_PHYS_MIN)
+  if (base < (unsigned long)KERNEL_PHYS_DEFAULT)
     return;
   struct engine e;
   seed_zero_setup(&e, base, 0, 1, 0); /* memmap= trigger only */
@@ -2880,9 +2889,9 @@ test_x86_64_efi_phys_seed_zero_memmap(void) {
 __attribute__((unused)) static void
 test_x86_64_efi_phys_seed_zero_hugepages(void) {
 #if defined(__x86_64__)
-  unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
+  unsigned long base = (unsigned long)KERNEL_PHYS_DEFAULT + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
-  if (base < (unsigned long)KASLR_PHYS_MIN)
+  if (base < (unsigned long)KERNEL_PHYS_DEFAULT)
     return;
   struct engine e;
   seed_zero_setup(&e, base, 0, 0, 1); /* hugepages= trigger only */
@@ -2897,9 +2906,9 @@ test_x86_64_efi_phys_seed_zero_hugepages(void) {
 __attribute__((unused)) static void
 test_x86_64_efi_phys_seed_zero_no_trigger(void) {
 #if defined(__x86_64__)
-  unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
+  unsigned long base = (unsigned long)KERNEL_PHYS_DEFAULT + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
-  if (base < (unsigned long)KASLR_PHYS_MIN)
+  if (base < (unsigned long)KERNEL_PHYS_DEFAULT)
     return;
   struct engine e;
   seed_zero_setup(&e, base, 0, 0, 0); /* EFI + kernel_image, no trigger */
@@ -2917,9 +2926,9 @@ test_x86_64_efi_phys_seed_zero_no_efi(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
-  unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
+  unsigned long base = (unsigned long)KERNEL_PHYS_DEFAULT + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
-  if (base < (unsigned long)KASLR_PHYS_MIN)
+  if (base < (unsigned long)KERNEL_PHYS_DEFAULT)
     return;
   /* kernel_image + mem= trigger, but no SF_EFI_PRESENT. */
   struct observation img = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, base,
@@ -2981,7 +2990,7 @@ static void test_highmem_32bit_bound(void) {
   if (sizeof(unsigned long) == 4) {
     unsigned long expect = kasld_floor_virt_text_bound(
         po + 0x20000000ul - (4ul << 20) + IMAGE_BASE_OFFSET, KASLR_VIRT_ALIGN);
-    if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+    if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
       TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
   } else {
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi ==
@@ -3006,8 +3015,9 @@ static void test_ppc64_firmware_ceiling(void) {
     evidence_add(&e.ev, &o);
     engine_run(&e, rules, 1);
     unsigned long expect = kasld_floor_virt_text_bound(
-        KASLR_VIRT_TEXT_MIN + fw - KASLD_MIN_IMAGE_SIZE, KASLR_VIRT_ALIGN);
-    if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+        VIRT_TEXT_MIN_DEFAULT_CONFIG + fw - KASLD_MIN_IMAGE_SIZE,
+        KASLR_VIRT_ALIGN);
+    if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
       TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
   }
 
@@ -3024,8 +3034,8 @@ static void test_ppc64_firmware_ceiling(void) {
     evidence_add(&e.ev, &s);
     engine_run(&e, rules, 1);
     unsigned long expect = kasld_floor_virt_text_bound(
-        KASLR_VIRT_TEXT_MIN + fw - ksize, KASLR_VIRT_ALIGN);
-    if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+        VIRT_TEXT_MIN_DEFAULT_CONFIG + fw - ksize, KASLR_VIRT_ALIGN);
+    if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
       TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
   }
 #else
@@ -3056,7 +3066,7 @@ static void test_x86_32_vmsplit_ceiling(void) {
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if defined(__i386__)
   unsigned long expect = po + (512UL * 1024 * 1024);
-  if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+  if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #else
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert off i386 */
@@ -4502,9 +4512,9 @@ static void test_s390_va_bits_from_config_no_config_inert(void) {
 __attribute__((unused)) static void
 test_cmdline_memmap_too_large_phys_pin(void) {
 #if defined(__x86_64__)
-  unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
+  unsigned long base = (unsigned long)KERNEL_PHYS_DEFAULT + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
-  if (base < (unsigned long)KASLR_PHYS_MIN)
+  if (base < (unsigned long)KERNEL_PHYS_DEFAULT)
     return;
   struct engine e;
   engine_init(&e);
@@ -4528,9 +4538,9 @@ test_cmdline_memmap_too_large_phys_pin(void) {
 __attribute__((unused)) static void
 test_cmdline_memmap_too_large_phys_pin_under_threshold(void) {
 #if defined(__x86_64__)
-  unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
+  unsigned long base = (unsigned long)KERNEL_PHYS_DEFAULT + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
-  if (base < (unsigned long)KASLR_PHYS_MIN)
+  if (base < (unsigned long)KERNEL_PHYS_DEFAULT)
     return;
   struct engine e;
   engine_init(&e);
@@ -4550,7 +4560,8 @@ test_cmdline_memmap_too_large_phys_pin_under_threshold(void) {
 /* physical_start_lower_bound (1.1 fix): when SF_PHYSICAL_START is learned,
  * push Q_VIRT_IMAGE_BASE.lo + Q_PHYS_IMAGE_BASE.lo to the precise floor at
  * CONF_PARSED; without the scalar, fall back to compile-time
- * KASLR_VIRT_TEXT_MIN at CONF_HEURISTIC (overridable by any real evidence). */
+ * VIRT_TEXT_MIN_DEFAULT_CONFIG at CONF_HEURISTIC (overridable by any real
+ * evidence). */
 
 __attribute__((unused)) static void
 test_physical_start_lower_bound_learned(void) {
@@ -4562,17 +4573,17 @@ test_physical_start_lower_bound_learned(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_physical_start_lower_bound};
   engine_run(&e, rules, 1);
-  /* Q_VIRT_IMAGE_BASE.lo raised to KERNEL_VIRT_TEXT_MIN + learned. */
+  /* Q_VIRT_IMAGE_BASE.lo raised to VIRT_TEXT_PLAUSIBLE_MIN + learned. */
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo ==
-           (unsigned long)KERNEL_VIRT_TEXT_MIN + learned);
+           (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + learned);
   /* Q_PHYS_IMAGE_BASE.lo raised to learned. */
   TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].lo == learned);
 #endif
 }
 
 /* No SF_PHYSICAL_START → heuristic falls back to compile-time
- * KASLR_VIRT_TEXT_MIN (same value the pre-widening top had). Default-config
- * kernels keep their tight window. */
+ * VIRT_TEXT_MIN_DEFAULT_CONFIG (same value the pre-widening top had).
+ * Default-config kernels keep their tight window. */
 __attribute__((unused)) static void
 test_physical_start_lower_bound_heuristic(void) {
 #if defined(__x86_64__)
@@ -4580,22 +4591,23 @@ test_physical_start_lower_bound_heuristic(void) {
   engine_init(&e);
   const rule_fn rules[] = {rule_physical_start_lower_bound};
   engine_run(&e, rules, 1);
-  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo == (unsigned long)KASLR_VIRT_TEXT_MIN);
-  TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].lo == (unsigned long)KASLR_PHYS_MIN);
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo ==
+           (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG);
+  TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].lo == (unsigned long)KERNEL_PHYS_DEFAULT);
 #endif
 }
 
 /* The heuristic floor is overridable: a real text leak BELOW
- * KASLR_VIRT_TEXT_MIN survives (compile-time floor is a heuristic, the leak is
- * parsed and wins via the resolver's confidence priority). */
+ * VIRT_TEXT_MIN_DEFAULT_CONFIG survives (compile-time floor is a heuristic, the
+ * leak is parsed and wins via the resolver's confidence priority). */
 __attribute__((unused)) static void
 test_physical_start_lower_bound_leak_below_heuristic(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
-  /* Sample below the default KASLR_VIRT_TEXT_MIN — simulates a kernel built
-   * with CONFIG_PHYSICAL_START < default. */
-  unsigned long below = (unsigned long)KASLR_VIRT_TEXT_MIN -
+  /* Sample below the default VIRT_TEXT_MIN_DEFAULT_CONFIG — simulates a kernel
+   * built with CONFIG_PHYSICAL_START < default. */
+  unsigned long below = (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG -
                         (unsigned long)KASLR_VIRT_ALIGN; /* one slot below */
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, below,
                                 SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
@@ -4616,7 +4628,7 @@ test_physical_start_lower_bound_leak_below_heuristic(void) {
 static void test_arm64_coupling_validate_module_outside_band(void) {
   struct engine e;
   engine_init(&e);
-  /* Below the relocatable floor (KASLR_VIRT_TEXT_MIN_WIDE - a full bracket):
+  /* Below the relocatable floor (VIRT_TEXT_MIN_ANY_CONFIG - a full bracket):
    * no text base is low enough for a module to reach here. Deliberately NOT a
    * text-adjacent address — on arm64 the module region moves with the kernel
    * image and sits within MODULES_BRACKET_TEXT of it, so text-adjacent is
@@ -4648,22 +4660,24 @@ static void test_arm64_coupling_validate_module_inside_band(void) {
 }
 
 /* Regression: a KERNEL_TEXT observation inside the validation range
- * [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX] but outside the narrower KASLR
- * window [KASLR_VIRT_TEXT_MIN, KASLR_VIRT_TEXT_MAX) must NOT be invalidated.
- * The rule's job is region-band misclassification, not enforcement of one
- * specific kernel version's KASLR formula — text leaks from kernels whose
- * kaslr_early.c produces slots outside the modelled window are legitimate. */
+ * [VIRT_TEXT_PLAUSIBLE_MIN, VIRT_TEXT_PLAUSIBLE_MAX] but outside the narrower
+ * KASLR window [VIRT_TEXT_MIN_DEFAULT_CONFIG, VIRT_TEXT_MAX_DEFAULT_CONFIG)
+ * must NOT be invalidated. The rule's job is region-band misclassification, not
+ * enforcement of one specific kernel version's KASLR formula — text leaks from
+ * kernels whose kaslr_early.c produces slots outside the modelled window are
+ * legitimate. */
 static void
 test_arm64_coupling_validate_text_in_validation_outside_kaslr(void) {
 #if defined(__aarch64__)
   /* Construction: only exercise this gap if it exists on the host build
    * (validation range strictly wider than the KASLR window on the lower
-   * edge). Pick an address one image-alignment above KERNEL_VIRT_TEXT_MIN — if
-   * that lands below KASLR_VIRT_TEXT_MIN, it's in the previously-rejected gap.
+   * edge). Pick an address one image-alignment above VIRT_TEXT_PLAUSIBLE_MIN —
+   * if that lands below VIRT_TEXT_MIN_DEFAULT_CONFIG, it's in the
+   * previously-rejected gap.
    */
-  unsigned long a = (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x10000ul;
-  if (a >= (unsigned long)KASLR_VIRT_TEXT_MIN ||
-      a > (unsigned long)KERNEL_VIRT_TEXT_MAX)
+  unsigned long a = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x10000ul;
+  if (a >= (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG ||
+      a > (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX)
     return; /* no gap to test on this header */
   struct engine e;
   engine_init(&e);
@@ -4682,9 +4696,9 @@ test_arm64_coupling_validate_text_in_validation_outside_kaslr(void) {
 static void test_arm64_coupling_validate_text_outside_validation(void) {
 #if defined(__aarch64__)
   /* Pick an address below KERNEL_VIRT_VAS_START (arch-low end of kernel VAS) so
-   * the rule's KERNEL_VIRT_TEXT_MIN floor strictly excludes it. */
-  unsigned long below = (unsigned long)KERNEL_VIRT_TEXT_MIN - 0x1000ul;
-  if (below >= (unsigned long)KERNEL_VIRT_TEXT_MIN)
+   * the rule's VIRT_TEXT_PLAUSIBLE_MIN floor strictly excludes it. */
+  unsigned long below = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN - 0x1000ul;
+  if (below >= (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN)
     return; /* underflow on this header, skip */
   struct engine e;
   engine_init(&e);
@@ -4698,17 +4712,18 @@ static void test_arm64_coupling_validate_text_outside_validation(void) {
 }
 
 /* Regression for coupling_validate (x86_64): KERNEL_TEXT inside
- * [KERNEL_VIRT_TEXT_MIN, KASLR_VIRT_TEXT_MIN) must NOT be invalidated. On
- * x86_64 the gap is the 16 MiB between KERNEL_VIRT_TEXT_MIN (=
- * __START_KERNEL_map) and KASLR_VIRT_TEXT_MIN (= __START_KERNEL_map +
+ * [VIRT_TEXT_PLAUSIBLE_MIN, VIRT_TEXT_MIN_DEFAULT_CONFIG) must NOT be
+ * invalidated. On x86_64 the gap is the 16 MiB between VIRT_TEXT_PLAUSIBLE_MIN
+ * (=
+ * __START_KERNEL_map) and VIRT_TEXT_MIN_DEFAULT_CONFIG (= __START_KERNEL_map +
  * PHYSICAL_START), which a kernel built with non-default CONFIG_PHYSICAL_START
  * legitimately populates. */
 static void test_coupling_validate_text_in_validation_outside_kaslr(void) {
 #if defined(__x86_64__)
   unsigned long a =
-      (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x200000ul; /* +2 MiB */
-  if (a >= (unsigned long)KASLR_VIRT_TEXT_MIN ||
-      a > (unsigned long)KERNEL_VIRT_TEXT_MAX)
+      (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x200000ul; /* +2 MiB */
+  if (a >= (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG ||
+      a > (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX)
     return;
   struct engine e;
   engine_init(&e);
@@ -4745,9 +4760,10 @@ static void test_riscv64_coupling_validate_text_inside_validation(void) {
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
   struct engine e;
   engine_init(&e);
-  /* Modern KERNEL_LINK_ADDR + small slide — inside [KERNEL_VIRT_TEXT_MIN, MAX].
+  /* Modern KERNEL_LINK_ADDR + small slide — inside [VIRT_TEXT_PLAUSIBLE_MIN,
+   * MAX].
    */
-  unsigned long a = (unsigned long)KERNEL_VIRT_TEXT_MAX - 0x200000ul;
+  unsigned long a = (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX - 0x200000ul;
   struct observation ok = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, a,
                                  LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &ok);
@@ -5500,7 +5516,7 @@ static void test_arm64_text_band_union_admits_both_layouts(void) {
    * top -- nothing is stripped there, which is why the narrowing is asserted at
    * a narrower width instead. */
   TH_CHECK(out[0].op == C_LOWER_BOUND);
-  TH_CHECK(out[0].value == (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE);
+  TH_CHECK(out[0].value == (unsigned long)VIRT_TEXT_MIN_ANY_CONFIG);
 
   /* VA39 -- the Android configuration -- is where the union actually narrows:
    * both edges move inside the honest top. */
@@ -5510,9 +5526,9 @@ static void test_arm64_text_band_union_admits_both_layouts(void) {
   TH_CHECK(n == 2);
   for (int i = 0; i < n; i++) {
     if (out[i].op == C_LOWER_BOUND)
-      TH_CHECK(out[i].value > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE);
+      TH_CHECK(out[i].value > (unsigned long)VIRT_TEXT_MIN_ANY_CONFIG);
     if (out[i].op == C_UPPER_BOUND)
-      TH_CHECK(out[i].value < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
+      TH_CHECK(out[i].value < (unsigned long)VIRT_TEXT_MAX_ANY_CONFIG);
   }
 
   /* No-KASLR: neither layout slides, so the ceiling drops the slide term. The
@@ -5757,7 +5773,7 @@ static void test_kaslr_align_arch_default(void) {
   engine_run(&e, rules, 1);
   /* Baseline equals the arch KASLR_VIRT_ALIGN floor. */
   TH_CHECK(e.est[Q_VIRT_KASLR_ALIGN].lo == (unsigned long)KASLR_VIRT_ALIGN);
-#if defined(KASLR_PHYS_MIN)
+#if defined(KERNEL_PHYS_DEFAULT)
   TH_CHECK(e.est[Q_PHYS_KASLR_ALIGN].lo == (unsigned long)KASLR_PHYS_ALIGN);
 #endif
 }
@@ -5837,7 +5853,15 @@ static void test_module_base_no_kaslr_ceiling(void) {
 
 /* The execmem window is licensed by the boot stub's own record of having
  * randomized, not only by a resolved base that moved -- which is what lets it
- * speak on a run that resolved no base at all. */
+ * speak on a run that resolved no base at all.
+ *
+ * The two licences are not equally strong and the confidence says so. The flag
+ * IS CONFIG_RANDOMIZE_BASE observed, so it carries the window to the guaranteed
+ * answer. A displaced image only suggests that option, because the default it
+ * is displaced from is a default BUILD's and the knob that moves it is
+ * independent: a kernel with a non-default CONFIG_PHYSICAL_START and KASLR off
+ * reads as moved while its module region sits 512 MiB lower, at the
+ * RANDOMIZE_BASE=n placement. That path must stay below the sound floor. */
 static void test_module_base_execmem_window_from_kaslr_flag(void) {
 #if defined(MODULES_BASE_RANDOMIZED) && defined(MODULES_BASE_RANDOM_SPAN)
   struct engine e;
@@ -5855,12 +5879,63 @@ static void test_module_base_execmem_window_from_kaslr_flag(void) {
   TH_CHECK(n == 2);
   for (int i = 0; i < n; i++) {
     TH_CHECK(out[i].q == Q_MODULE_BASE);
+    TH_CHECK(out[i].conf == CONF_INFERRED);
     if (out[i].op == C_LOWER_BOUND)
       TH_CHECK(out[i].value == (unsigned long)MODULES_BASE_RANDOMIZED);
     if (out[i].op == C_UPPER_BOUND)
       TH_CHECK(out[i].value == (unsigned long)MODULES_BASE_RANDOMIZED +
                                    (unsigned long)MODULES_BASE_RANDOM_SPAN);
   }
+
+  /* A displaced image and no flag: the same window, one tier down. */
+  engine_init(&e);
+  struct observation t =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE,
+             (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x2000000ul, LO_SET,
+             POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &t);
+  const rule_fn pin[] = {rule_text_pin_from_observation};
+  engine_run(&e, pin, 1);
+  n = rule_module_base_execmem_window(&e.ev, e.est, out, 4);
+  TH_CHECK(n == 2);
+  for (int i = 0; i < n; i++)
+    TH_CHECK(out[i].conf == CONF_HEURISTIC);
+
+  /* Both, which is what a readable dmesg gives: the flag wins and the window
+   * is guaranteed again. */
+  evidence_add(&e.ev, &r);
+  n = rule_module_base_execmem_window(&e.ev, e.est, out, 4);
+  TH_CHECK(n == 2);
+  for (int i = 0; i < n; i++)
+    TH_CHECK(out[i].conf == CONF_INFERRED);
+
+  /* The kernel config answers the same question directly, and on a vantage
+   * that can read it but not dmesg. The option is what the window rests on, so
+   * a keyed config licenses it at the sound floor with no base resolved. */
+  engine_init(&e);
+  struct observation ci = mk_scalar(SF_KASLR_COMPILED_IN, 1, CONF_PARSED);
+  uint32_t ci_id = evidence_add(&e.ev, &ci);
+  n = rule_module_base_execmem_window(&e.ev, e.est, out, 4);
+  TH_CHECK(n == 2);
+  for (int i = 0; i < n; i++) {
+    TH_CHECK(out[i].conf == CONF_INFERRED);
+    /* Attributed: three things can license this window, so the output has to
+     * say which one did. */
+    TH_CHECK(out[i].lineage_count == 1 && out[i].derived_from[0] == ci_id);
+  }
+
+  /* An UNKEYED /boot/config is not bound to the running kernel, so boot_config
+   * demotes its facts. The window must follow the evidence down rather than
+   * re-asserting the sound floor on its own -- a stale config naming a =y
+   * kernel would otherwise carve the true module base out of the guaranteed
+   * answer on a =n one. */
+  engine_init(&e);
+  struct observation cu = mk_scalar(SF_KASLR_COMPILED_IN, 1, CONF_HEURISTIC);
+  evidence_add(&e.ev, &cu);
+  n = rule_module_base_execmem_window(&e.ev, e.est, out, 4);
+  TH_CHECK(n == 2);
+  for (int i = 0; i < n; i++)
+    TH_CHECK(out[i].conf == CONF_HEURISTIC);
 #endif
 }
 
@@ -6062,7 +6137,7 @@ static void test_arm64_efi_kimg_align(void) {
   TH_CHECK(e.est[Q_VIRT_KASLR_ALIGN].lo == 131072ul);
 #else
   /* Inert off arm64: phys align stays at the arch baseline. */
-#if defined(KASLR_PHYS_MIN)
+#if defined(KERNEL_PHYS_DEFAULT)
   TH_CHECK(e.est[Q_PHYS_KASLR_ALIGN].lo == (unsigned long)KASLR_PHYS_ALIGN);
 #endif
 #endif
@@ -6091,13 +6166,13 @@ static void test_ceiling_uses_resolved_align(void) {
 
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
-  unsigned long expect =
-      min_ul((KASLR_VIRT_TEXT_MAX - init_size) & ~(kalign - 1), top.hi);
+  unsigned long expect = min_ul(
+      (VIRT_TEXT_MAX_DEFAULT_CONFIG - init_size) & ~(kalign - 1), top.hi);
   TH_CHECK(e.est[Q_VIRT_KASLR_ALIGN].lo == kalign);
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi ==
            expect); /* snapped to 16 MiB, not 2 MiB */
   /* And strictly tighter than the compile-time-align ceiling would be. */
-  TH_CHECK(expect <= ((KASLR_VIRT_TEXT_MAX - init_size) &
+  TH_CHECK(expect <= ((VIRT_TEXT_MAX_DEFAULT_CONFIG - init_size) &
                       ~((unsigned long)KASLR_VIRT_ALIGN - 1)));
 #endif
 }
@@ -6146,8 +6221,8 @@ static void test_resolved_grid_align_pins_x86_64(void) {
 }
 
 /* config_max_offset_ceiling: CONFIG_RANDOMIZE_BASE_MAX_OFFSET (MIPS and
- * LoongArch) bounds virt_text_base to KASLR_VIRT_TEXT_MIN + max_offset +
- * ALIGN(kernel_length, 0xffff) — the +ALIGN(kl) term accounts for the
+ * LoongArch) bounds virt_text_base to VIRT_TEXT_MIN_DEFAULT_CONFIG + max_offset
+ * + ALIGN(kernel_length, 0xffff) — the +ALIGN(kl) term accounts for the
  * kernel's placement code bumping the slide past the original image
  * when it would otherwise overlap. File-derived scalar; inert where the
  * option is absent OR when no kernel_length signal is available
@@ -6196,7 +6271,7 @@ static void test_config_max_offset_ceiling(void) {
   unsigned long kl = bs.hi - tx.lo + 1;
   unsigned long aligned_kl = (kl + 0xffff) & ~0xfffful;
   unsigned long ceiling =
-      (unsigned long)KASLR_VIRT_TEXT_MIN + max_offset + aligned_kl;
+      (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG + max_offset + aligned_kl;
   if (ceiling < top.hi)
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == ceiling);
 #else
@@ -6436,8 +6511,8 @@ static void test_virt_kaslr_disabled_pin(void) {
 }
 
 /* With a parsed CONFIG_PHYSICAL_START AND CONFIG_PHYSICAL_ALIGN the no-KASLR
- * base is a FACT (KERNEL_VIRT_TEXT_MIN + ALIGN(ps, align)), so the pin uses the
- * LEARNED value at CONF_INFERRED (guaranteed window) — correct for a
+ * base is a FACT (VIRT_TEXT_PLAUSIBLE_MIN + ALIGN(ps, align)), so the pin uses
+ * the LEARNED value at CONF_INFERRED (guaranteed window) — correct for a
  * NON-default build, where the assumed default would exclude the truth. Here ps
  * is already align-aligned, so the aligned base equals the raw sum. */
 static void test_virt_kaslr_disabled_pin_learned(void) {
@@ -6448,7 +6523,7 @@ static void test_virt_kaslr_disabled_pin_learned(void) {
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long ps = 0x400000ul;    /* 4 MiB: below the 16 MiB default */
   unsigned long align = 0x200000ul; /* 2 MiB — ps is a multiple */
-  unsigned long learned_base = (unsigned long)KERNEL_VIRT_TEXT_MIN + ps +
+  unsigned long learned_base = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + ps +
                                (unsigned long)IMAGE_BASE_OFFSET;
   if (learned_base < top.lo || learned_base > top.hi)
     return; /* arch window doesn't admit it; skip */
@@ -6491,9 +6566,9 @@ static void test_virt_kaslr_disabled_pin_learned_unaligned(void) {
   unsigned long align = 0x200000ul;   /* 2 MiB */
   unsigned long ps = 0x500000ul;      /* 5 MiB: NOT aligned */
   unsigned long aligned = 0x600000ul; /* ALIGN(5M,2M) = 6 MiB */
-  unsigned long exact = (unsigned long)KERNEL_VIRT_TEXT_MIN + aligned +
+  unsigned long exact = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + aligned +
                         (unsigned long)IMAGE_BASE_OFFSET; /* the true base */
-  unsigned long raw = (unsigned long)KERNEL_VIRT_TEXT_MIN + ps +
+  unsigned long raw = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + ps +
                       (unsigned long)IMAGE_BASE_OFFSET; /* the buggy value */
   if (exact < top.lo || exact > top.hi)
     return; /* arch window doesn't admit it; skip */
@@ -6530,7 +6605,7 @@ static void test_virt_kaslr_disabled_pin_learned_align_absent(void) {
   struct engine e;
   engine_init(&e);
   unsigned long ps = 0x400000ul;
-  unsigned long learned = (unsigned long)KERNEL_VIRT_TEXT_MIN + ps +
+  unsigned long learned = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + ps +
                           (unsigned long)IMAGE_BASE_OFFSET;
   struct observation sig = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
   struct observation psf = mk_scalar(SF_PHYSICAL_START, ps, CONF_PARSED);
@@ -7284,7 +7359,7 @@ static void test_image_size_text_data_gap(void) {
   const rule_fn rules[] = {rule_image_size_text_data_gap};
   engine_run(&e, rules, 1);
   unsigned long expect = kasld_floor_virt_text_bound(
-      (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE - gap, KASLR_VIRT_ALIGN);
+      (unsigned long)VIRT_TEXT_MAX_ANY_CONFIG - gap, KASLR_VIRT_ALIGN);
   if (expect < top.hi)
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 }
@@ -7626,7 +7701,7 @@ static void test_base_align_cross_validate(void) {
   o.value_kind = OBS_ADDRESS;
   o.type = KASLD_TYPE_VIRT;
   o.region = REGION_KERNEL_TEXT;
-  o.lo = (unsigned long)KASLR_VIRT_TEXT_MIN;
+  o.lo = (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG;
   o.base_align = 0x400000ul; /* 4 MiB observed alignment */
   o.set_mask = LO_SET | BASE_ALIGN_SET;
   o.pos = POS_BASE;
@@ -8265,7 +8340,7 @@ __attribute__((unused)) static void test_arm64_memstart_align(void) {
 }
 
 /* mips/loongarch: VIRT text + data leaks -> Q_VIRT_IMAGE_BASE lower bound at
- * KASLR_VIRT_TEXT_MIN + (max_data - min_text). */
+ * VIRT_TEXT_MIN_DEFAULT_CONFIG + (max_data - min_text). */
 static void test_min_offset_from_image_size(void) {
   struct engine e;
   engine_init(&e);
@@ -8282,7 +8357,7 @@ static void test_min_offset_from_image_size(void) {
   const rule_fn rules[] = {rule_min_offset_from_image_size};
   engine_run(&e, rules, 1);
 #if defined(__mips__) || defined(__loongarch__)
-  unsigned long expect = (unsigned long)KASLR_VIRT_TEXT_MIN + gap;
+  unsigned long expect = (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG + gap;
   if (expect > top.lo && expect <= top.hi)
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
 #else
@@ -9132,7 +9207,8 @@ static void test_text_base_coupling_synth_no_page_offset_pin_inert(void) {
   engine_init(&e);
   struct estimate ptop;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&ptop);
-  unsigned long vtext = (unsigned long)KASLR_VIRT_TEXT_MIN + 0x800000ul;
+  unsigned long vtext =
+      (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG + 0x800000ul;
   struct observation v = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, vtext,
                                 LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &v);
@@ -9238,10 +9314,10 @@ static void test_arm64_va_bits_constants_agree(void) {
 __attribute__((unused)) static void test_riscv64_non_efi_phys_base(void) {
   struct engine e;
   engine_init(&e);
-#if defined(KASLR_PHYS_MIN)
+#if defined(KERNEL_PHYS_DEFAULT)
   struct estimate top;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
-  unsigned long pdram = (unsigned long)KASLR_PHYS_MIN;
+  unsigned long pdram = (unsigned long)KERNEL_PHYS_DEFAULT;
   struct observation efi = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
   struct observation ram =
       mk_obs(KASLD_TYPE_PHYS, REGION_RAM, pdram, LO_SET, POS_BASE, CONF_PARSED);
@@ -9252,7 +9328,7 @@ __attribute__((unused)) static void test_riscv64_non_efi_phys_base(void) {
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
   unsigned long expect = pdram + (unsigned long)RISCV_PHYS_LOAD_OFFSET +
                          (unsigned long)IMAGE_BASE_OFFSET;
-  if (expect >= (unsigned long)KASLR_PHYS_MIN && expect >= top.lo &&
+  if (expect >= (unsigned long)KERNEL_PHYS_DEFAULT && expect >= top.lo &&
       expect <= top.hi) {
     /* LIKELY (all signals): the OpenSBI-default convention pins the base. */
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].lo == expect);
@@ -9464,13 +9540,15 @@ static void test_page_offset_from_landmark_window(void) {
 static void test_base_align_cross_validate_phys(void) {
   struct engine e;
   engine_init(&e);
-  struct observation v1 = mk_obs(
-      KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, (unsigned long)KASLR_VIRT_TEXT_MIN,
-      LO_SET | BASE_ALIGN_SET, POS_BASE, CONF_PARSED);
+  struct observation v1 =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+             (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+             LO_SET | BASE_ALIGN_SET, POS_BASE, CONF_PARSED);
   v1.base_align = 0x10000ul; /* 64 KiB (finer) */
-  struct observation v2 = mk_obs(
-      KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, (unsigned long)KASLR_VIRT_TEXT_MIN,
-      LO_SET | BASE_ALIGN_SET, POS_BASE, CONF_PARSED);
+  struct observation v2 =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+             (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+             LO_SET | BASE_ALIGN_SET, POS_BASE, CONF_PARSED);
   v2.base_align = 0x400000ul; /* 4 MiB (coarser — must win) */
   struct observation p =
       mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, 0x1000000ul,

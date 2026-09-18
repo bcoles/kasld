@@ -34,7 +34,7 @@ int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
     return 0; /* virt_page_offset not yet pinned */
 
   unsigned long ceiling = virt_page_offset + X86_32_KERNEL_IMAGE_SIZE;
-  if (ceiling <= KASLR_VIRT_TEXT_MIN)
+  if (ceiling <= VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0;
 
   struct constraint *c = &out[0];

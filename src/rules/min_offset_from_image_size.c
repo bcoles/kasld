@@ -6,7 +6,7 @@
 // kernel base is at least the image size above the window floor, because the
 // placement code bumps the base past the image when the draw would overlap it:
 //
-//   virt_image_base >= KASLR_VIRT_TEXT_MIN + (max_data - min_text)
+//   virt_image_base >= VIRT_TEXT_MIN_DEFAULT_CONFIG + (max_data - min_text)
 //
 // Reads VIRT kernel TEXT/IMAGE (min) and DATA/BSS (max) leaks; emits a
 // C_LOWER_BOUND on Q_VIRT_IMAGE_BASE.
@@ -82,8 +82,8 @@ int rule_min_offset_from_image_size(const struct evidence_set *ev,
     return 0;
   unsigned long gap = max_data - min_text;
 
-  unsigned long new_min = (unsigned long)KASLR_VIRT_TEXT_MIN + gap;
-  if (new_min <= (unsigned long)KASLR_VIRT_TEXT_MIN)
+  unsigned long new_min = (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG + gap;
+  if (new_min <= (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0;
 
   struct constraint *c = &out[0];

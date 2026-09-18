@@ -1,0 +1,365 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-arch-bound-derivation — guard against a rule DERIVING a bound from an
+# arch constant that does not hold for every kernel.
+#
+# The arch headers carry three kinds of window constant, and they answer three
+# different questions:
+#
+#   *_PLAUSIBLE_MIN/MAX             is this address absurd for this arch?
+#   *_MIN/MAX_ANY_CONFIG            widest placement any build admits
+#   VIRT_TEXT_MIN/MAX_DEFAULT_CONFIG,
+#   KERNEL_VIRT_TEXT_DEFAULT,
+#   KERNEL_PHYS_DEFAULT             where a DEFAULT build puts the image
+#
+# Only the middle kind is invariant. The plausibility pair is a heuristic range
+# for rejecting nonsense, deliberately tighter than the architecture allows; the
+# default-build constants bake in a Kconfig value (CONFIG_PHYSICAL_START,
+# CONFIG_KERNEL_IMAGE_BASE, VA_BITS_MIN = 48, the post-v5.13 riscv64 layout) and
+# are wrong on any build that chose otherwise. Both diverge from ANY_CONFIG on
+# real architectures: x86_64 and s390x on the physical floor, x86_64, aarch64,
+# s390x and riscv64 on the virtual one, aarch64 on the virtual ceiling.
+#
+# The physical axis has a floor constant and no ceiling one, which is not an
+# omission: the physical base is set by where the board puts DRAM rather than by
+# the VA layout, so no header can state a default-build ceiling. The invariant
+# ceiling an arch DOES owe is PHYS_ADDR_TOP, which api.h requires of every arch
+# whose physical base moves independently, so a rule bounding that axis always
+# has one to reach for and never needs the plausibility heuristic.
+#
+# The plausibility family is in scope anyway. It is the constant a rule reaches
+# for when it wants a ceiling and does not find one, and it looks authoritative
+# at the point of use; only the header that defines it says it is a guess.
+#
+# Hence the rule this guard enforces:
+#
+#     Anything that BOUNDS a quantity may derive only from _ANY_CONFIG.
+#     The other two kinds may be COMPARED against, never derived from.
+#
+# Comparing is safe because of what the comparison is for. The dominant use by
+# far is the redundancy test -- `if (ceiling <= VIRT_TEXT_MIN_DEFAULT_CONFIG)
+# return 0;` -- which declines to emit a bound no better than the architecture
+# already implies. A wrong constant there suppresses a constraint; it cannot
+# exclude the truth. Deriving is the opposite: the constant becomes the value of
+# an emitted bound, and a bound placed inside the true window excludes the base
+# from the GUARANTEED answer, which is the one thing it must never do.
+#
+# Classification is mechanical and fails CLOSED. A line mentioning one of these
+# macros counts as a comparison only when every occurrence on it sits directly
+# against a relational operator and is followed by a close paren or a logical
+# connective -- `if (x <= C)`, `if (!found || x <= C)`, `if (x > C && n < max)`.
+# Casts are stripped first so spelling a width does not change the verdict.
+# Anything else -- arithmetic, an assignment, an argument, a comparison the
+# pattern cannot read -- is a derivation and must be reviewed. A comparison
+# split across two lines reads as a derivation for the same reason: the guard
+# does not reassemble statements, so it cannot be fooled by one.
+#
+# What the review must establish for an entry: either the constant is not
+# actually reaching an emitted bound (a filter, a validator, a redundancy test
+# the pattern could not read), or the emitted bound is confined to
+# CONF_HEURISTIC and so touches the LIKELY window only, or the rule is gated to
+# architectures where the constant it reads equals its ANY_CONFIG counterpart --
+# in which case the entry must say WHICH architectures, because that is the fact
+# that makes it safe and nothing in the code records it.
+#
+# Scope: engine rules only. Rules are what emit constraints; a component emits
+# observations, and the target-model fields the orchestrator fills from these
+# constants (`layout.virt_kaslr_text_min` and friends) reach the renderers
+# alone, never a rule.
+#
+# A rule can reach a constant without naming it, by calling a shared inline
+# helper that holds it. The token scan alone cannot see that, which is the hole
+# check-confidence-floor was bitten by -- a rule emitting through a helper named
+# no op of its own and went unreviewed. The helpers are therefore DISCOVERED
+# from the headers and classified here, and only one class puts its callers in
+# scope:
+#
+#   phase  -- the constant reaches only `default_base & (align - 1)`, the low
+#             bits of the image-base grid. Those come from the linker's
+#             IMAGE_BASE_OFFSET rather than from a Kconfig, so they hold for
+#             every build and a caller learns nothing config-dependent.
+#   filter -- the constant is a comparison bound only, rejecting absurd
+#             addresses. A wrong value drops evidence; it cannot place a bound.
+#   value  -- the constant is RETURNED. A caller may put it anywhere, so every
+#             caller is a derivation and needs an entry below.
+#
+# Classifying by hand rather than by pattern because the distinction is what the
+# helper does with the value, and the three shapes are not reliably separable by
+# grep. Discovery is mechanical, so a new helper that touches one of these
+# constants fails until it is classified -- the list cannot silently fall behind.
+#
+# Usage: tests/check-arch-bound-derivation   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+RULES=$ROOT/src/rules
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+# Reviewed derivations. Each entry records why the constant it reads cannot
+# place a bound inside the true window. Keep alphabetical.
+#   arm64_coupling_validate    filter, not a bound: VIRT_TEXT_PLAUSIBLE_MIN/MAX
+#                              bracket the addresses this rule will act on at
+#                              all. Reads as a derivation only because the
+#                              comparison is split over two lines
+#   ceiling_from_image_size    both ceilings come off the honest top --
+#                              VIRT_TEXT_MAX_ANY_CONFIG and PHYS_ADDR_TOP. The
+#                              only non-invariant read left is
+#                              KERNEL_PHYS_DEFAULT as emit_ceiling's window_min,
+#                              which that function uses for two redundancy tests
+#                              (an empty window, and a ceiling no better than the
+#                              floor) and never for the emitted value. A wrong
+#                              value there suppresses the constraint
+#   config_max_offset_ceiling  emits at CONF_PARSED from
+#                              VIRT_TEXT_MIN_DEFAULT_CONFIG, and is safe only
+#                              because SF_MAX_OFFSET is read from a Kconfig that
+#                              exists on MIPS and LoongArch alone, where
+#                              VIRT_TEXT_MIN_DEFAULT_CONFIG and
+#                              VIRT_TEXT_MIN_ANY_CONFIG are the same number.
+#                              Extending the rule to x86_64, aarch64, s390x or
+#                              riscv64 makes it unsound
+#   coupling_validate          filter, as arm64_coupling_validate
+#   image_base_resolved_grid_align  reads the grid PHASE, not the base:
+#                              KERNEL_VIRT_TEXT_DEFAULT reaches
+#                              kasld_floor_aligned_suboffset, whose first act is
+#                              `default_base & (align - 1)`. A slide is a whole
+#                              multiple of the granule, so the true base carries
+#                              those low bits whatever the build chose, and they
+#                              come from the linker (IMAGE_BASE_OFFSET) rather
+#                              than from a Kconfig. On x86_64, where the window
+#                              base IS config-dependent, the kernel links at
+#                              ALIGN(CONFIG_PHYSICAL_START, CONFIG_PHYSICAL_ALIGN)
+#                              and the Kconfig caps that alignment at the 16 MiB
+#                              the default already sits on, so the phase is zero
+#                              for every build
+#   loongarch64_coupling_validate  filter, as arm64_coupling_validate
+#   min_offset_from_image_size floor derived from VIRT_TEXT_MIN_DEFAULT_CONFIG,
+#                              emitted at CONF_HEURISTIC. Below the sound floor,
+#                              so it narrows the LIKELY window only and the
+#                              guaranteed answer still admits a non-default build
+#   module_base_execmem_window reads the default as a landmark -- has the image
+#                              moved? -- which is evidence that KASLR ran and not
+#                              proof, since the knob that moves the image is
+#                              independent of RANDOMIZE_BASE. The landmark
+#                              therefore licenses the window at CONF_HEURISTIC
+#                              only; CONF_INFERRED needs an observed
+#                              SF_KASLR_COMPILED_IN or SF_KASLR_RANDOMIZED, and
+#                              even then the emission follows that fact's own
+#                              confidence down. The guaranteed answer never
+#                              rests on the landmark
+#   module_text_bracket        the grid phase, as image_base_resolved_grid_align
+#   physical_start_lower_bound the same floor (and KERNEL_PHYS_DEFAULT on the
+#                              physical axis), at the same confidence, and the
+#                              rule exists precisely to restore the tight edge
+#                              the honest top gives up. Its OTHER reading,
+#                              VIRT_TEXT_PLAUSIBLE_MIN + learned, is invariant on
+#                              x86_64 where the rule is gated: PLAUSIBLE_MIN is
+#                              __START_KERNEL_map, a fixed point of the VA
+#                              layout, and `learned` is the observed
+#                              SF_PHYSICAL_START
+#   ppc64_firmware_ceiling     derives from VIRT_TEXT_MIN_DEFAULT_CONFIG and is
+#                              gated to ppc64, where it equals
+#                              VIRT_TEXT_MIN_ANY_CONFIG (0xc000000000000000, the
+#                              linear-map base, fixed by the VA layout)
+#   riscv64_coupling_validate  filter, as arm64_coupling_validate
+#   riscv64_text_base          reaches KERNEL_VIRT_TEXT_DEFAULT through
+#                              arch_default_text_base() and pins Q_VIRT_IMAGE_BASE
+#                              to it at the sound floor, which is as far as a
+#                              default-build value may go. Three things hold it
+#                              there: it fires only on an observed
+#                              SF_VIRT_KASLR_DISABLED, never on absence; the
+#                              value is dropped unless it lies inside the window
+#                              already resolved, so evidence outranks it rather
+#                              than colliding with it; and the pin itself is
+#                              reviewed as a collapsing constraint by
+#                              check-confidence-floor
+#   virt_kaslr_disabled_pin    VIRT_TEXT_PLAUSIBLE_MIN + the observed offset, on
+#                              x86_64 and mips64 where PLAUSIBLE_MIN is the
+#                              architectural map base rather than a heuristic.
+#                              It also reaches KERNEL_VIRT_TEXT_DEFAULT through
+#                              arch_default_text_base(), and the shared emitter
+#                              caps that path at CONF_HEURISTIC, below the sound
+#                              floor. The pin itself is reviewed by
+#                              check-confidence-floor
+ALLOW="arm64_coupling_validate
+ceiling_from_image_size
+config_max_offset_ceiling
+coupling_validate
+image_base_resolved_grid_align
+loongarch64_coupling_validate
+min_offset_from_image_size
+module_base_execmem_window
+module_text_bracket
+physical_start_lower_bound
+ppc64_firmware_ceiling
+riscv64_coupling_validate
+riscv64_text_base
+virt_kaslr_disabled_pin
+"
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# Shared inline helpers that hold one of these constants, by what they do with
+# it (see the header). Every discovered helper must appear in exactly one list.
+HELPER_PHASE="kasld_floor_virt_text_bound kasld_floor_text_base
+kasld_ceil_text_base"
+HELPER_FILTER="kasld_addr_is_kernel_text kasld_addr_is_directmap
+kasld_perf_min_cb"
+#   arch_default_text_base  returns the architecture's compile-time text base.
+#                           Its callers place that value, so they are reviewed
+#                           below like any other derivation.
+HELPER_VALUE="arch_default_text_base"
+
+# The non-invariant families. _ANY_CONFIG is deliberately absent: deriving from
+# it is the correct thing and needs no review.
+NONINVARIANT='_DEFAULT_CONFIG|_PLAUSIBLE_MIN|_PLAUSIBLE_MAX|KERNEL_PHYS_DEFAULT|KERNEL_VIRT_TEXT_DEFAULT'
+
+# Prints the rule's basename once if any line derives from one of those macros.
+# Comment lines are dropped first, so a constant discussed in prose does not
+# count; `#if defined(X)` and its relatives are dropped too, since testing
+# whether an arch declares a macro reads no value from it.
+derives_from_noninvariant() {
+  awk -v pat="$NONINVARIANT" '
+    { line = $0 }
+    /^[[:space:]]*(\/\/|\*|\/\*)/ { next }
+    { sub(/\/\/.*$/, "", line) }
+    line !~ pat { next }
+    line ~ /^[[:space:]]*#[[:space:]]*(if|ifdef|ifndef|elif|else|endif)/ { next }
+    {
+      s = line
+      gsub(/\(unsigned long long\)|\(unsigned long\)|\(uint64_t\)|\(unsigned\)|\(long\)/, "", s)
+      gsub("[A-Za-z_][A-Za-z0-9_]*(" pat ")", "@", s)
+      gsub(/[ \t]/, "", s)
+      sub(/\{$/, "", s)
+      compare = 0
+      if (s ~ /^if\(/ || s ~ /^\}?elseif\(/ || s ~ /^&&/ || s ~ /^\|\|/) {
+        compare = 1
+        t = s
+        while (match(t, /@/)) {
+          before = substr(t, 1, RSTART - 1)
+          after = substr(t, RSTART + 1)
+          if (before !~ /(<=|>=|==|!=|<|>)$/) compare = 0
+          if (after !~ /^(\)|&&|\|\||$)/) compare = 0
+          t = after
+        }
+      }
+      if (!compare) { found = 1 }
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$1"
+}
+
+contains() { # $1=needle $2=list
+  for _x in $2; do [ "$_x" = "$1" ] && return 0; done
+  return 1
+}
+
+# Every static-inline helper in the kasld headers whose body reads one of these
+# constants. Discovered rather than listed, so a new one cannot slip past the
+# classification above. Names only; a per-arch helper defined in several arch
+# headers is one name.
+HELPERS_FOUND=$(find "$ROOT/src/include/kasld" -name '*.h' -exec awk -v pat="$NONINVARIANT" '
+  /^static inline / { n = $0; sub(/\(.*/, "", n); sub(/.*[ *]/, "", n); cur = n; hit = 0 }
+  cur != "" && $0 ~ pat && $0 !~ /^[[:space:]]*(\/\/|\*)/ { hit = 1 }
+  cur != "" && /^}/ { if (hit) print cur; cur = ""; hit = 0 }
+' {} + | sort -u)
+
+HELPERS_CLASSIFIED="$HELPER_PHASE $HELPER_FILTER $HELPER_VALUE"
+helper_fail=0
+for _h in $HELPERS_FOUND; do
+  if ! contains "$_h" "$HELPERS_CLASSIFIED"; then
+    if [ "$helper_fail" = 0 ]; then
+      printf '%scheck-arch-bound-derivation: unclassified helper(s) holding a non-invariant constant:%s\n' \
+        "$RED" "$RESET" >&2
+      helper_fail=1
+    fi
+    printf '  %s\n' "$_h" >&2
+  fi
+done
+if [ "$helper_fail" = 1 ]; then
+  printf 'A rule calling one of these reaches the constant without naming it, so the\n' >&2
+  printf 'scan below cannot see it. Say what the helper does with the value in\n' >&2
+  printf 'tests/check-arch-bound-derivation: HELPER_PHASE (masked to the grid phase),\n' >&2
+  printf 'HELPER_FILTER (a comparison bound only), or HELPER_VALUE (returned, so its\n' >&2
+  printf 'callers are derivations and need reviewing).\n' >&2
+fi
+for _h in $HELPERS_CLASSIFIED; do
+  if ! contains "$_h" "$HELPERS_FOUND"; then
+    printf '%scheck-arch-bound-derivation: classified helper no longer holds one (remove it):%s\n  %s\n' \
+      "$RED" "$RESET" "$_h" >&2
+    helper_fail=1
+  fi
+done
+
+detected=
+scanned=0
+for f in "$RULES"/*.c; do
+  [ -f "$f" ] || continue
+  scanned=$((scanned + 1))
+  _r=$(basename "$f" .c)
+  if derives_from_noninvariant "$f"; then
+    detected="$detected $_r"
+    continue
+  fi
+  # No constant named, but a value-yielding helper puts one in the rule's hands
+  # just the same. Comments are stripped so a helper discussed in prose does not
+  # count, matching how the token scan reads a file.
+  _stripped=$(grep -vE '^[[:space:]]*(//|\*)' "$f" 2>/dev/null)
+  for _h in $HELPER_VALUE; do
+    if printf '%s\n' "$_stripped" | grep -q "\<$_h\>"; then
+      detected="$detected $_r"
+      break
+    fi
+  done
+done
+
+fail=$helper_fail
+
+for d in $detected; do
+  if ! contains "$d" "$ALLOW"; then
+    if [ "$fail" = 0 ]; then
+      printf '%scheck-arch-bound-derivation: unreviewed derivation(s) from a non-invariant arch constant:%s\n' \
+        "$RED" "$RESET" >&2
+    fi
+    printf '  %s\n' "$d" >&2
+    fail=1
+  fi
+done
+if [ "$fail" = 1 ]; then
+  printf 'Each reads a _DEFAULT_CONFIG or _PLAUSIBLE_ constant somewhere other than\n' >&2
+  printf 'a single-line comparison. Those constants hold for a default build or are\n' >&2
+  printf 'a heuristic range; a bound derived from one can sit inside the true window\n' >&2
+  printf 'and exclude the base from the GUARANTEED answer. Use the _ANY_CONFIG\n' >&2
+  printf 'counterpart, keep the emission at CONF_HEURISTIC, or record in ALLOW in\n' >&2
+  printf 'tests/check-arch-bound-derivation which architectures the rule is gated to\n' >&2
+  printf 'and that the two constants are equal there.\n' >&2
+fi
+
+stalehdr=0
+for a in $ALLOW; do
+  if ! contains "$a" "$detected"; then
+    if [ "$stalehdr" = 0 ]; then
+      printf '%scheck-arch-bound-derivation: allowlisted rule(s) no longer derive (remove from ALLOW):%s\n' \
+        "$RED" "$RESET" >&2
+      stalehdr=1
+    fi
+    printf '  %s\n' "$a" >&2
+    fail=1
+  fi
+done
+
+[ "$fail" = 0 ] || exit 1
+
+guard_scope "check-arch-bound-derivation" "$scanned" 50
+
+# shellcheck disable=SC2086  # word-split the allowlist into argv to count via $#
+set -- $ALLOW
+printf '%scheck-arch-bound-derivation: OK%s (%s rule(s) scanned, %s reviewed derivations, none new)\n' \
+  "$GREEN" "$RESET" "$scanned" "$#"

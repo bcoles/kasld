@@ -20,7 +20,7 @@
 //   - When BOTH CONFIG_PHYSICAL_START and CONFIG_PHYSICAL_ALIGN are parsed
 //     (SF_PHYSICAL_START from /boot/config or /proc/config.gz;
 //     SF_PHYS_KERNEL_ALIGN from those or boot_params), the no-KASLR base is
-//     exactly KERNEL_VIRT_TEXT_MIN + LOAD_PHYSICAL_ADDR + IMAGE_BASE_OFFSET,
+//     exactly VIRT_TEXT_PLAUSIBLE_MIN + LOAD_PHYSICAL_ADDR + IMAGE_BASE_OFFSET,
 //     where LOAD_PHYSICAL_ADDR = ALIGN(CONFIG_PHYSICAL_START,
 //     CONFIG_PHYSICAL_ALIGN) (the kernel rounds an un-aligned
 //     CONFIG_PHYSICAL_START UP) — a read fact, pinned at CONF_INFERRED (reaches
@@ -62,7 +62,7 @@ int rule_virt_kaslr_disabled_pin(const struct evidence_set *ev,
   return 0;
 #else
   /* Learned CONFIG_PHYSICAL_START -> the exact no-KASLR virtual base. The
-   * kernel loads at KERNEL_VIRT_TEXT_MIN (__START_KERNEL_map) +
+   * kernel loads at VIRT_TEXT_PLAUSIBLE_MIN (__START_KERNEL_map) +
    * LOAD_PHYSICAL_ADDR, where LOAD_PHYSICAL_ADDR = ALIGN(CONFIG_PHYSICAL_START,
    * CONFIG_PHYSICAL_ALIGN) — so the EXACT base needs the alignment, not the raw
    * parsed value (an un-aligned CONFIG_PHYSICAL_START rounds UP, leaving the
@@ -87,9 +87,9 @@ int rule_virt_kaslr_disabled_pin(const struct evidence_set *ev,
       ps <= ULONG_MAX - (align - 1)) {
     unsigned long aligned =
         (ps + align - 1) & ~(align - 1); /* LOAD_PHYSICAL_ADDR */
-    if (aligned <= ULONG_MAX - (unsigned long)KERNEL_VIRT_TEXT_MIN -
+    if (aligned <= ULONG_MAX - (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN -
                        (unsigned long)IMAGE_BASE_OFFSET) {
-      learned_base = (unsigned long)KERNEL_VIRT_TEXT_MIN + aligned +
+      learned_base = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + aligned +
                      (unsigned long)IMAGE_BASE_OFFSET;
       learned_ceiling =
           kasld_conf_min(CONF_INFERRED, kasld_conf_min(ps_conf, al_conf));

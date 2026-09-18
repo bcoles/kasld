@@ -88,7 +88,7 @@ int rule_cmdline_memmap_too_large_phys_pin(const struct evidence_set *ev,
   if (pin == ULONG_MAX)
     return 0;
 
-  if (pin < (unsigned long)KASLR_PHYS_MIN)
+  if (pin < (unsigned long)KERNEL_PHYS_DEFAULT)
     return 0;
   unsigned long palign = est[Q_PHYS_KASLR_ALIGN].lo;
   if (palign < (unsigned long)KASLR_PHYS_ALIGN)

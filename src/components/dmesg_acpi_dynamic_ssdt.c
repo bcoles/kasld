@@ -109,8 +109,9 @@ static int on_match(const char *line, void *ctx) {
     return 1;
 
   /* Direct-map addresses land between PAGE_OFFSET (VAS upper-half start)
-   * and KERNEL_VIRT_TEXT_MIN (start of kernel text region). Physical addresses
-   * printed for static tables are well below PAGE_OFFSET and get rejected. */
+   * and VIRT_TEXT_PLAUSIBLE_MIN (start of kernel text region). Physical
+   * addresses printed for static tables are well below PAGE_OFFSET and get
+   * rejected. */
   if (!kasld_addr_is_directmap(addr))
     return 1;
 

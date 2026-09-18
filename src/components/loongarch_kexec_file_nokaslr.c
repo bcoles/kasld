@@ -6,9 +6,10 @@
 //   Purpose: arch/loongarch/kernel/relocate.c kaslr_disabled() returns true
 //   when the bare token "kexec_file" appears on the cmdline (word-boundary
 //   match identical to the kernel's own strstr-based check). The kernel then
-//   loads at the compile-time VMLINUX_LOAD_ADDRESS = KASLR_VIRT_TEXT_MIN. The
-//   token is inserted by the predecessor kernel on the kexec_file_load(2)
-//   path, so its presence reliably signals "this boot has KASLR off."
+//   loads at the compile-time VMLINUX_LOAD_ADDRESS =
+//   VIRT_TEXT_MIN_DEFAULT_CONFIG. The token is inserted by the predecessor
+//   kernel on the kexec_file_load(2) path, so its presence reliably signals
+//   "this boot has KASLR off."
 //
 // Independent of the resume= / CONFIG_HIBERNATION path covered by
 // hibernation_nokaslr.c, and of the nokaslr cmdline path covered by

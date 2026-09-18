@@ -95,8 +95,8 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *                             arches with configurable vmsplit to cover all
  *                             configs (e.g. 0x40000000 on 32-bit x86/arm).
  * - KERNEL_VIRT_VAS_END:      End of kernel virtual address space.
- * - KERNEL_VIRT_TEXT_MIN:     Minimum plausible kernel text virtual address.
- * - KERNEL_VIRT_TEXT_MAX:     Maximum plausible kernel text virtual address.
+ * - VIRT_TEXT_PLAUSIBLE_MIN:     Minimum plausible kernel text virtual address.
+ * - VIRT_TEXT_PLAUSIBLE_MAX:     Maximum plausible kernel text virtual address.
  * - MODULES_START / _END:     Kernel module virtual address range.
  *
  *   CONTRACT: MODULES_START/END is the *validation UNION* across all in-scope
@@ -137,7 +137,8 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *
  * Physical addresses:
  * - PHYS_OFFSET:              Physical RAM base address.
- * - KERNEL_PHYS_MIN / _MAX:   Min/max plausible kernel physical load address.
+ * - PHYS_PLAUSIBLE_MIN / _MAX:   Min/max plausible kernel physical load
+ * address.
  *
  * KASLR and address derivation:
  * - KASLR_SUPPORTED:          1 if the arch has mainline KASLR.
@@ -178,15 +179,16 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  * They are a validation contract, not per-system defaults to hand-tune.
  *
  * Two tiers of virtual-text ranges exist:
- *   KERNEL_VIRT_TEXT_MIN/MAX -- the validation range: any leaked virtual text
- *     address in [MIN, MAX] is plausible on this arch (wide enough to cover all
- *     vmsplit configs, non-KASLR defaults, old kernels). Accepts/rejects leaks.
- *   KASLR_VIRT_TEXT_MIN/MAX  -- the randomization window: the narrower range
- * the KASLR mechanism actually selects from at boot. Drives slot count /
- * entropy bits. KASLR_VIRT_ALIGN is the slot granularity. On most arches the
- * two ranges coincide and KASLR_VIRT_ALIGN == IMAGE_ALIGN (the defaults below
- * alias them); arch headers override when they differ, e.g. x86_64: KERNEL_TEXT
- * [0xffffffff80000000, 0xffffffffc0000000] (1 GiB); KASLR_TEXT  [MIN + 16 MiB,
+ *   VIRT_TEXT_PLAUSIBLE_MIN/MAX -- the validation range: any leaked virtual
+ * text address in [MIN, MAX] is plausible on this arch (wide enough to cover
+ * all vmsplit configs, non-KASLR defaults, old kernels). Accepts/rejects leaks.
+ *   VIRT_TEXT_MIN/MAX_DEFAULT_CONFIG -- the randomization window: the narrower
+ * range the KASLR mechanism actually selects from at boot on a DEFAULT build.
+ * Drives slot count / entropy bits. KASLR_VIRT_ALIGN is the slot granularity.
+ * On most arches the two ranges coincide and KASLR_VIRT_ALIGN == IMAGE_ALIGN
+ * (the defaults below alias them); arch headers override when they differ, e.g.
+ * x86_64: KERNEL_TEXT [0xffffffff80000000, 0xffffffffc0000000] (1 GiB);
+ * KASLR_TEXT  [MIN + 16 MiB,
  * ...]; KASLR_VIRT_ALIGN = 2 MiB. arm64:  KERNEL_TEXT ~128 TiB; KASLR_TEXT ~64
  * TiB; KASLR_VIRT_ALIGN 64 KiB (== IMAGE_ALIGN).
  * ========================================================================= */
@@ -402,21 +404,23 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
 #if KERNEL_VIRT_VAS_START > KERNEL_VIRT_VAS_END
 #error "Defined KERNEL_VIRT_VAS_START is larger than KERNEL_VIRT_VAS_END"
 #endif
-#if KERNEL_VIRT_VAS_START > KERNEL_VIRT_TEXT_MIN
-#error "Defined KERNEL_VIRT_VAS_START is larger than KERNEL_VIRT_TEXT_MIN"
+#if KERNEL_VIRT_VAS_START > VIRT_TEXT_PLAUSIBLE_MIN
+#error "Defined KERNEL_VIRT_VAS_START is larger than VIRT_TEXT_PLAUSIBLE_MIN"
 #endif
-#if KERNEL_VIRT_TEXT_MAX > KERNEL_VIRT_VAS_END
-#error "Defined KERNEL_VIRT_TEXT_MAX is larger than KERNEL_VIRT_VAS_END"
+#if VIRT_TEXT_PLAUSIBLE_MAX > KERNEL_VIRT_VAS_END
+#error "Defined VIRT_TEXT_PLAUSIBLE_MAX is larger than KERNEL_VIRT_VAS_END"
 #endif
-#if KERNEL_VIRT_TEXT_DEFAULT > KERNEL_VIRT_TEXT_MAX
-#error "Generated KERNEL_VIRT_TEXT_DEFAULT is larger than KERNEL_VIRT_TEXT_MAX"
+#if KERNEL_VIRT_TEXT_DEFAULT > VIRT_TEXT_PLAUSIBLE_MAX
+#error                                                                         \
+    "Generated KERNEL_VIRT_TEXT_DEFAULT is larger than VIRT_TEXT_PLAUSIBLE_MAX"
 #endif
-#if KERNEL_VIRT_TEXT_DEFAULT < KERNEL_VIRT_TEXT_MIN
-#error "Generated KERNEL_VIRT_TEXT_DEFAULT is smaller than KERNEL_VIRT_TEXT_MIN"
+#if KERNEL_VIRT_TEXT_DEFAULT < VIRT_TEXT_PLAUSIBLE_MIN
+#error                                                                         \
+    "Generated KERNEL_VIRT_TEXT_DEFAULT is smaller than VIRT_TEXT_PLAUSIBLE_MIN"
 #endif
-#ifdef KERNEL_PHYS_MIN
-#if KERNEL_PHYS_MIN > KERNEL_PHYS_MAX
-#error "Defined KERNEL_PHYS_MIN is larger than KERNEL_PHYS_MAX"
+#ifdef PHYS_PLAUSIBLE_MIN
+#if PHYS_PLAUSIBLE_MIN > PHYS_PLAUSIBLE_MAX
+#error "Defined PHYS_PLAUSIBLE_MIN is larger than PHYS_PLAUSIBLE_MAX"
 #endif
 /* Catch an N*GB upper bound that overflowed the word on a 32-bit arch (4*GB
  * wraps to 0). A `#if` can't see this: the preprocessor evaluates in intmax_t
@@ -424,10 +428,10 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  * it — and to the relational `#if` above. _Static_assert is evaluated by the
  * compiler in the target's own types, so it does see the wrap. (Unsigned
  * overflow is defined behaviour, so no warning flag catches it either.) */
-__extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
-                                 (unsigned long)KERNEL_PHYS_MIN,
-                             "KERNEL_PHYS_MAX <= KERNEL_PHYS_MIN -- an N*GB "
-                             "constant overflowed the 32-bit word?");
+__extension__ _Static_assert(
+    (unsigned long)PHYS_PLAUSIBLE_MAX > (unsigned long)PHYS_PLAUSIBLE_MIN,
+    "PHYS_PLAUSIBLE_MAX <= PHYS_PLAUSIBLE_MIN -- an N*GB "
+    "constant overflowed the 32-bit word?");
 #endif
 
 /* DIRECTMAP_STATIC and TEXT_TRACKS_DIRECTMAP must be declared by every arch
@@ -474,6 +478,27 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #ifndef TEXT_TRACKS_DIRECTMAP
 #error "arch header must define TEXT_TRACKS_DIRECTMAP (0 or 1)"
 #endif
+/* An arch whose image can move in physical memory independently of the linear
+ * map owes an answer to "how far": Q_PHYS_IMAGE_BASE is a quantity of its own
+ * there, and the rules that bound it need the widest physical address any
+ * configuration can produce. PHYS_PLAUSIBLE_MAX cannot serve -- it is a
+ * heuristic about where kernels are usually loaded, so a bound derived from it
+ * would exclude a legitimately high placement from the guaranteed window.
+ *
+ * Where text rides the linear map there is no independent physical base to
+ * bound, so nothing is required.
+ *
+ * The axis is tested for existence before its value. An absent macro reads as 0
+ * in an `#if`, which is a meaningful value for a 0/1 axis -- so without the
+ * first clause a header that declares no TEXT_TRACKS_DIRECTMAP at all would
+ * fail here, naming PHYS_ADDR_TOP when the missing axis just above is the
+ * defect. The multi-valued axes number their answers from 1 and get this for
+ * free; a boolean cannot. */
+#if defined(TEXT_TRACKS_DIRECTMAP) && !TEXT_TRACKS_DIRECTMAP &&                \
+    !defined(PHYS_ADDR_TOP)
+#error                                                                         \
+    "arch header must define PHYS_ADDR_TOP (widest physical address any configuration can produce) when TEXT_TRACKS_DIRECTMAP is 0"
+#endif
 #ifndef LINEAR_MAP_ANCHOR
 #error                                                                         \
     "arch header must define LINEAR_MAP_ANCHOR (LM_ANCHOR_PHYS_OFFSET / _DRAM_BASE / _UNKNOWABLE)"
@@ -483,9 +508,9 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
     "arch header must define IMAGE_BASE_RESIDUE_FIXED (0 or 1) -- see its contract later in this header"
 #endif
 
-/* Is an address inside [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX] necessarily
- * part of the kernel image or a module, so that ruling out the module band
- * leaves only the image?
+/* Is an address inside [VIRT_TEXT_PLAUSIBLE_MIN, VIRT_TEXT_PLAUSIBLE_MAX]
+ * necessarily part of the kernel image or a module, so that ruling out the
+ * module band leaves only the image?
  *
  * That window is the range in which the image base is ADMISSIBLE, not the
  * image's extent, so the answer is usually no: it spans the linear map on the
@@ -522,28 +547,28 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  *                VMALLOC_END == PAGE_OFFSET) but the LINEAR MAP is the
  *                occupant: asm/page.h selects PAGE_OFFSET at runtime from the
  *                VA mode, and PAGE_OFFSET_L3 (sv39) is 0xffffffd600000000 —
- *                40 GiB below KERNEL_VIRT_TEXT_MIN, growing upward with
+ *                40 GiB below VIRT_TEXT_PLAUSIBLE_MIN, growing upward with
  *                installed RAM. The header models the sv57 value, which clears
  *                the window by a wide margin; sv39 does not.
  *   0  arm64   — asm/pgtable.h has VMALLOC_START == MODULES_END ==
  * KIMAGE_VADDR, so vmalloc begins at the image and spans the window. 0  s390 —
  * vmalloc bounds are runtime variables, and the window here is effectively the
  * whole address space. 0  arm32, ppc32, x86_32, riscv32, mips32, mips64, ppc64,
- * loongarch64 — PAGE_OFFSET >= KERNEL_VIRT_TEXT_MIN, so the linear map starts
- *                inside the window; the assertion below rejects a 1 here.
- * The remaining headers (m68k, microblaze, openrisc, sh, sparc) exist for the
- * dispatch table and error at compile time, so the question does not arise. */
+ * loongarch64 — PAGE_OFFSET >= VIRT_TEXT_PLAUSIBLE_MIN, so the linear map
+ * starts inside the window; the assertion below rejects a 1 here. The remaining
+ * headers (m68k, microblaze, openrisc, sh, sparc) exist for the dispatch table
+ * and error at compile time, so the question does not arise. */
 #ifndef TEXT_WINDOW_EXCLUSIVE
 #define TEXT_WINDOW_EXCLUSIVE 0
 #endif
 /* The one part of that claim the constants can check. kasld_addr_is_directmap()
- * spans [PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN), so an architecture whose linear
+ * spans [PAGE_OFFSET, VIRT_TEXT_PLAUSIBLE_MIN), so an architecture whose linear
  * map begins inside the text window collapses that span to nothing and then
  * reports no direct-map match for any address at all — indistinguishable from
  * having no linear map. An arch in that state cannot be exclusive. */
 #if TEXT_WINDOW_EXCLUSIVE
 __extension__ _Static_assert((unsigned long)PAGE_OFFSET <
-                                 (unsigned long)KERNEL_VIRT_TEXT_MIN,
+                                 (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN,
                              "TEXT_WINDOW_EXCLUSIVE claims the text window "
                              "holds only the image and modules, but the linear "
                              "map begins inside it");
@@ -960,59 +985,59 @@ static inline unsigned long kasld_page_offset_if_known(void) {
 
 /* Conservative lower edges of Q_VIRT_IMAGE_BASE / Q_PHYS_IMAGE_BASE windows.
  *
- * KASLR_VIRT_TEXT_MIN / KASLR_PHYS_MIN can bake in configurable Kconfig values
- * (currently x86_64 with CONFIG_PHYSICAL_START) at their *default*. Real
- * kernels built with a smaller value place text below that floor, and the
- * engine's window then excludes truth. KASLR_VIRT_TEXT_MIN_WIDE /
- * KASLR_PHYS_MIN_WIDE are the *wider* variants — the smallest practical
+ * VIRT_TEXT_MIN_DEFAULT_CONFIG / KERNEL_PHYS_DEFAULT can bake in configurable
+ * Kconfig values (currently x86_64 with CONFIG_PHYSICAL_START) at their
+ * *default*. Real kernels built with a smaller value place text below that
+ * floor, and the engine's window then excludes truth. VIRT_TEXT_MIN_ANY_CONFIG
+ * / PHYS_MIN_ANY_CONFIG are the *wider* variants — the smallest practical
  * value across all reasonable Kconfig choices on the arch — used by
  * quantities.c as the honest-top floor.
  *
- * Arches without configurable floors default these to KASLR_*_MIN
+ * Arches without configurable floors default these to the default-build floor
  * (no widening). The physical_start_lower_bound rule restores the tight
  * floor via a learned SF_PHYSICAL_START (CONF_PARSED) or the compile-time
  * default (CONF_HEURISTIC), overridable by any real evidence. */
-#ifndef KASLR_VIRT_TEXT_MIN_WIDE
-#define KASLR_VIRT_TEXT_MIN_WIDE KASLR_VIRT_TEXT_MIN
+#ifndef VIRT_TEXT_MIN_ANY_CONFIG
+#define VIRT_TEXT_MIN_ANY_CONFIG VIRT_TEXT_MIN_DEFAULT_CONFIG
 #endif
 /* Honest-top ceiling counterpart: defaults to the KASLR window top; an arch
  * whose honest top must span more than one text-base layout (arm64 sub-48
- * VA_BITS) widens it. Widen-only — never below KASLR_VIRT_TEXT_MAX. */
-#ifndef KASLR_VIRT_TEXT_MAX_WIDE
-#define KASLR_VIRT_TEXT_MAX_WIDE KASLR_VIRT_TEXT_MAX
+ * VA_BITS) widens it. Widen-only — never below VIRT_TEXT_MAX_DEFAULT_CONFIG. */
+#ifndef VIRT_TEXT_MAX_ANY_CONFIG
+#define VIRT_TEXT_MAX_ANY_CONFIG VIRT_TEXT_MAX_DEFAULT_CONFIG
 #endif
-/* KASLR_PHYS_MIN_WIDE's default is deferred until after KASLR_PHYS_MIN is
- * resolved below — its guard tests defined(KASLR_PHYS_MIN), and most arches
- * only acquire KASLR_PHYS_MIN via the KERNEL_PHYS_DEFAULT chain further down.
- */
+/* PHYS_MIN_ANY_CONFIG's default is deferred until after KERNEL_PHYS_DEFAULT is
+ * resolved below — its guard tests defined(KERNEL_PHYS_DEFAULT), which most
+ * arches acquire from PHYS_PLAUSIBLE_MIN further down rather than by declaring
+ * it. */
 
 /* KASLR randomization window defaults (override per-arch when narrower) */
-#ifndef KASLR_VIRT_TEXT_MIN
-#define KASLR_VIRT_TEXT_MIN KERNEL_VIRT_TEXT_MIN
+#ifndef VIRT_TEXT_MIN_DEFAULT_CONFIG
+#define VIRT_TEXT_MIN_DEFAULT_CONFIG VIRT_TEXT_PLAUSIBLE_MIN
 #endif
-#ifndef KASLR_VIRT_TEXT_MAX
-#define KASLR_VIRT_TEXT_MAX KERNEL_VIRT_TEXT_MAX
+#ifndef VIRT_TEXT_MAX_DEFAULT_CONFIG
+#define VIRT_TEXT_MAX_DEFAULT_CONFIG VIRT_TEXT_PLAUSIBLE_MAX
 #endif
 #ifndef KASLR_VIRT_ALIGN
 #define KASLR_VIRT_ALIGN IMAGE_ALIGN
 #endif
 
 /* The validation range must contain the honest top. quantities.c seeds
- * Q_VIRT_IMAGE_BASE from [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX_WIDE],
+ * Q_VIRT_IMAGE_BASE from [VIRT_TEXT_MIN_ANY_CONFIG, VIRT_TEXT_MAX_ANY_CONFIG],
  * while coupling_validate rejects a text observation outside
- * [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX]. If the validation range is the
- * narrower of the two, addresses exist that the engine searches for yet
+ * [VIRT_TEXT_PLAUSIBLE_MIN, VIRT_TEXT_PLAUSIBLE_MAX]. If the validation range
+ * is the narrower of the two, addresses exist that the engine searches for yet
  * discards on sight: a true text leak landing there is curated out, no pin
  * fires, and the window never narrows. Widening the honest top to cover a
  * second text-base layout therefore has to carry the validation range with it.
  */
-#if KERNEL_VIRT_TEXT_MIN > KASLR_VIRT_TEXT_MIN_WIDE
+#if VIRT_TEXT_PLAUSIBLE_MIN > VIRT_TEXT_MIN_ANY_CONFIG
 #error                                                                         \
-    "KERNEL_VIRT_TEXT_MIN is above the honest-top floor KASLR_VIRT_TEXT_MIN_WIDE"
+    "VIRT_TEXT_PLAUSIBLE_MIN is above the honest-top floor VIRT_TEXT_MIN_ANY_CONFIG"
 #endif
-#if KERNEL_VIRT_TEXT_MAX < KASLR_VIRT_TEXT_MAX_WIDE
+#if VIRT_TEXT_PLAUSIBLE_MAX < VIRT_TEXT_MAX_ANY_CONFIG
 #error                                                                         \
-    "KERNEL_VIRT_TEXT_MAX is below the honest-top ceiling KASLR_VIRT_TEXT_MAX_WIDE"
+    "VIRT_TEXT_PLAUSIBLE_MAX is below the honest-top ceiling VIRT_TEXT_MAX_ANY_CONFIG"
 #endif
 
 /* image_base_grid_align soundness gate. The rule snaps a resolved virtual
@@ -1053,24 +1078,28 @@ static inline unsigned long kasld_page_offset_if_known(void) {
 #define RISCV_PHYS_LOAD_OFFSET 0ul
 #endif
 
-#if defined(KERNEL_PHYS_MIN) && !defined(KERNEL_PHYS_DEFAULT)
-#define KERNEL_PHYS_DEFAULT (KERNEL_PHYS_MIN + IMAGE_BASE_OFFSET)
-#endif
-#if !defined(KASLR_PHYS_MIN) && defined(KERNEL_PHYS_DEFAULT)
-#define KASLR_PHYS_MIN KERNEL_PHYS_DEFAULT
+/* Where a DEFAULT build loads the image physically: the architecture's lowest
+ * usable physical address plus the image's head offset. An arch whose default
+ * load offset is not IMAGE_BASE_OFFSET (riscv64) defines this itself.
+ *
+ * There is deliberately no ceiling counterpart. The physical base is set by
+ * where the board puts DRAM rather than by the VA layout, so no header can
+ * state a default-build ceiling; PHYS_PLAUSIBLE_MAX -- a heuristic, not an
+ * architectural limit -- is the only ceiling there is, and a rule reading it
+ * says so at the point of use. The virtual axis DOES have both edges, because
+ * the VA layout fixes them at build time. */
+#if defined(PHYS_PLAUSIBLE_MIN) && !defined(KERNEL_PHYS_DEFAULT)
+#define KERNEL_PHYS_DEFAULT (PHYS_PLAUSIBLE_MIN + IMAGE_BASE_OFFSET)
 #endif
 /* Conservative lower edge of the Q_PHYS_IMAGE_BASE window (see the virtual
- * counterpart above). Must follow the KASLR_PHYS_MIN derivation: the guard is
- * evaluated eagerly, so placing it earlier would silently skip on every arch
- * that gets KASLR_PHYS_MIN from KERNEL_PHYS_DEFAULT, leaving the macro
- * undefined. Arches needing a wider floor (x86_64 CONFIG_PHYSICAL_START, s390
- * identity map) define KASLR_PHYS_MIN_WIDE themselves; the rest default to
- * KASLR_PHYS_MIN. */
-#if defined(KASLR_PHYS_MIN) && !defined(KASLR_PHYS_MIN_WIDE)
-#define KASLR_PHYS_MIN_WIDE KASLR_PHYS_MIN
-#endif
-#if !defined(KASLR_PHYS_MAX) && defined(KERNEL_PHYS_MAX)
-#define KASLR_PHYS_MAX KERNEL_PHYS_MAX
+ * counterpart above). Must follow the KERNEL_PHYS_DEFAULT derivation: the guard
+ * is evaluated eagerly, so placing it earlier would silently skip on every arch
+ * that acquires KERNEL_PHYS_DEFAULT from the chain just above, leaving the
+ * macro undefined. Arches needing a wider floor (x86_64 CONFIG_PHYSICAL_START,
+ * s390 identity map) define PHYS_MIN_ANY_CONFIG themselves; the rest default to
+ * the default build's load address. */
+#if defined(KERNEL_PHYS_DEFAULT) && !defined(PHYS_MIN_ANY_CONFIG)
+#define PHYS_MIN_ANY_CONFIG KERNEL_PHYS_DEFAULT
 #endif
 #ifndef KASLR_PHYS_ALIGN
 #define KASLR_PHYS_ALIGN IMAGE_ALIGN
@@ -1535,23 +1564,23 @@ static inline int kasld_addr_is_module_band(unsigned long va) {
 }
 
 /* Predicate: is `va` plausibly a kernel direct-map (lowmem) address — in
- * [PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN)? On coupled/inverted arches where the
+ * [PAGE_OFFSET, VIRT_TEXT_PLAUSIBLE_MIN)? On coupled/inverted arches where the
  * direct map and kernel text meet or cross, the window is empty, so those
  * arches naturally yield no direct-map match (they have a fixed, non-randomized
  * page_offset and nothing to leak here). */
 static inline int kasld_addr_is_directmap(unsigned long va) {
   return kasld_addr_in_window(va, (unsigned long)PAGE_OFFSET,
-                              (unsigned long)KERNEL_VIRT_TEXT_MIN);
+                              (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN);
 }
 
-/* Predicate: is `va` in the kernel text window [KERNEL_VIRT_TEXT_MIN,
- * KERNEL_VIRT_TEXT_MAX]? The closed upper bound matches the "maximum plausible
- * kernel text address" contract (banner above) and the module/directmap
- * predicates:
- * a leaked virtual address is plausibly kernel text when it lands here. */
+/* Predicate: is `va` in the kernel text window [VIRT_TEXT_PLAUSIBLE_MIN,
+ * VIRT_TEXT_PLAUSIBLE_MAX]? The closed upper bound matches the "maximum
+ * plausible kernel text address" contract (banner above) and the
+ * module/directmap predicates: a leaked virtual address is plausibly kernel
+ * text when it lands here. */
 static inline int kasld_addr_is_kernel_text(unsigned long va) {
-  return kasld_addr_in_range(va, (unsigned long)KERNEL_VIRT_TEXT_MIN,
-                             (unsigned long)KERNEL_VIRT_TEXT_MAX);
+  return kasld_addr_in_range(va, (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN,
+                             (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX);
 }
 
 /* Predicate: is `va` anywhere in the kernel virtual address space
@@ -1925,11 +1954,12 @@ static inline const char *kasld_region_wire(enum kasld_region r) {
  * The DIRECTMAP and VMALLOC answers carry no such band form, and they are
  * weaker than they look: kasld_addr_is_directmap() means "below the text
  * window", not "in the linear map", so on x86_64 it spans
- * [PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN) and swallows vmalloc and vmemmap whole.
- * Rules that bound page_offset from a direct-map address read REGION_DIRECTMAP,
- * and a vmalloc pointer arriving under that tag moves the bound in the unsound
- * direction. Callers that cannot vouch for what they are passing should keep to
- * the text family and drop the rest, as the current three do.
+ * [PAGE_OFFSET, VIRT_TEXT_PLAUSIBLE_MIN) and swallows vmalloc and vmemmap
+ * whole. Rules that bound page_offset from a direct-map address read
+ * REGION_DIRECTMAP, and a vmalloc pointer arriving under that tag moves the
+ * bound in the unsound direction. Callers that cannot vouch for what they are
+ * passing should keep to the text family and drop the rest, as the current
+ * three do.
  *
  * Returns REGION_UNKNOWN for anything outside the kernel VAS; callers drop it.
  */
@@ -2099,6 +2129,17 @@ enum kasld_scalar_fact {
   /* and MODULES_VADDR. Emitted only when set: a clear    */
   /* flag is the KASLR-off signal the SF_*_KASLR_DISABLED */
   /* facts already carry.                                 */
+  SF_KASLR_COMPILED_IN, /* 1 where the kernel config carries                  */
+                        /* CONFIG_RANDOMIZE_BASE=y. The BUILD-time answer,    */
+                        /* which SF_KASLR_RANDOMIZED only implies: the option */
+                        /* selects compile-time sizes that hold whether or    */
+                        /* not the randomizer ran, so a `nokaslr` boot still  */
+                        /* has the =y layout. x86_64's KERNEL_IMAGE_SIZE, and */
+                        /* hence MODULES_VADDR, is the case that needs it.    */
+                        /* Emitted only when set, like the flag above: an     */
+                        /* unset option is the SF_*_KASLR_DISABLED signal,    */
+                        /* and a config carrying neither token is no evidence */
+                        /* either way (see kconfig_has_kaslr).                */
   SF_VIRT_KASLR_RANDOMIZATION_FAILED, /* 1 if the boot stub attempted    */
   /* virtual KASLR but could not produce a random virt offset. Emitters: */
   /* arm64/riscv64 "lack of seed" and s390 "CPU has no PRNG" (current);  */
@@ -2200,6 +2241,7 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_PPC64_MMU_MODE] = "ppc64_mmu_mode",
     [SF_KMSAN_ENABLED] = "kmsan_enabled",
     [SF_KASLR_RANDOMIZED] = "kaslr_randomized",
+    [SF_KASLR_COMPILED_IN] = "kaslr_compiled_in",
 };
 /* The [SF__COUNT] dimension keeps the table indexable for every SF_* (a missing
  * entry is a NULL hole, not out of bounds); it does NOT make the table

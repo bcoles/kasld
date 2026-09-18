@@ -43,7 +43,7 @@
 // CONF_HEURISTIC: the bound is sound by construction for known
 // algorithms, but any CONF_PARSED leak (kallsyms, an iomem text pin,
 // dmesg backtrace) overrides this. The rule's purpose is to narrow the
-// otherwise-vast Q_PHYS_IMAGE_BASE window (KERNEL_PHYS_MIN .. 64 GiB)
+// otherwise-vast Q_PHYS_IMAGE_BASE window (PHYS_PLAUSIBLE_MIN .. 64 GiB)
 // down to the low-memory portion when only the dmesg signal is
 // available — typical for low-priv s390 leak scenarios.
 //

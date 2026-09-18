@@ -7,8 +7,8 @@
 // edge is a pos=base kernel-text pin. These tests exercise the static parser
 // (on_match() + the entries table) by #including the component with its main
 // renamed, capturing the emitted P/V/S wire lines. Addresses derive from the
-// arch's KERNEL_VIRT_TEXT_MIN, so the suite is valid on every width/endianness
-// under tests/test-cross.
+// arch's VIRT_TEXT_PLAUSIBLE_MIN, so the suite is valid on every
+// width/endianness under tests/test-cross.
 // ---
 // <bcoles@gmail.com>
 
@@ -67,7 +67,7 @@ static char cap[8192];
  * by IMAGE_BASE_OFFSET (a no-op on arches where it is 0, e.g. the x86_64 host).
  */
 static void test_kernel_line_pins_text_base(void) {
-  unsigned long start = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long start = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN;
   unsigned long image_base = start + (unsigned long)IMAGE_BASE_OFFSET;
   char line[256], want[64];
   snprintf(line, sizeof(line),
@@ -99,7 +99,7 @@ static void test_kernel_line_below_text_rejected(void) {
  * lo must equal the raw value on every arch, including those with
  * IMAGE_BASE_OFFSET != 0. */
 static void test_text_line_pins_image_base(void) {
-  unsigned long image_base = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long image_base = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN;
   char line[256], want[64];
   snprintf(line, sizeof(line), "      .text : 0x%lx - 0x%lx   (  6208 KB)",
            image_base, image_base + 0x600000);
@@ -117,7 +117,7 @@ static void test_text_line_pins_image_base(void) {
  * be one below the printed figure. The staged span is a round 1 GiB, which the
  * printed pair can only express the half-open way. */
 static void test_vmalloc_range_high_edge_is_exclusive(void) {
-  unsigned long lo = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long lo = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN;
   unsigned long printed_hi = lo + 0x40000000ul;
   char line[256], want[80];
   snprintf(line, sizeof(line), "      vmalloc : 0x%lx - 0x%lx   (1024 MB)", lo,
@@ -132,7 +132,7 @@ static void test_vmalloc_range_high_edge_is_exclusive(void) {
 /* The vmemmap needle carries the same convention, and the s390 spelling has no
  * spaces around the dash -- both reach the same conversion. */
 static void test_vmemmap_and_s390_spelling(void) {
-  unsigned long lo = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long lo = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN;
   unsigned long printed_hi = lo + 0x40000000ul;
   char line[256], want[80];
 
@@ -156,7 +156,7 @@ static void test_vmemmap_and_s390_spelling(void) {
 /* A line whose two figures are equal describes no region; stepping the high
  * edge back would put it under the low one, so nothing is emitted. */
 static void test_degenerate_range_emits_nothing(void) {
-  unsigned long lo = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long lo = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN;
   char line[256];
   snprintf(line, sizeof(line), "      vmalloc : 0x%lx - 0x%lx   (   0 MB)", lo,
            lo);

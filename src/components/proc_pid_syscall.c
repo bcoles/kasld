@@ -173,7 +173,7 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
         unsigned long b = reg_addr & 0xffffffff;
 
         /* Sort the two halves by the user/kernel boundary, not by
-         * KERNEL_VIRT_TEXT_MIN: on 32-bit with a 3G/1G split that floor
+         * VIRT_TEXT_PLAUSIBLE_MIN: on 32-bit with a 3G/1G split that floor
          * (0x40000000) overlaps user space and would misread register values
          * (SP, LR, mmap addresses) as kernel pointers. Kernel stack addresses
          * leaked by CVE-2020-28588 are always at or above the boundary.
@@ -213,12 +213,12 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
        * the MEASURED base snapped to the target's VMSPLIT, so a lower-split
        * kernel's real _text (0x80008000 on a 2G build) is admitted where the
        * compile-time PAGE_OFFSET would silently drop it. The max() with
-       * KERNEL_VIRT_TEXT_MIN is defence-in-depth against a zero floor. */
+       * VIRT_TEXT_PLAUSIBLE_MIN is defence-in-depth against a zero floor. */
       unsigned long po = kasld_page_offset_floor();
-      unsigned long lo = po > (unsigned long)KERNEL_VIRT_TEXT_MIN
+      unsigned long lo = po > (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN
                              ? po
-                             : (unsigned long)KERNEL_VIRT_TEXT_MIN;
-      if (leaked_addr >= lo && leaked_addr <= KERNEL_VIRT_TEXT_MAX) {
+                             : (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN;
+      if (leaked_addr >= lo && leaked_addr <= VIRT_TEXT_PLAUSIBLE_MAX) {
         if (!addr || leaked_addr < addr)
           addr = leaked_addr;
       }

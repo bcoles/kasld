@@ -1467,7 +1467,7 @@ static void test_render_readout_has_no_double_blank(void) {
   memset(&s, 0, sizeof(s));
   memset(&t_stage, 0, sizeof(t_stage));
   t_stage.vslots = 60;
-  s.kaslr.vtext = (unsigned long)KASLR_VIRT_TEXT_MIN;
+  s.kaslr.vtext = (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG;
 
   capture_stdout(wrap_render_summary, &s);
 
@@ -1584,7 +1584,7 @@ static void test_render_markdown_evidence_names_the_edge(void) {
   /* From the arch's own text window, not written as addresses: a literal here
    * is one arch's number compiled for all of them, and truncates where an
    * unsigned long is 32 bits. */
-  const unsigned long base = (unsigned long)KASLR_VIRT_TEXT_MIN;
+  const unsigned long base = (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG;
   const unsigned long inside = base + 0x234000ul;
   char addr[32];
 
@@ -1648,7 +1648,7 @@ static void test_render_grain_states_a_floor_as_one(void) {
   memset(&s, 0, sizeof(s));
   memset(&t_stage, 0, sizeof(t_stage));
   t_stage.vslots = 60;
-  s.kaslr.vtext = (unsigned long)KASLR_VIRT_TEXT_MIN;
+  s.kaslr.vtext = (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG;
 
   set_render_mode(0, 0, 1); /* markdown: one row per line, no width budget */
   capture_stdout(wrap_render_summary, &s);
@@ -1997,7 +1997,7 @@ static void test_render_map_directmap_base_from_engine(void) {
   /* Put the text band clear of the direct-map floor. A decoupled arch draws no
    * direct-map band at all when the two coincide (there the region proves
    * nothing the text band does not already say) -- and on s390 the VAS floor
-   * plus one step lands exactly on KERNEL_VIRT_TEXT_MIN. */
+   * plus one step lands exactly on VIRT_TEXT_PLAUSIBLE_MIN. */
   layout.virt_image_base_min = layout.virt_kernel_vas_start + step * 10;
   layout.virt_image_base_max = layout.virt_image_base_min;
 

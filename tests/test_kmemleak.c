@@ -69,7 +69,7 @@ static void run_capture(void) {
 static void test_lowest_directmap_object(void) {
   unsigned long lo = (unsigned long)PAGE_OFFSET + 0x2000;
   unsigned long hi = (unsigned long)PAGE_OFFSET + 0x100000;
-  unsigned long nondm = (unsigned long)KERNEL_VIRT_TEXT_MIN + 0x1000;
+  unsigned long nondm = (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN + 0x1000;
   if (kasld_addr_classify(lo) != REGION_DIRECTMAP_BAND)
     return; /* empty direct-map window on this arch */
   char fx[512];

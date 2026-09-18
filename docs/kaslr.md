@@ -174,9 +174,9 @@ header — the decompression buffer requirement, which is larger than the
 final loaded kernel size. On RISC-V (`arch/riscv/mm/init.c`), it is
 `_end − _start` — the actual in-memory kernel size with no overhead.
 On x86, `MODULES_VADDR` is defined as `__START_KERNEL_map +
-KERNEL_IMAGE_SIZE` with no gap, so the ceiling is hard. (KASLD's `Search
-space` readout counts a closed range and so reports one more slot than this
-column — e.g. `505` on x86_64 where the table shows `504`.)
+KERNEL_IMAGE_SIZE` with no gap, so the ceiling is hard. (KASLD counts a closed
+range and so arrives at one more slot than this column — `505` on x86_64 where
+the table shows `504`.)
 
 ³ The arm64 row is the `VA_BITS_MIN = 48` case (4K/16K 4-level, plus 52-bit LVA)
 — the common one. Sub-48 configs place the image higher and randomize over a
@@ -259,7 +259,11 @@ with KASLR on:
 | `alpine-3.21-6.12.81-0-virt` | 16 MiB | 64 | 6 bits |
 | `debian-13-6.12.94_deb13-amd64` | 2 MiB | 505 | ~9 bits |
 
-Either is reproducible from the corpus:
+The alignment is what the readout carries, as the `Grain` of each image-base
+row; the slot count and entropy beside it are the window divided by that grain,
+and are stated here rather than printed, since the window a kernel randomized
+over is not something a userspace binary can read. Either capture's grain is
+reproducible from the corpus:
 
 ```
 extra/prepare-bundle tests/fixtures/x86_64/alpine-3.21-6.12.81-0-virt /tmp/r
@@ -564,8 +568,9 @@ For KASLD's own engine and tool vocabulary (quantity, estimate, covering, rule,
   the randomization code picks a wider grid. See
   [Default text base](#default-text-base-and-kaslr-alignment).
 - **search space** — how many slots a quantity could still be in, given the
-  evidence. The readout states it against the set the row narrows (`24 of 505`),
-  which is the brute-force cost of that row. See
+  evidence, which is the brute-force cost of that row. The readout carries the
+  count, and states it against the set the row narrows wherever that set is a
+  window rather than an address width (`24 of 512`). See
   [usage.md](usage.md#default-text-mode).
 - **entropy** — the number of random bits in the placement, `log2(slots)`; the
   same fact as the search space, expressed as a logarithm, and shown as

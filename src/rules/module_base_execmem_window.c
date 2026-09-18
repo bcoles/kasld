@@ -14,24 +14,40 @@
 //
 // GATE: the named base is the CONFIG_RANDOMIZE_BASE=y placement of
 // MODULES_VADDR, which is only where the module region lives if that option
-// was set. Two things establish it, and either will do:
+// was set. Three things speak to it, and they are NOT equally strong, so the
+// window is emitted at the confidence of whichever spoke:
 //
+//   SF_KASLR_COMPILED_IN — the kernel config read directly. The option itself,
+//     which is what the window rests on, so this is the licence the rule most
+//     wants. It carries the confidence of the config that supplied it: an
+//     unkeyed /boot/config is not bound to the running kernel and arrives
+//     below the sound floor, which is exactly right here.
 //   SF_KASLR_RANDOMIZED — the boot stub's own record that it randomized the
-//     kernel. The code that sets it is compiled in only under
-//     CONFIG_RANDOMIZE_BASE, so the flag IS that option, observed rather than
-//     inferred. It answers on a run that has resolved no base at all, which is
-//     exactly the confined vantage this window is worth most to.
+//     kernel this boot. The randomizer lives in code compiled only under
+//     CONFIG_RANDOMIZE_BASE, so a set flag implies the option. Proof, but a
+//     narrower one: it is silent on a =y kernel booted with `nokaslr`, where
+//     the compile-time layout is unchanged and this window still holds.
 //   the IMAGE MOVED — a resolved Q_VIRT_IMAGE_BASE that excludes the
-//     compile-time default. A relocated image proves the KASLR machinery ran,
-//     which proves RANDOMIZE_BASE=y, which fixes KERNEL_IMAGE_SIZE and hence
-//     MODULES_VADDR.
+//     compile-time default. Strong evidence that the KASLR machinery ran, but
+//     not proof: the default is where a DEFAULT build puts the image, and the
+//     knob that moves it is independent of RANDOMIZE_BASE. On x86_64 the image
+//     is linked at __START_KERNEL_map + ALIGN(CONFIG_PHYSICAL_START,
+//     CONFIG_PHYSICAL_ALIGN), so a kernel built with a non-default
+//     PHYSICAL_START — the crash-dump case, where the option is offered
+//     precisely so the image can be linked at the reservation — sits away from
+//     the default with KASLR off. This test then reads "moved" for an image
+//     that never moved, and the =n module region is 512 MiB lower, since
+//     KERNEL_IMAGE_SIZE is 512 MiB rather than 1 GiB without RANDOMIZE_BASE.
+//     A guaranteed window there would exclude the true base, so this path
+//     emits below the sound floor and shapes the likely window only.
 //
-// Without either the base could sit at the =n placement instead, and the window
-// would be in the wrong place entirely; the rule stays silent rather than
-// guess.
+// Without any of them the base could sit at the =n placement instead, and the
+// window would be in the wrong place entirely; the rule stays silent rather
+// than guess.
 //
-// Inert where the arch declares no such window, and inert until the image base
-// is resolved enough to rule the default out.
+// Inert where the arch declares no such window, and inert until something
+// establishes the option or the image base is resolved enough to rule the
+// default out.
 // ---
 // <bcoles@gmail.com>
 
@@ -56,13 +72,28 @@ int rule_module_base_execmem_window(const struct evidence_set *ev,
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   int lo_known = vt->lo > top.lo, hi_known = vt->hi < top.hi;
   int moved = (lo_known && vt->lo > def) || (hi_known && vt->hi < def);
-  int randomized = 0;
-  for (int i = 0; i < ev->n_obs && !randomized; i++) {
+
+  /* The strongest licence on offer, and who said it. Either observed fact
+   * establishes the option outright, so each licenses the window at its own
+   * confidence -- capped at the sound floor, because the window is inferred
+   * from the option rather than read. A displaced image is not proof (see the
+   * GATE note) and licenses nothing above CONF_HEURISTIC. */
+  enum kasld_confidence conf = moved ? CONF_HEURISTIC : CONF_UNKNOWN;
+  uint32_t src = 0;
+  for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
-    randomized = o->valid && o->value_kind == OBS_SCALAR &&
-                 o->scalar_fact == SF_KASLR_RANDOMIZED && o->scalar_value;
+    if (!o->valid || o->value_kind != OBS_SCALAR || !o->scalar_value)
+      continue;
+    if (o->scalar_fact != SF_KASLR_COMPILED_IN &&
+        o->scalar_fact != SF_KASLR_RANDOMIZED)
+      continue;
+    enum kasld_confidence c = kasld_conf_min(o->conf, CONF_INFERRED);
+    if ((int)c > (int)conf) {
+      conf = c;
+      src = o->id;
+    }
   }
-  if (!moved && !randomized)
+  if (conf == CONF_UNKNOWN)
     return 0;
 
   int n = 0;
@@ -71,7 +102,11 @@ int rule_module_base_execmem_window(const struct evidence_set *ev,
   c->q = Q_MODULE_BASE;
   c->op = C_LOWER_BOUND;
   c->value = (unsigned long)MODULES_BASE_RANDOMIZED;
-  c->conf = CONF_INFERRED;
+  c->conf = conf;
+  if (src) {
+    c->derived_from[0] = src;
+    c->lineage_count = 1;
+  }
   snprintf(c->origin, ORIGIN_LEN, "module_base_execmem_window");
 
   c = &out[n++];
@@ -80,7 +115,11 @@ int rule_module_base_execmem_window(const struct evidence_set *ev,
   c->op = C_UPPER_BOUND;
   c->value = (unsigned long)MODULES_BASE_RANDOMIZED +
              (unsigned long)MODULES_BASE_RANDOM_SPAN;
-  c->conf = CONF_INFERRED;
+  c->conf = conf;
+  if (src) {
+    c->derived_from[0] = src;
+    c->lineage_count = 1;
+  }
   snprintf(c->origin, ORIGIN_LEN, "module_base_execmem_window");
 
   return n;

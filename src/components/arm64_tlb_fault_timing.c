@@ -807,7 +807,7 @@ int main(int argc, char **argv) {
                    "it");
   }
 
-  if (base < KERNEL_VIRT_TEXT_MIN || base > KERNEL_VIRT_TEXT_MAX)
+  if (base < VIRT_TEXT_PLAUSIBLE_MIN || base > VIRT_TEXT_PLAUSIBLE_MAX)
     return give_up("candidate outside the text window");
 
   kasld_info("faulting stores issued: %lu", (unsigned long)fault_count);

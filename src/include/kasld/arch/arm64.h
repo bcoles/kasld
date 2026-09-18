@@ -170,8 +170,8 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 // KIMAGE_VADDR rather than the modern one: a text address between the two is
 // real on a pre-v5.4 kernel, and a floor at the modern KIMAGE_VADDR would
 // discard that leak as implausible while the estimate still searched for it.
-#define KERNEL_VIRT_TEXT_MIN 0xffff000008000000ul
-#define KERNEL_VIRT_TEXT_MAX 0xffffffffff000000ul
+#define VIRT_TEXT_PLAUSIBLE_MIN 0xffff000008000000ul
+#define VIRT_TEXT_PLAUSIBLE_MAX 0xffffffffff000000ul
 
 // Module region — VALIDATION UNION across all in-scope kernel versions.
 //
@@ -191,11 +191,11 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 // The validation union is therefore the RELOCATABLE range. Both allocators
 // serve from a window of at most SZ_2G that also spans the kernel image, so a
 // module lies within 2 GiB of the image base; the image base in turn spans the
-// honest top [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX_WIDE]. The union
+// honest top [VIRT_TEXT_MIN_ANY_CONFIG, VIRT_TEXT_MAX_ANY_CONFIG]. The union
 // is that window grown by 2 GiB on both sides, clamped to the top of the
 // kernel VAS — which the upper edge reaches. This subsumes every static layout
 // above. MODULES_BRACKET_TEXT below states the same 2 GiB as an inference
-// axis; the guards beside KASLR_VIRT_TEXT_MAX_WIDE keep the two in step.
+// axis; the guards beside VIRT_TEXT_MAX_ANY_CONFIG keep the two in step.
 //
 // Consequence: classifying an address as a module purely by range is
 // near-vacuous on arm64, since the band covers most of the kernel VAS. Per the
@@ -211,14 +211,14 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 // Where the module band is anchored: a window CENTRED on the image;
 // MODULES_BRACKET_TEXT is its half-width.
 #define MODULES_ANCHOR MOD_ANCHOR_BRACKETS_TEXT
-#define MODULES_START 0xfffeffff88000000ul // KASLR_VIRT_TEXT_MIN_WIDE - SZ_2G
+#define MODULES_START 0xfffeffff88000000ul // VIRT_TEXT_MIN_ANY_CONFIG - SZ_2G
 #define MODULES_END KERNEL_VIRT_VAS_END
 
 // Usable as a BOUND on the module base, not only as an admission filter: the
 // floor is a full bracket below the lowest text base the honest top admits and
 // the ceiling is the top of the VAS, so both edges hold with KASLR on or off
 // (KASLR off puts _text at KIMAGE_VADDR, well inside) and across every VA
-// layout, which is what the guards beside KASLR_VIRT_TEXT_MAX_WIDE assert.
+// layout, which is what the guards beside VIRT_TEXT_MAX_ANY_CONFIG assert.
 #define MODULES_BAND_STRENGTH MOD_BAND_BOUNDS
 // Module region does not shift with KASLR on arm64.
 // (Modules are loaded independently of kernel text placement.)
@@ -333,11 +333,11 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 #define STEXT_OFFSET_MIN 0x10000ul
 #define STEXT_OFFSET_MAX 0x200000ul
 
-// Plausible physical address range for kernel image. KERNEL_PHYS_MAX is a RAM
-// heuristic (a defeasible ceiling), NOT an architectural limit — a large
+// Plausible physical address range for kernel image. PHYS_PLAUSIBLE_MAX is a
+// RAM heuristic (a defeasible ceiling), NOT an architectural limit — a large
 // machine's phys base can exceed it. The honest top is PHYS_ADDR_TOP below.
-#define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (256ul * GB)
+#define PHYS_PLAUSIBLE_MIN 0ul
+#define PHYS_PLAUSIBLE_MAX (256ul * GB)
 
 // Honest architectural phys top: 2^MAX_PHYSMEM_BITS. arm64 PHYS_MASK_SHIFT =
 // CONFIG_ARM64_PA_BITS, up to 52 bits with FEAT_LPA2 — the widest realisable
@@ -391,8 +391,8 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 // The KASLR offset from KIMAGE_VADDR is in [BIT(45), BIT(45)+BIT(46)).
 // VA_BITS_MIN is 48 on VA_BITS>=48 builds but equals VA_BITS on sub-48
 // configs (e.g. 39 on 4K/3-level, common on Android; 47 on 16K/52-bit), so
-// the per-formula window is not constant across configs; the _WIDE bounds
-// cover the spread.
+// the per-formula window is not constant across configs, which is why these
+// are the DEFAULT_CONFIG pair and the ANY_CONFIG bounds cover the spread.
 //
 // v6.6   kaslr_early.c: return BIT(VA_BITS_MIN-3) + (seed &
 // GENMASK(VA_BITS_MIN-3,0)); v6.12  kaslr_early.c: range = (VMALLOC_END -
@@ -400,8 +400,9 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 //                        return range / 2 + (((__uint128_t)range * seed) >>
 //                        64);
 // https://elixir.bootlin.com/linux/v6.12/source/arch/arm64/kernel/pi/kaslr_early.c
-#define KASLR_VIRT_TEXT_MIN (KIMAGE_VADDR + (1ul << 45))
-#define KASLR_VIRT_TEXT_MAX (KASLR_VIRT_TEXT_MIN + (1ul << 46))
+#define VIRT_TEXT_MIN_DEFAULT_CONFIG (KIMAGE_VADDR + (1ul << 45))
+#define VIRT_TEXT_MAX_DEFAULT_CONFIG                                           \
+  (VIRT_TEXT_MIN_DEFAULT_CONFIG + (1ul << 46))
 
 // KASLR_VIRT_ALIGN is the alignment of the *_text address*: the finest grid the
 // virtual text base can land on, used both to snap the guaranteed base window
@@ -457,29 +458,31 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
  * it can only stop falsely excluding one. When PAGE_OFFSET resolves,
  * rule_arm64_text_base re-narrows to the tight per-VA_BITS band.
  *
- * KASLR_VIRT_TEXT_MIN is preserved for entropy / slot reporting on KASLR-on
- * systems (the per-formula randomization window's narrower lower edge).
- * KASLR_VIRT_TEXT_MAX is unchanged — KIMAGE_VADDR + 96 TiB already covers both
- * the v6.6 upper edge (96 TiB) and the v6.12+ upper edge (~94.5 TiB). */
-#define KASLR_VIRT_TEXT_MIN_WIDE 0xffff000008000000ul
+ * VIRT_TEXT_MIN_DEFAULT_CONFIG is preserved for entropy / slot reporting on
+ * KASLR-on systems (the per-formula randomization window's narrower lower
+ * edge). VIRT_TEXT_MAX_DEFAULT_CONFIG is unchanged — KIMAGE_VADDR + 96 TiB
+ * already covers both the v6.6 upper edge (96 TiB) and the v6.12+ upper edge
+ * (~94.5 TiB). */
+#define VIRT_TEXT_MIN_ANY_CONFIG 0xffff000008000000ul
 
-/* Honest-top CEILING for Q_VIRT_IMAGE_BASE. KASLR_VIRT_TEXT_MAX is the 48-bit
- * formula's window top (kept for entropy/slot reporting); it is too low for
- * sub-48 configs, whose KIMAGE_VADDR is HIGHER (39-bit → 0xffffffc080000000).
- * Widen the honest top to the validation ceiling KERNEL_VIRT_TEXT_MAX, which
- * admits every supported VA_BITS_MIN's text base, so a sub-48 text leak is not
- * falsely excluded. Widen-only, never-narrow — same discipline as the floor. */
-#define KASLR_VIRT_TEXT_MAX_WIDE KERNEL_VIRT_TEXT_MAX
+/* Honest-top CEILING for Q_VIRT_IMAGE_BASE. VIRT_TEXT_MAX_DEFAULT_CONFIG is the
+ * 48-bit formula's window top (kept for entropy/slot reporting); it is too low
+ * for sub-48 configs, whose KIMAGE_VADDR is HIGHER (39-bit →
+ * 0xffffffc080000000). Widen the honest top to the validation ceiling
+ * VIRT_TEXT_PLAUSIBLE_MAX, which admits every supported VA_BITS_MIN's text
+ * base, so a sub-48 text leak is not falsely excluded. Widen-only, never-narrow
+ * — same discipline as the floor. */
+#define VIRT_TEXT_MAX_ANY_CONFIG VIRT_TEXT_PLAUSIBLE_MAX
 
 /* The module band is the honest top grown by the bracket on both sides (see
- * MODULES_START/END above). Those are literals — they sit above these _WIDE
- * definitions and cannot reference them — so assert the relation here rather
- * than let the two drift apart: widening the honest top without widening the
- * band alongside it would drop real module addresses. */
-#if MODULES_START > KASLR_VIRT_TEXT_MIN_WIDE - MODULES_BRACKET_TEXT
+ * MODULES_START/END above). Those are literals — they sit above these
+ * ANY_CONFIG definitions and cannot reference them — so assert the relation
+ * here rather than let the two drift apart: widening the honest top without
+ * widening the band alongside it would drop real module addresses. */
+#if MODULES_START > VIRT_TEXT_MIN_ANY_CONFIG - MODULES_BRACKET_TEXT
 #error "arm64 module band floor excludes a module a full bracket below _text"
 #endif
-#if MODULES_END < KASLR_VIRT_TEXT_MAX_WIDE
+#if MODULES_END < VIRT_TEXT_MAX_ANY_CONFIG
 #error "arm64 module band ceiling excludes a module at the highest text base"
 #endif
 

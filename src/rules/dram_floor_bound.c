@@ -63,7 +63,7 @@ int rule_dram_floor_bound(const struct evidence_set *ev,
   unsigned long floor = pdram_lo;
   if (KASLR_PHYS_ALIGN > 0)
     floor = (floor + KASLR_PHYS_ALIGN - 1) & ~(KASLR_PHYS_ALIGN - 1);
-  if (floor <= KASLR_PHYS_MIN)
+  if (floor <= KERNEL_PHYS_DEFAULT)
     return 0;
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));

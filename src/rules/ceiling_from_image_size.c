@@ -76,23 +76,37 @@ int rule_ceiling_from_image_size(const struct evidence_set *ev,
     valign = (unsigned long)KASLR_VIRT_ALIGN;
 
   int n = 0;
-  /* Use the WIDE window edges — the honest top/floor of Q_VIRT_IMAGE_BASE (see
-   * quantities.c top_virt_image_base) — NOT the raw KASLR_VIRT_TEXT_MIN/MAX.
-   * The raw MAX bakes in the 48-bit formula's window top and is too low for
-   * arm64 sub-48 VA_BITS configs (e.g. 39-bit KIMAGE_VADDR = 0xffffffc080000000
-   * sits ~30 TiB above KASLR_VIRT_TEXT_MAX); using it as window_max would cap
-   * the ceiling below the true sub-48 text base and exclude it. The _WIDE
-   * variants equal the raw values on arches where the KASLR window already
-   * spans every layout (x86_64, ...), so this only changes arm64. */
-  n += emit_ceiling(Q_VIRT_IMAGE_BASE, KASLR_VIRT_TEXT_MAX_WIDE,
-                    KASLR_VIRT_TEXT_MIN_WIDE, valign, ksize, conf, src, out, n,
+  /* Both window edges are the ANY_CONFIG variants — the honest top/floor of
+   * Q_VIRT_IMAGE_BASE (see quantities.c top_virt_image_base) — NOT the
+   * VIRT_TEXT_MIN_DEFAULT_CONFIG/MAX pair. That pair bakes in the 48-bit
+   * formula's window top and is too low for arm64 sub-48 VA_BITS configs (e.g.
+   * 39-bit KIMAGE_VADDR = 0xffffffc080000000 sits ~30 TiB above
+   * VIRT_TEXT_MAX_DEFAULT_CONFIG); using it as window_max would cap the ceiling
+   * below the true sub-48 text base and exclude it. The two families hold the
+   * same number on arches where the KASLR window already spans every layout
+   * (x86_64, ...), so the distinction only bites on arm64. */
+  n += emit_ceiling(Q_VIRT_IMAGE_BASE, VIRT_TEXT_MAX_ANY_CONFIG,
+                    VIRT_TEXT_MIN_ANY_CONFIG, valign, ksize, conf, src, out, n,
                     out_max);
 #if !TEXT_TRACKS_DIRECTMAP
   unsigned long palign = est[Q_PHYS_KASLR_ALIGN].lo;
   if (palign < (unsigned long)KASLR_PHYS_ALIGN)
     palign = (unsigned long)KASLR_PHYS_ALIGN;
-  n += emit_ceiling(Q_PHYS_IMAGE_BASE, KASLR_PHYS_MAX, KASLR_PHYS_MIN, palign,
-                    ksize, conf, src, out, n, out_max);
+  /* PHYS_ADDR_TOP for the same reason, and it is the only ceiling this rule may
+   * use: the architecture declares no default-build physical ceiling, because
+   * the physical base is set by where the board puts DRAM rather than by the VA
+   * layout. PHYS_PLAUSIBLE_MAX is the tempting alternative and is wrong here —
+   * it is a heuristic about where kernels are usually loaded (16 GiB on
+   * x86_64), so a ceiling derived from it sits far inside the window a large
+   * machine can place the image in, and this bound reaches the GUARANTEED
+   * answer at the confidence of whatever measured the image size. The real
+   * narrowing on this axis comes from observed RAM, which the DRAM and memtotal
+   * ceilings already apply with the same image-size subtraction.
+   *
+   * api.h requires PHYS_ADDR_TOP of every arch reaching this branch, so there
+   * is nothing to fall back to. */
+  n += emit_ceiling(Q_PHYS_IMAGE_BASE, PHYS_ADDR_TOP, KERNEL_PHYS_DEFAULT,
+                    palign, ksize, conf, src, out, n, out_max);
 #endif
   return n;
 }

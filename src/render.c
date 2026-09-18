@@ -250,10 +250,11 @@ const char *kasld_entropy_phrase(int bits, int bits_top,
    * this line can stand on, and is withheld rather than inverted.
    *
    * The comparison is the Candidates cell's, applied AFTER ceil(log2) rather
-   * than before, so the two can disagree on one run: the engine searches wider
-   * than the kernel picks, and 512 candidates against a top of 505 suppresses
-   * the count's ratio while both round to 9 bits and keep this one. That is
-   * the rule degrading correctly, not two policies -- push the count far
+   * than before, so the two can disagree on one run: a caller may know a window
+   * tighter than the one the engine searched, and 29355 candidates against a
+   * top of 28843 suppresses the count's ratio while both round to 15 bits and
+   * keep this one. That is the rule degrading correctly, not two policies --
+   * push the count far
    * enough past the top and the bit forms separate too, and this falls back to
    * a bare residual. Both statements are true either way, so a caller wanting
    * them adjacent needs no extra gate. */

@@ -1208,7 +1208,7 @@ static void test_full_engine_s390_no_prng_shape(void) {
  * boot_config (PAGE_OFFSET, KASLR off) and meminfo are readable, and
  * asserts the resolved windows are non-bottom and admit the true text
  * placement. Pinned the moment any arch header introduces a 32-bit
- * overflow in its KERNEL_PHYS_MAX (or any rule that depends on it). */
+ * overflow in its PHYS_PLAUSIBLE_MAX (or any rule that depends on it). */
 static void test_full_engine_arm32_no_kaslr_shape(void) {
 #if defined(__arm__) && !defined(__aarch64__)
   struct engine e;
@@ -1567,7 +1567,7 @@ static void test_full_engine_riscv64_legacy_2gb(void) {
  *     exact PAGE_OFFSET (it used to collapse everything >= 0xffff000000000000
  *     to VA_BITS=48);
  *   - the widened Q_VIRT_IMAGE_BASE honest top must ADMIT the sub-48 text base
- *     (the old KASLR_VIRT_TEXT_MAX ceiling excluded it).
+ *     (the old VIRT_TEXT_MAX_DEFAULT_CONFIG ceiling excluded it).
  * Reverting any one of the three fails an assertion below. */
 static void test_full_engine_arm64_va39_sub48(void) {
 #if defined(__aarch64__)
@@ -1597,9 +1597,9 @@ static void test_full_engine_arm64_va39_sub48(void) {
   /* PAGE_OFFSET resolves to the exact 39-bit value (admitted + classified). */
   TH_CHECK(po_lo(po) == po39 && po_hi(po) == po39);
   /* The image base resolves to the sub-48 _text — which sits ABOVE the old
-   * 48-bit honest-top ceiling (KASLR_VIRT_TEXT_MAX), so only the widened
-   * KASLR_VIRT_TEXT_MAX_WIDE admits it. */
-  TH_CHECK(t_text > (unsigned long)KASLR_VIRT_TEXT_MAX);
+   * 48-bit honest-top ceiling (VIRT_TEXT_MAX_DEFAULT_CONFIG), so only the
+   * widened VIRT_TEXT_MAX_ANY_CONFIG admits it. */
+  TH_CHECK(t_text > (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG);
   /* The witness is _stext with no _text alongside it, so the base is pinned
    * only where the arch fixes the head gap. arm64's SEGMENT_ALIGN was SZ_2M
    * under the pre-5.7 CONFIG_DEBUG_ALIGN_RODATA, so it declares a ceiling and
@@ -1678,7 +1678,8 @@ static void test_full_engine_arm64_va48_no_kaslr(void) {
  * (union, Phase-1-widened) honest top back to the 48-bit KASLR band once
  * PAGE_OFFSET resolves. The floor uses the smallest module region
  * (_PAGE_END(48)+128M) so a 5.4..6.1 kernel's lower text base is admitted; the
- * ceiling is still the 2G-region KASLR-window top (KASLR_VIRT_TEXT_MAX). */
+ * ceiling is still the 2G-region KASLR-window top
+ * (VIRT_TEXT_MAX_DEFAULT_CONFIG). */
 static void test_full_engine_arm64_va48_kaslr_window(void) {
 #if defined(__aarch64__)
   struct engine e;
@@ -1694,9 +1695,9 @@ static void test_full_engine_arm64_va48_kaslr_window(void) {
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
   TH_CHECK(vt->lo == arm64_page_end_for(48ul) + 0x8000000ul); /* +128M floor */
-  TH_CHECK(vt->hi == (unsigned long)KASLR_VIRT_TEXT_MAX);
+  TH_CHECK(vt->hi == (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG);
   /* Proves the narrowing happened: the union ceiling is strictly higher. */
-  TH_CHECK(vt->hi < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
+  TH_CHECK(vt->hi < (unsigned long)VIRT_TEXT_MAX_ANY_CONFIG);
 #endif
 }
 
@@ -1725,7 +1726,7 @@ static void test_full_engine_arm64_va39_kaslr_window(void) {
   TH_CHECK(vt->lo == pe39 + 0x8000000ul); /* +128M floor */
   TH_CHECK(vt->hi == ceiling39);          /* +2G base + max offset */
   /* Disjoint from the 48-bit window — its own narrower band. */
-  TH_CHECK(vt->lo > (unsigned long)KASLR_VIRT_TEXT_MAX);
+  TH_CHECK(vt->lo > (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG);
 #endif
 }
 
@@ -1734,7 +1735,7 @@ static void test_full_engine_arm64_va39_kaslr_window(void) {
  * (real v4.14 value 0xffff000008080000). On the unprivileged/hardened profile
  * no leak resolves PAGE_OFFSET, so rule_arm64_text_base does not re-narrow and
  * Q_VIRT_IMAGE_BASE stays at its honest top — which must admit the real low
- * text base. Guards the KASLR_VIRT_TEXT_MIN_WIDE floor end-to-end through the
+ * text base. Guards the VIRT_TEXT_MIN_ANY_CONFIG floor end-to-end through the
  * full registry; without the widened floor the window starts at KIMAGE_VADDR
  * (0xffff800080000000) and excludes the truth. */
 static void test_full_engine_arm64_old_layout_sound(void) {
@@ -1759,11 +1760,12 @@ static void test_full_engine_arm64_old_layout_sound(void) {
  * the bottom of RAM, _stext at IMAGE_BASE_OFFSET = 0x100000). With no text /
  * module leak (the hardened file-only floor) Q_VIRT_IMAGE_BASE and
  * Q_PHYS_IMAGE_BASE stay at their honest tops, which must admit that low base.
- * Guards both s390 identity-map floors: KASLR_VIRT_TEXT_MIN_WIDE=0 on the
+ * Guards both s390 identity-map floors: VIRT_TEXT_MIN_ANY_CONFIG=0 on the
  * virtual side (else the window floors at the modern ~4 TiB
- * KASLR_VIRT_TEXT_MIN) and KASLR_PHYS_MIN_WIDE=KERNEL_PHYS_MIN on the physical
- * side (else it floors at the derived KASLR_PHYS_MIN = _stext floor 0x100000
- * and excludes the true image base, rejecting the parsed low-base pin). */
+ * VIRT_TEXT_MIN_DEFAULT_CONFIG) and PHYS_MIN_ANY_CONFIG=PHYS_PLAUSIBLE_MIN on
+ * the physical side (else it floors at the derived KERNEL_PHYS_DEFAULT = _stext
+ * floor 0x100000 and excludes the true image base, rejecting the parsed
+ * low-base pin). */
 static void test_full_engine_s390_old_identity_map_sound(void) {
 #if defined(__s390__) || defined(__s390x__)
   struct engine e;
@@ -1787,8 +1789,8 @@ static void test_full_engine_s390_old_identity_map_sound(void) {
   const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
   TH_CHECK(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   TH_CHECK(pt->lo <= 0x200ul && 0x200ul <= pt->hi);
-  TH_CHECK(pt->lo <= (unsigned long)KERNEL_PHYS_MIN &&
-           (unsigned long)KERNEL_PHYS_MIN <= pt->hi);
+  TH_CHECK(pt->lo <= (unsigned long)PHYS_PLAUSIBLE_MIN &&
+           (unsigned long)PHYS_PLAUSIBLE_MIN <= pt->hi);
 #endif
 }
 
@@ -1817,11 +1819,11 @@ static void test_full_engine_property_x86_64(void) {
     unsigned long image =
         gap + (prop_rand(&r) % 16ul) * 0x100000ul; /* >= gap */
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image,
                      (unsigned long)KASLR_VIRT_ALIGN);
-    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+    unsigned long phys = prop_aligned(&r, (unsigned long)KERNEL_PHYS_DEFAULT,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     /* L4 direct-map base: 1 GiB-aligned, a bounded random offset above it. */
     unsigned long po = (unsigned long)PAGE_OFFSET_BASE_L4 +
@@ -1892,11 +1894,11 @@ static void test_full_engine_property_x86_64_floor(void) {
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image,
                      (unsigned long)KASLR_VIRT_ALIGN);
-    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+    unsigned long phys = prop_aligned(&r, (unsigned long)KERNEL_PHYS_DEFAULT,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x40000000ull) +
@@ -1904,11 +1906,12 @@ static void test_full_engine_property_x86_64_floor(void) {
 
     struct prop_axis axes[] = {
         {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
-         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
-         (unsigned long)KASLR_VIRT_TEXT_MAX},
+         (unsigned long)KASLR_VIRT_ALIGN,
+         (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+         (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG},
         {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
-         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_MIN,
-         (unsigned long)KASLR_PHYS_MAX},
+         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KERNEL_PHYS_DEFAULT,
+         (unsigned long)PHYS_PLAUSIBLE_MAX},
     };
     prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
                      "x86_64", seed);
@@ -1958,10 +1961,10 @@ static void test_full_engine_property_arm64(void) {
      * floor at 2 MiB rather than 0: a phys base of 0 is not realistic.) */
     const unsigned long kimg = 0x200000ul; /* MIN_KIMG_ALIGN */
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image, kimg);
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image, kimg);
     unsigned long phys =
-        prop_aligned(&r, kimg, (unsigned long)KASLR_PHYS_MAX - image, kimg);
+        prop_aligned(&r, kimg, (unsigned long)PHYS_PLAUSIBLE_MAX - image, kimg);
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x40000000ull) +
                              0x10000000ul;
@@ -2048,12 +2051,12 @@ static void test_full_engine_property_riscv64(void) {
      * rather than test it. */
     const unsigned long head = 0x2000ul;
     unsigned long start =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image - head,
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image - head,
                      (unsigned long)KASLR_VIRT_ALIGN);
     unsigned long virt = start + head;
-    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+    unsigned long phys = prop_aligned(&r, (unsigned long)KERNEL_PHYS_DEFAULT,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x40000000ull) +
@@ -2122,10 +2125,10 @@ static void test_full_engine_property_s390(void) {
      * interval containment check can't see, but Phase 3 does. */
     const unsigned long seg = 0x100000ul; /* _SEGMENT_SIZE */
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image, seg);
-    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image, seg);
+    unsigned long phys = prop_aligned(&r, (unsigned long)KERNEL_PHYS_DEFAULT,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x40000000ull) +
@@ -2204,7 +2207,7 @@ static void test_full_engine_property_x86_32(void) {
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     /* Coupled: the virtual text base tracks phys in the linear map. */
     /* The linear-map base is DRAWN, not read from the compile-time constant.
@@ -2348,8 +2351,8 @@ static void test_full_engine_property_ppc64(void) {
 
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
-    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+    unsigned long phys = prop_aligned(&r, (unsigned long)KERNEL_PHYS_DEFAULT,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     unsigned long virt =
         phys - (unsigned long)PHYS_OFFSET + (unsigned long)PAGE_OFFSET;
@@ -2436,16 +2439,16 @@ static void test_full_engine_property_ppc32(void) {
      * inside the text window — and on the KASLR grid, which means drawing phys
      * at the VIRTUAL alignment: the split is coarser than both, so virt and
      * phys share a residue. */
-    unsigned long vmax = (unsigned long)KASLR_VIRT_TEXT_MAX - image;
+    unsigned long vmax = (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image;
     if (po >= vmax)
       continue; /* this split leaves no room for an image */
     unsigned long pmax = vmax - po;
-    if (pmax > (unsigned long)KASLR_PHYS_MAX)
-      pmax = (unsigned long)KASLR_PHYS_MAX;
+    if (pmax > (unsigned long)PHYS_PLAUSIBLE_MAX)
+      pmax = (unsigned long)PHYS_PLAUSIBLE_MAX;
     unsigned long phys =
         prop_aligned(&r, 0ul, pmax, (unsigned long)KASLR_VIRT_ALIGN);
     unsigned long virt = phys - (unsigned long)PHYS_OFFSET + po;
-    if (virt < (unsigned long)KASLR_VIRT_TEXT_MIN)
+    if (virt < (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG)
       continue;
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x10000000ull) +
@@ -2605,12 +2608,12 @@ static void test_full_engine_property_mips32(void) {
     /* The image must land where the linear map can still reach its physical
      * base: KSEG0 is the smaller of the two windows on this arch. */
     unsigned long vmax =
-        (unsigned long)PAGE_OFFSET + (unsigned long)KASLR_PHYS_MAX;
-    if (vmax > (unsigned long)KASLR_VIRT_TEXT_MAX)
-      vmax = (unsigned long)KASLR_VIRT_TEXT_MAX;
+        (unsigned long)PAGE_OFFSET + (unsigned long)PHYS_PLAUSIBLE_MAX;
+    if (vmax > (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG)
+      vmax = (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG;
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN, vmax - image,
-                     (unsigned long)KASLR_VIRT_ALIGN);
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     vmax - image, (unsigned long)KASLR_VIRT_ALIGN);
     unsigned long phys =
         virt - (unsigned long)PAGE_OFFSET + (unsigned long)PHYS_OFFSET;
     /* The two gaps the arch ships, stated from head.S rather than read from
@@ -2703,8 +2706,8 @@ static void test_full_engine_property_loongarch64(void) {
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image,
                      (unsigned long)KASLR_VIRT_ALIGN);
     /* Coupled: one slide moves both bases through a map the hardware fixes. */
     unsigned long phys =
@@ -2965,8 +2968,8 @@ static void test_full_engine_property_mips64(void) {
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image,
                      (unsigned long)KASLR_VIRT_ALIGN);
     /* Coupled: text rides in a linear map the hardware places, so one slide
      * moves both bases and the projection is exact by construction. */
@@ -3032,22 +3035,23 @@ static void test_full_engine_property_arm64_floor(void) {
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image,
                      (unsigned long)KASLR_VIRT_ALIGN);
     unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x40000000ull) +
                              0x10000000ul;
     struct prop_axis axes[] = {
         {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
-         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
-         (unsigned long)KASLR_VIRT_TEXT_MAX},
+         (unsigned long)KASLR_VIRT_ALIGN,
+         (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+         (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG},
         {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
          (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_ALIGN,
-         (unsigned long)KASLR_PHYS_MAX},
+         (unsigned long)PHYS_PLAUSIBLE_MAX},
     };
     prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
                      "arm64", seed);
@@ -3065,22 +3069,23 @@ static void test_full_engine_property_riscv64_floor(void) {
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image,
                      (unsigned long)KASLR_VIRT_ALIGN);
-    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+    unsigned long phys = prop_aligned(&r, (unsigned long)KERNEL_PHYS_DEFAULT,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x40000000ull) +
                              0x10000000ul;
     struct prop_axis axes[] = {
         {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
-         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
-         (unsigned long)KASLR_VIRT_TEXT_MAX},
+         (unsigned long)KASLR_VIRT_ALIGN,
+         (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+         (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG},
         {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
-         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_MIN,
-         (unsigned long)KASLR_PHYS_MAX},
+         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KERNEL_PHYS_DEFAULT,
+         (unsigned long)PHYS_PLAUSIBLE_MAX},
     };
     prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
                      "riscv64", seed);
@@ -3098,22 +3103,23 @@ static void test_full_engine_property_s390_floor(void) {
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long virt =
-        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+        prop_aligned(&r, (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+                     (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG - image,
                      (unsigned long)KASLR_VIRT_ALIGN);
-    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+    unsigned long phys = prop_aligned(&r, (unsigned long)KERNEL_PHYS_DEFAULT,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x40000000ull) +
                              0x10000000ul;
     struct prop_axis axes[] = {
         {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
-         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
-         (unsigned long)KASLR_VIRT_TEXT_MAX},
+         (unsigned long)KASLR_VIRT_ALIGN,
+         (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+         (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG},
         {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
-         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_MIN,
-         (unsigned long)KASLR_PHYS_MAX},
+         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KERNEL_PHYS_DEFAULT,
+         (unsigned long)PHYS_PLAUSIBLE_MAX},
     };
     prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
                      "s390", seed);
@@ -3131,7 +3137,7 @@ static void test_full_engine_property_x86_32_floor(void) {
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)PHYS_PLAUSIBLE_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     unsigned long virt = fixture_coupled_virt(phys); /* coupled */
     unsigned long memtotal = phys + image +
@@ -3139,11 +3145,12 @@ static void test_full_engine_property_x86_32_floor(void) {
                              0x02000000ul;
     struct prop_axis axes[] = {
         {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
-         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
-         (unsigned long)KASLR_VIRT_TEXT_MAX},
+         (unsigned long)KASLR_VIRT_ALIGN,
+         (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+         (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG},
         {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
          (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_ALIGN,
-         (unsigned long)KASLR_PHYS_MAX},
+         (unsigned long)PHYS_PLAUSIBLE_MAX},
     };
     prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
                      "x86_32", seed);
@@ -3185,8 +3192,9 @@ __attribute__((unused)) static void prop_floor_coupled(const char *arch,
                              0x02000000ul;
     struct prop_axis axes[] = {
         {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
-         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
-         (unsigned long)KASLR_VIRT_TEXT_MAX},
+         (unsigned long)KASLR_VIRT_ALIGN,
+         (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG,
+         (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG},
         {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
          (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_ALIGN,
          pmax_cap},
@@ -3204,10 +3212,10 @@ __attribute__((unused)) static void prop_floor_coupled(const char *arch,
 /* The physical span whose projection stays inside the virtual text window. */
 #ifdef KASLD_PROP_ARCH
 __attribute__((unused)) static unsigned long prop_coupled_pmax(void) {
-  unsigned long from_virt = (unsigned long)KASLR_VIRT_TEXT_MAX -
+  unsigned long from_virt = (unsigned long)VIRT_TEXT_MAX_DEFAULT_CONFIG -
                             (unsigned long)PAGE_OFFSET +
                             (unsigned long)PHYS_OFFSET;
-  unsigned long p = (unsigned long)KASLR_PHYS_MAX;
+  unsigned long p = (unsigned long)PHYS_PLAUSIBLE_MAX;
   return from_virt < p ? from_virt : p;
 }
 #endif
@@ -3280,12 +3288,12 @@ static void test_full_engine_property_coverage(void) {
  *
  * The planted cascade is built from arch macros, not from one arch's numbers,
  * because the ingredients are shared: every *_coupling_validate rule bands
- * REGION_KERNEL_TEXT against KERNEL_VIRT_TEXT_MIN/MAX, and none of them checks
- * REGION_KERNEL_DATA — while is_kernel_image_region(), which
+ * REGION_KERNEL_TEXT against VIRT_TEXT_PLAUSIBLE_MIN/MAX, and none of them
+ * checks REGION_KERNEL_DATA — while is_kernel_image_region(), which
  * text_cluster_filter judges against, does include it. So:
  *
  *   - five in-band text leaks, clustered;
- *   - five text claims below KERNEL_VIRT_TEXT_MIN, far enough below to form
+ *   - five text claims below VIRT_TEXT_PLAUSIBLE_MIN, far enough below to form
  *     their own cluster. Equal counts leave text_cluster_filter without the
  *     strict majority it requires, so it refuses to act until they are gone;
  *   - one far KERNEL_DATA claim, which survives the band check but which the
@@ -3298,12 +3306,12 @@ static void test_full_engine_property_coverage(void) {
  * ========================================================================= */
 /* Confined to 64-bit layouts, and not for want of trying: the cascade needs an
  * outlier more than CLUSTER_OUTLIER_THRESHOLD (1 GiB) from the text cluster,
- * and on x86_32 / arm32 the whole address space below KERNEL_VIRT_TEXT_MIN is
- * 0x40000000 — exactly that threshold, with no room left to stay off zero.
+ * and on x86_32 / arm32 the whole address space below VIRT_TEXT_PLAUSIBLE_MIN
+ * is 0x40000000 — exactly that threshold, with no room left to stay off zero.
  * Those arches also carry no band-checking curation rule, so there would be
  * nothing to cascade even if the geometry allowed it. */
 #if __SIZEOF_LONG__ >= 8
-#define CURATION_BAND_LO ((unsigned long)KERNEL_VIRT_TEXT_MIN)
+#define CURATION_BAND_LO ((unsigned long)VIRT_TEXT_PLAUSIBLE_MIN)
 #define CURATION_OUT_OF_BAND (CURATION_BAND_LO - 0x80000000ul)
 #define CURATION_FAR (CURATION_BAND_LO - 0x100000000ul)
 

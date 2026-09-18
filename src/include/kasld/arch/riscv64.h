@@ -99,13 +99,13 @@
 #define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
 // Kernel text region. Covers both modern and legacy layouts for validation:
-//   Legacy: _stext ≈ 0xffffffe000200000 (>= KERNEL_VIRT_TEXT_MIN)
-//   Modern: _stext ≈ 0xffffffff80002000 (>= KERNEL_VIRT_TEXT_MIN, <
-//   KERNEL_VIRT_TEXT_MAX)
+//   Legacy: _stext ≈ 0xffffffe000200000 (>= VIRT_TEXT_PLAUSIBLE_MIN)
+//   Modern: _stext ≈ 0xffffffff80002000 (>= VIRT_TEXT_PLAUSIBLE_MIN, <
+//   VIRT_TEXT_PLAUSIBLE_MAX)
 // KASLR (v6.6+) randomizes within 1 PUD (1 GiB) from KERNEL_LINK_ADDR.
 // https://elixir.bootlin.com/linux/v6.6/source/arch/riscv/include/asm/pgtable.h#L63
-#define KERNEL_VIRT_TEXT_MIN 0xffffffe000000000ul
-#define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
+#define VIRT_TEXT_PLAUSIBLE_MIN 0xffffffe000000000ul
+#define VIRT_TEXT_PLAUSIBLE_MAX 0xffffffffc0000000ul
 
 // TEXT_WINDOW_EXCLUSIVE is deliberately NOT declared here; the default 0 holds.
 //
@@ -117,7 +117,7 @@
 //   PAGE_OFFSET_L4  0xffffaf8000000000   (sv48)
 //   PAGE_OFFSET_L3  0xffffffd600000000   (sv39)
 //
-// On sv39 the linear map begins 40 GiB below KERNEL_VIRT_TEXT_MIN and grows
+// On sv39 the linear map begins 40 GiB below VIRT_TEXT_PLAUSIBLE_MIN and grows
 // upward with installed memory, so a machine with more than that much RAM maps
 // RAM inside the text window. The api.h assertion cannot catch it: it compares
 // against the sv57 constant this header carries, which clears the window by a
@@ -188,11 +188,11 @@
 // rules.
 #define RISCV_PHYS_LOAD_OFFSET (2 * MB)
 
-// Plausible physical address range for kernel image. KERNEL_PHYS_MAX is a RAM
-// heuristic (a defeasible ceiling), NOT an architectural limit. The honest top
-// is PHYS_ADDR_TOP below.
-#define KERNEL_PHYS_MIN PHYS_OFFSET
-#define KERNEL_PHYS_MAX (PHYS_OFFSET + 4ul * GB)
+// Plausible physical address range for kernel image. PHYS_PLAUSIBLE_MAX is a
+// RAM heuristic (a defeasible ceiling), NOT an architectural limit. The honest
+// top is PHYS_ADDR_TOP below.
+#define PHYS_PLAUSIBLE_MIN PHYS_OFFSET
+#define PHYS_PLAUSIBLE_MAX (PHYS_OFFSET + 4ul * GB)
 
 // Honest architectural phys top: 2^MAX_PHYSMEM_BITS. riscv64 caps the physical
 // address at 56 bits (Sv57) — the widest realisable physical address. The
@@ -244,14 +244,14 @@
 
 // Phys default. riscv64 is decoupled, and OpenSBI places the image at
 // DRAM + RISCV_PHYS_LOAD_OFFSET. Defined explicitly because api.h would
-// otherwise auto-define KERNEL_PHYS_DEFAULT = KERNEL_PHYS_MIN +
+// otherwise auto-define KERNEL_PHYS_DEFAULT = PHYS_PLAUSIBLE_MIN +
 // IMAGE_BASE_OFFSET, which (post-rename) would use the head, not the firmware
-// placement. This preserves the prior value exactly (KERNEL_PHYS_MIN + 2 MiB).
-// NOTE: this is the phys image base, not phys _stext (no +IMAGE_BASE_OFFSET
-// head) — a pre-existing asymmetry vs KERNEL_VIRT_TEXT_DEFAULT, left as-is
-// here; it is sound as a phys lower bound. Revisit when the phys side is
-// reviewed.
-#define KERNEL_PHYS_DEFAULT (KERNEL_PHYS_MIN + RISCV_PHYS_LOAD_OFFSET)
+// placement. This preserves the prior value exactly (PHYS_PLAUSIBLE_MIN + 2
+// MiB). NOTE: this is the phys image base, not phys _stext (no
+// +IMAGE_BASE_OFFSET head) — a pre-existing asymmetry vs
+// KERNEL_VIRT_TEXT_DEFAULT, left as-is here; it is sound as a phys lower bound.
+// Revisit when the phys side is reviewed.
+#define KERNEL_PHYS_DEFAULT (PHYS_PLAUSIBLE_MIN + RISCV_PHYS_LOAD_OFFSET)
 
 /* Build-time check: KERNEL_VIRT_TEXT_DEFAULT must include the .head.text
  * offset so it names _stext (per the api.h convention "Default _stext
@@ -274,7 +274,7 @@ __extension__ _Static_assert(
  *   - legacy (pre-v5.13, PAGE_OFFSET >= RISCV_LEGACY_PAGE_OFFSET): text in the
  *     linear map at PAGE_OFFSET + load_offset — bounded, not pinned.
  * The generic pin's window-containment backstop does NOT catch the legacy case:
- * KERNEL_VIRT_TEXT_MIN/MAX intentionally spans both layouts, so the modern
+ * VIRT_TEXT_PLAUSIBLE_MIN/MAX intentionally spans both layouts, so the modern
  * default sits inside the legacy window and would be pinned 128 GiB high. */
 #define KASLR_DISABLED_PINS_VIRT_TEXT 0
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
@@ -282,19 +282,19 @@ static inline unsigned long arch_default_text_base(void) {
   return KERNEL_VIRT_TEXT_DEFAULT;
 }
 
-// KASLR randomization window. KERNEL_VIRT_TEXT_MIN is intentionally wide to
+// KASLR randomization window. VIRT_TEXT_PLAUSIBLE_MIN is intentionally wide to
 // accept legacy (pre-v5.13) addresses for validation, but the actual KASLR
 // range (v6.6+) is [KERNEL_LINK_ADDR, KERNEL_LINK_ADDR + 1 PUD) = 1 GiB.
-#define KASLR_VIRT_TEXT_MIN KERNEL_LINK_ADDR
+#define VIRT_TEXT_MIN_DEFAULT_CONFIG KERNEL_LINK_ADDR
 
 // Honest-top floor for the Q_VIRT_IMAGE_BASE quantity. riscv64 has TWO text
 // layouts (see top of file): legacy text in the linear map at PAGE_OFFSET
-// (KERNEL_VIRT_TEXT_MIN) and modern text at KERNEL_LINK_ADDR. The quantity top
-// must span BOTH so the engine can resolve a legacy base — using the modern
-// KASLR_VIRT_TEXT_MIN as the floor would clamp away any legacy bound
+// (VIRT_TEXT_PLAUSIBLE_MIN) and modern text at KERNEL_LINK_ADDR. The quantity
+// top must span BOTH so the engine can resolve a legacy base — using the modern
+// VIRT_TEXT_MIN_DEFAULT_CONFIG as the floor would clamp away any legacy bound
 // (rule_riscv64_text_base). The layout is then narrowed from real evidence
 // (resolved PAGE_OFFSET → rule_riscv64_text_base).
-#define KASLR_VIRT_TEXT_MIN_WIDE KERNEL_VIRT_TEXT_MIN
+#define VIRT_TEXT_MIN_ANY_CONFIG VIRT_TEXT_PLAUSIBLE_MIN
 
 // No physical KASLR on RISC-V. The kernel always loads at a fixed offset
 // (IMAGE_BASE_OFFSET) from the DRAM base provided by firmware. Only the virtual
@@ -307,9 +307,8 @@ static inline unsigned long arch_default_text_base(void) {
 // EFI memory map — anywhere in the physical address space — bypassing this
 // convention entirely. Additionally, the DRAM base itself varies by platform
 // (0x80000000 on QEMU virt/SiFive, 0x40000000 on StarFive VisionFive 2, etc.),
-// so the physical kernel base is not fixed across hardware. KASLR_PHYS_MAX is
-// therefore set to KERNEL_PHYS_MAX rather than the hardware default.
-#define KASLR_PHYS_MAX KERNEL_PHYS_MAX
+// so the physical kernel base is not fixed across hardware. No ceiling narrower
+// than the heuristic PHYS_PLAUSIBLE_MAX can be stated for it.
 
 #define KASLR_SUPPORTED 1
 

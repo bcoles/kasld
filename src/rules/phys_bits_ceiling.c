@@ -69,7 +69,7 @@ int rule_phys_bits_ceiling(const struct evidence_set *ev,
   unsigned long ceiling = phys_ceiling - min_image;
   if (KASLR_PHYS_ALIGN > 0)
     ceiling &= ~(KASLR_PHYS_ALIGN - 1);
-  if (ceiling <= KASLR_PHYS_MIN)
+  if (ceiling <= KERNEL_PHYS_DEFAULT)
     return 0;
   c->q = Q_PHYS_IMAGE_BASE;
   c->value = ceiling;
@@ -89,7 +89,7 @@ int rule_phys_bits_ceiling(const struct evidence_set *ev,
                           (phys_ceiling - min_image) - PHYS_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
-  if (ceiling <= KASLR_VIRT_TEXT_MIN)
+  if (ceiling <= VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0;
   c->q = Q_VIRT_IMAGE_BASE;
   c->value = ceiling;

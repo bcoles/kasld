@@ -79,7 +79,7 @@ int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
   unsigned long ceiling = phys_span + virt_page_offset + IMAGE_BASE_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
-  if (ceiling <= KASLR_VIRT_TEXT_MIN)
+  if (ceiling <= VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0;
 
   struct constraint *c = &out[0];

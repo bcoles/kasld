@@ -148,11 +148,22 @@ struct kasld_report_quantity {
   /* Two denominators, because there are two different "out of how many" and
    * they are not interchangeable.
    *
-   * `entropy_top` is an UPPER BOUND on what the kernel chose among: the window
-   * its own KASLR draws from, counted at the finest grain this build can prove.
-   * This is the denominator a reader wants -- "8 of 505" means 8 of the places
-   * the kernel could have put itself -- but the true figure can be smaller, in
-   * two ways that do not cancel:
+   * `entropy_top` is an UPPER BOUND on what the kernel chose among, counted at
+   * the finest grain this build can prove. This is the denominator a reader
+   * wants -- "8 of N" means 8 of the places the kernel could have put itself.
+   * It is filled in two tiers, and which one answered is not recorded because
+   * both are upper bounds and a consumer treats them alike:
+   *
+   *   1. a window PROVED for this run -- the caller's, derived from evidence
+   *      the builder cannot reach, or a randomization span the architecture
+   *      declares for the quantity. This is the set the kernel actually drew
+   *      from, so it is the tightest honest answer.
+   *   2. failing that, and only where the quantity's honest top is a window
+   *      rather than a bound on address width, the set the ENGINE started from
+   *      -- `search_top` below. Wider than any one kernel's window, because a
+   *      top has to span every layout the architecture admits.
+   *
+   * The true figure can be smaller than either, in two ways that do not cancel:
    *
    *   - the count divides the window by `align_min`, which is a floor (see
    *     it), so a kernel aligned more coarsely than this build can prove sat
@@ -170,21 +181,28 @@ struct kasld_report_quantity {
    * entropy the kernel started with, and so how much of it was stripped.
    *
    * Nothing decides on this figure: it is presented, never gated. Zero where
-   * the architecture defines no such window for this quantity, which is not
-   * the same as having no candidates.
+   * neither tier applies: no proved window, and a top that is not a set of
+   * placements. That is the physical image base on every architecture, where
+   * the top is an address width; and it is the virtual one on an architecture
+   * with no KASLR, where the same constants bound where a bootloader may have
+   * put the image rather than a set the kernel drew from. Zero is not the same
+   * as having no candidates.
    *
    * `search_top` is what the ENGINE was willing to consider, and is
-   * deliberately wider: the kernel window bakes in build options this binary
-   * cannot see, so starting there would let a legitimately-configured kernel
-   * fall outside the resolved window -- the one direction this tool must never
-   * be wrong in. On x86_64 that margin is 7 slots (an unknown
-   * CONFIG_PHYSICAL_START); on riscv64 it is 127x, because two different text
-   * layouts must both fit.
+   * deliberately wider than any single kernel's window: that window bakes in
+   * build options this binary cannot see, so starting there would let a
+   * legitimately-configured kernel fall outside the resolved window -- the one
+   * direction this tool must never be wrong in. Against a DEFAULT build the
+   * margin is 7 slots on x86_64 (an unknown CONFIG_PHYSICAL_START) and 127x on
+   * riscv64, where two different text layouts must both fit.
    *
-   * Because the engine searches wider than the kernel picks, a resolved count
-   * CAN exceed `entropy_top`. Both are carried so a format can notice that and
-   * present a bare count instead of an incoherent ratio -- a presentation rule,
-   * which is why it lives in the formats and not here.
+   * A resolved count CAN exceed `entropy_top`, but only under tier 1: a caller
+   * that proved a window tighter than the one the engine searched leaves the
+   * numerator counted over the wider set. Under tier 2 the two are equal by
+   * construction and the count cannot pass it. Both fields are carried so a
+   * format can notice the tier-1 case and present a bare count instead of an
+   * incoherent ratio -- a presentation rule, which is why it lives in the
+   * formats and not here.
    *
    * Narrowing is `candidates < search_top`: read from the counts, never stored,
    * because a copy of a derived fact goes stale. */

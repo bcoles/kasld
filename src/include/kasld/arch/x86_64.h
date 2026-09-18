@@ -46,7 +46,7 @@
 // the whole history of the value, and __START_KERNEL_map is the highest of
 // them, so it is the tightest bound that is sound on every kernel this may run
 // against -- and version-gating to get the rest is not available.
-// Spelled as the literal because KERNEL_VIRT_TEXT_MIN is defined below; the
+// Spelled as the literal because VIRT_TEXT_PLAUSIBLE_MIN is defined below; the
 // assertion beneath that definition keeps the two from drifting apart.
 // Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
 // is derived from the pair in api.h and gates pfn_to_phys(); a page-frame
@@ -147,14 +147,14 @@
 // possible base addresses (between 0xffffffff_80000000 and
 // 0xffffffff_c0000000). The RANDOMIZE_BASE_MAX_OFFSET option was later removed.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page_64_types.h#L50
-#define KERNEL_VIRT_TEXT_MIN 0xffffffff80000000ul
+#define VIRT_TEXT_PLAUSIBLE_MIN 0xffffffff80000000ul
 // PAGE_OFFSET_MAX above is this same boundary (__START_KERNEL_map), written as
 // a literal because it is defined before this line. Tied together here so
 // moving one cannot silently leave the other behind.
-__extension__ _Static_assert(PAGE_OFFSET_MAX == KERNEL_VIRT_TEXT_MIN,
+__extension__ _Static_assert(PAGE_OFFSET_MAX == VIRT_TEXT_PLAUSIBLE_MIN,
                              "PAGE_OFFSET_MAX must be __START_KERNEL_map, the "
-                             "boundary KERNEL_VIRT_TEXT_MIN also names");
-#define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
+                             "boundary VIRT_TEXT_PLAUSIBLE_MIN also names");
+#define VIRT_TEXT_PLAUSIBLE_MAX 0xffffffffc0000000ul
 
 // The text window holds the kernel image and the module region and nothing
 // else: the linear map is 64 TiB lower, and vmalloc/vmemmap lower still.
@@ -257,13 +257,13 @@ __extension__ _Static_assert(PAGE_OFFSET_MAX == KERNEL_VIRT_TEXT_MIN,
 #define PHYSICAL_START_MIN_PRACTICAL 0x200000ul /* _SEGMENT_SIZE = 2 MiB */
 
 // Plausible physical address range for kernel image.
-// NOTE: KERNEL_PHYS_MAX is a *heuristic* ceiling (the kernel is usually
+// NOTE: PHYS_PLAUSIBLE_MAX is a *heuristic* ceiling (the kernel is usually
 // loaded low in RAM), NOT an architectural limit — a large machine's phys
 // KASLR base can legitimately exceed it. The inference engine treats it as
 // a HEURISTIC-confidence constraint, not as the honest top. The honest top
 // for the physical text base is PHYS_ADDR_TOP below.
-#define KERNEL_PHYS_MIN PHYSICAL_START
-#define KERNEL_PHYS_MAX (16ul * GB)
+#define PHYS_PLAUSIBLE_MIN PHYSICAL_START
+#define PHYS_PLAUSIBLE_MAX (16ul * GB)
 
 // Honest architectural tops for the inference engine (widest realisable
 // value any configuration could produce). Typical-case ceilings are
@@ -288,7 +288,7 @@ __extension__ _Static_assert(PAGE_OFFSET_MAX == KERNEL_VIRT_TEXT_MIN,
 // architectures. Kernel source: arch/x86/kernel/vmlinux.lds.S,
 // arch/x86/include/asm/page_64_types.h
 #define KERNEL_VIRT_TEXT_DEFAULT                                               \
-  (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START + IMAGE_BASE_OFFSET)
+  (VIRT_TEXT_PLAUSIBLE_MIN + PHYSICAL_START + IMAGE_BASE_OFFSET)
 
 /* KASLR-off ⇒ pin contract: x86_64 with nokaslr loads the kernel at
  * __START_KERNEL_map + LOAD_PHYSICAL_ADDR exactly, regardless of LA48/LA57.
@@ -324,10 +324,10 @@ static inline unsigned long arch_default_phys_text_base(void) {
 // Virtual KASLR range: __START_KERNEL_map + LOAD_PHYSICAL_ADDR to
 // __START_KERNEL_map + KERNEL_IMAGE_SIZE.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/x86/boot/compressed/kaslr.c
-#define KASLR_VIRT_TEXT_MIN (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START)
+#define VIRT_TEXT_MIN_DEFAULT_CONFIG (VIRT_TEXT_PLAUSIBLE_MIN + PHYSICAL_START)
 
 /* Conservative lower edges of Q_VIRT_IMAGE_BASE / Q_PHYS_IMAGE_BASE windows
- * on x86_64. KASLR_VIRT_TEXT_MIN / KASLR_PHYS_MIN above bake in
+ * on x86_64. VIRT_TEXT_MIN_DEFAULT_CONFIG / KERNEL_PHYS_DEFAULT above bake in
  * CONFIG_PHYSICAL_START at its compile-time default (0x1000000). A kernel
  * built with a smaller CONFIG_PHYSICAL_START legitimately places text
  * below that floor, and a leak then becomes unsatisfiable against the
@@ -349,9 +349,9 @@ static inline unsigned long arch_default_phys_text_base(void) {
  * RANDOMIZE_BASE postdates the split, so no kernel that randomises is affected;
  * a non-randomising one built that way reports a text address below the
  * window. */
-#define KASLR_VIRT_TEXT_MIN_WIDE                                               \
-  (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START_MIN_PRACTICAL)
-#define KASLR_PHYS_MIN_WIDE PHYSICAL_START_MIN_PRACTICAL
+#define VIRT_TEXT_MIN_ANY_CONFIG                                               \
+  (VIRT_TEXT_PLAUSIBLE_MIN + PHYSICAL_START_MIN_PRACTICAL)
+#define PHYS_MIN_ANY_CONFIG PHYSICAL_START_MIN_PRACTICAL
 
 // The /boot artefact is a boot blob, not an ELF, so its on-disk size never
 // exceeds the in-memory footprint and can be read with stat() where the file

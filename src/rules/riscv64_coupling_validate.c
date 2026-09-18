@@ -6,7 +6,8 @@
 // Each region in the modern (v5.10+) riscv64 VAS lives in a fixed band
 // anchored to the SATP-mode-dependent PAGE_OFFSET:
 //
-//   KERNEL_TEXT / KERNEL_IMAGE in [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX]
+//   KERNEL_TEXT / KERNEL_IMAGE in [VIRT_TEXT_PLAUSIBLE_MIN,
+//   VIRT_TEXT_PLAUSIBLE_MAX]
 //     (the validation range — top 2 GiB at KERNEL_LINK_ADDR for modern,
 //      plus the wider pre-v5.10 legacy floor)
 //   MODULE / MODULE_REGION    in [MODULES_START, MODULES_END]
@@ -33,11 +34,11 @@
 // versus compile-time geometry — no cross-observation or estimate dependency.
 // Same shape as coupling_validate / arm64_coupling_validate.
 //
-// IMPORTANT: the KERNEL_TEXT / KERNEL_IMAGE check uses KERNEL_VIRT_TEXT_MIN/MAX
-// (the validation range across all in-scope kernel-version layouts), NOT a
-// per-formula KASLR-window subset — same role distinction as the parallel
-// x86_64 / arm64 rules; see api.h MODULES_* validation-union contract
-// for the underlying pattern.
+// IMPORTANT: the KERNEL_TEXT / KERNEL_IMAGE check uses
+// VIRT_TEXT_PLAUSIBLE_MIN/MAX (the validation range across all in-scope
+// kernel-version layouts), NOT a per-formula KASLR-window subset — same role
+// distinction as the parallel x86_64 / arm64 rules; see api.h MODULES_*
+// validation-union contract for the underlying pattern.
 //
 // riscv64 only; inert elsewhere. Defensive insurance against a mistagged
 // observation; matches the pattern used on x86_64 and arm64.
@@ -78,10 +79,10 @@ static int riscv64_va_band_bad(enum kasld_region region, unsigned long a) {
            (a < (unsigned long)KERNEL_VIRT_VAS_START);
   case REGION_KERNEL_TEXT:
   case REGION_KERNEL_IMAGE:
-    /* Inside the validation range (KERNEL_VIRT_TEXT_MIN/MAX covers both modern
-     * top-2-GiB layout and pre-v5.10 linear-map text). */
-    return (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
-           (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
+    /* Inside the validation range (VIRT_TEXT_PLAUSIBLE_MIN/MAX covers both
+     * modern top-2-GiB layout and pre-v5.10 linear-map text). */
+    return (a < (unsigned long)VIRT_TEXT_PLAUSIBLE_MIN) ||
+           (a > (unsigned long)VIRT_TEXT_PLAUSIBLE_MAX);
   case REGION_MODULE:
   case REGION_MODULE_BAND:
     /* Inside the module-band union (modern relative-to-text + legacy). */

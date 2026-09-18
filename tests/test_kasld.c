@@ -2532,8 +2532,8 @@ static void test_engine_sync_module_band_never_degenerate(void) {
   /* The honest top of Q_VIRT_IMAGE_BASE: the state before any evidence lands.
    * Derived from the arch's own widened window so it is exact on every arch and
    * cannot overflow a 32-bit word. */
-  e.est[Q_VIRT_IMAGE_BASE].lo = (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE;
-  e.est[Q_VIRT_IMAGE_BASE].hi = (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE;
+  e.est[Q_VIRT_IMAGE_BASE].lo = (unsigned long)VIRT_TEXT_MIN_ANY_CONFIG;
+  e.est[Q_VIRT_IMAGE_BASE].hi = (unsigned long)VIRT_TEXT_MAX_ANY_CONFIG;
 
   layout.modules_start = MODULES_START;
   layout.modules_end = MODULES_END;

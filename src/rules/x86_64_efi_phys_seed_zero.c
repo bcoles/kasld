@@ -124,7 +124,7 @@ int rule_x86_64_efi_phys_seed_zero(const struct evidence_set *ev,
     return 0; /* fallback case deferred (see file header) */
 
   /* Sanity guard: pin must be a plausible kernel phys base. */
-  if (pin < (unsigned long)KASLR_PHYS_MIN)
+  if (pin < (unsigned long)KERNEL_PHYS_DEFAULT)
     return 0;
   unsigned long palign = est[Q_PHYS_KASLR_ALIGN].lo;
   if (palign < (unsigned long)KASLR_PHYS_ALIGN)

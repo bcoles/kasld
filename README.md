@@ -85,9 +85,9 @@ Running 117 of 120 components (3 experimental skipped; use -x to enable)...
 
   Quantity             Certainty   Window                                   Candidates        Grain
   -------------------  ----------  ---------------------------------------  ----------------  -----
-  Virtual Image Base   guaranteed  0xffffffff81000000 - 0xffffffffbd400000        483 of 505  2 MiB
+  Virtual Image Base   guaranteed  0xffffffff81000000 - 0xffffffffbd400000        483 of 512  2 MiB
   Virtual Image Base   likely      0xffffffff93400000 slide +0x12400000                    1  2 MiB
-  Physical Image Base  guaranteed           0x1000000 -         0x3d400000      474 of 8,185  2 MiB
+  Physical Image Base  guaranteed           0x1000000 -         0x3d400000               474  2 MiB
   Physical Image Base  likely               0x1000000 -         0x3c29d000               474  2 MiB
   Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000            37,547  1 GiB
   Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79,191 of 79,191  1 GiB
