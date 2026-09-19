@@ -2183,6 +2183,15 @@ enum kasld_scalar_fact {
                       /* vmalloc / vmemmap bases stay at their compile-time */
                       /* defaults even when CONFIG_RANDOMIZE_MEMORY=y.      */
                       /* Pinned by directmap_kaslr_disabled_pin.            */
+  SF_VMALLOC_TOTAL,   /* VMALLOC_END - VMALLOC_START, from /proc/meminfo's
+                         VmallocTotal. World-readable and printed
+                         unconditionally, so it is present wherever the file
+                         is. Its value is a function of the layout the kernel
+                         is RUNNING, not the one it was built for, which is
+                         what makes it worth carrying: a kernel built for a
+                         52-bit VA that boots on hardware without the large-VA
+                         extension reports the 48-bit figure. The config
+                         states 52 either way. */
   SF_STRUCT_PAGE_BYTES, /* exact sizeof(struct page)
                            (/sys/kernel/btf/vmlinux).*/
                         /* vmemmap_size = max_pfn * this; the s390/x86_64/    */
@@ -2236,6 +2245,7 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_PHYSICAL_START] = "physical_start",
     [SF_KASAN_ENABLED] = "kasan_enabled",
     [SF_STRUCT_PAGE_BYTES] = "struct_page_bytes",
+    [SF_VMALLOC_TOTAL] = "vmalloc_total",
     [SF_TEXT_ORDER] = "text_order",
     [SF_VIRT_KERNEL_IMAGE_BASE] = "virt_kernel_image_base",
     [SF_PPC64_MMU_MODE] = "ppc64_mmu_mode",

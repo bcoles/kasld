@@ -212,6 +212,20 @@ RULES=$ROOT/src/rules
 #                                 OpenSBI load offset is a firmware convention.
 #                                 Likely window only
 #   riscv64_text_base             gated on a KASLR-disabled signal, conf-capped
+#   arm64_va_bits_from_vmalloc    computed: the width that reproduces the
+#                                 observed VmallocTotal exactly. Derived, not
+#                                 assumed -- the figure is read from
+#                                 /proc/meminfo and the rule enumerates the
+#                                 layouts it models, keeping a width only where
+#                                 the computed total equals the observation to
+#                                 the byte. Page size and sizeof(struct page)
+#                                 are enumerated too where unobserved, so no
+#                                 common value is assumed. A layout era it does
+#                                 not model reproduces nothing and the rule
+#                                 emits nothing, and two widths agreeing on one
+#                                 total would emit nothing either: it pins only
+#                                 on a unique match. The widths are separated by
+#                                 terabytes, not by rounding
 #   s390_image_base_from_config   parsed CONFIG_KERNEL_IMAGE_BASE on KASLR-off
 #   s390_va_bits_from_config      reproduces the boot code's own choice of ASCE
 #                                 limit from parsed config facts. Derived, not
@@ -236,6 +250,7 @@ RULES=$ROOT/src/rules
 #                                 floor, and L4 randomization only moves the base
 #                                 up, so the two ranges cannot meet
 ALLOW="arm64_efi_kimg_align
+arm64_va_bits_from_vmalloc
 arm64_page_offset_from_va_bits
 arm64_text_base
 arm64_phys_text_residue

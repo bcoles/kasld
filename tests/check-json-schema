@@ -247,15 +247,6 @@ hardening.hardware_side_channels.[].component
 hardening.hardware_side_channels.[].discloses
 hardening.hardware_side_channels.[].hardware
 hardening.hardware_side_channels.[].succeeded
-kaslr.inferred.excluded
-kaslr.inferred.excluded.[].max
-kaslr.inferred.excluded.[].min
-kaslr.inferred.excluded_total
-kaslr.memory_kaslr.virt_page_offset_base.likely
-kaslr.memory_kaslr.virt_page_offset_base.likely.max
-kaslr.memory_kaslr.virt_page_offset_base.likely.min
-kaslr.memory_kaslr.virt_page_offset_base.likely.slots
-kaslr.memory_kaslr.virt_page_offset_base.likely.speculative
 kaslr.memory_kaslr.virt_vmalloc_base.likely
 kaslr.memory_kaslr.virt_vmalloc_base.likely.max
 kaslr.memory_kaslr.virt_vmalloc_base.likely.min

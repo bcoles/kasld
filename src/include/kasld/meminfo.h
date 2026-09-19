@@ -36,6 +36,33 @@ __attribute__((unused)) static unsigned long kasld_read_memtotal_bytes(void) {
                                                  : (unsigned long)bytes;
 }
 
+/* VmallocTotal bytes: VMALLOC_END - VMALLOC_START as the running kernel has
+ * them. Printed unconditionally by fs/proc/meminfo.c, so its absence means the
+ * file could not be read rather than that the kernel has no vmalloc area.
+ *
+ * Clamped like the others. On a 32-bit target the true figure can exceed
+ * ULONG_MAX, and a clamped value matches no modelled layout, so a consumer
+ * inverting it finds nothing and says nothing -- which is the right answer
+ * there, since the layouts this feeds are 64-bit ones. */
+__attribute__((unused)) static unsigned long
+kasld_read_vmalloc_total_bytes(void) {
+  FILE *f = kasld_fopen("/proc/meminfo", "r");
+  if (!f)
+    return 0;
+
+  unsigned long long kb = 0;
+  char line[128];
+  while (fgets(line, sizeof(line), f)) {
+    if (sscanf(line, "VmallocTotal: %llu kB", &kb) == 1)
+      break;
+  }
+  fclose(f);
+
+  unsigned long long bytes = kb * 1024ULL;
+  return (bytes > (unsigned long long)ULONG_MAX) ? ULONG_MAX
+                                                 : (unsigned long)bytes;
+}
+
 /* Lowmem bytes (LowTotal) on a 32-bit CONFIG_HIGHMEM system, or 0 when there
  * is no highmem (HighTotal == 0 or absent) — in which case LowTotal == MemTotal
  * and the MemTotal ceiling already suffices. The kernel image must reside in

@@ -5254,6 +5254,63 @@ static void test_x86_64_randomize_memory_budget(void) {
 #endif
 }
 
+/* arm64 resolves its VA width from VmallocTotal, which is the only route that
+ * works on a capture: the mmap probe is a live probe and a staged sysroot
+ * suppresses it, so a replayed kernel otherwise leaves Q_VA_BITS a six-member
+ * set. The figures are the ones two real captures of the same distribution
+ * kernel report -- both built CONFIG_ARM64_VA_BITS=52, one booted on hardware
+ * with the large-VA extension and one without, which is the distinction the
+ * config cannot make and this can. */
+static void test_arm64_va_bits_from_vmalloc(void) {
+#if defined(__aarch64__)
+  const rule_fn rules[] = {rule_arm64_va_bits_from_vmalloc};
+  unsigned long v = 0;
+
+  /* Running 48-bit: VMALLOC_END - VMALLOC_START over a 4 KiB grain. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, 0x7dff3f800000ul, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    engine_run(&e, rules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == 48);
+  }
+
+  /* Running 52-bit: the same kernel on hardware that offers the wider VA. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, 0x41ff3f800000ul, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    engine_run(&e, rules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == 52);
+  }
+
+  /* A total from a layout era this does not model reproduces no combination,
+   * and silence is what that has to produce: the width stays wherever the rest
+   * of the engine left it rather than being pinned to a near miss. The value is
+   * a real capture's, from the era whose vmalloc gap is SZ_256M. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, 0x7bffe8000000ul, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    engine_run(&e, rules, 1);
+    for (int i = 0; i < e.n_constraints; i++)
+      TH_CHECK(e.constraints[i].q != Q_VA_BITS);
+  }
+#else
+  TH_CHECK(1);
+#endif
+}
+
 /* The budget model has a second consumer: the summary uses the SIZE of the
  * page_offset window as the denominator for the direct-map residual entropy
  * ("~4 of N bits"). It cannot read that window back off the resolved estimate
@@ -9825,6 +9882,7 @@ int main(void) {
   RUN(test_x86_64_vmalloc_no_max_pfn);
   RUN(test_x86_64_vmalloc_upper_l4_when_po_unresolved);
   RUN(test_x86_64_randomize_memory_budget);
+  RUN(test_arm64_va_bits_from_vmalloc);
   RUN(test_x86_64_randomize_memory_budget_shared_window);
   RUN(test_x86_64_randomize_memory_budget_subfloor_pfn);
   RUN(test_x86_64_randomize_memory_budget_no_max_pfn);

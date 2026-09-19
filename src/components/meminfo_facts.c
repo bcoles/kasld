@@ -26,5 +26,7 @@ int main(void) {
     kasld_emit_scalar(SF_PHYS_LOWMEM, v, CONF_PARSED);
   if ((v = kasld_read_max_pfn()))
     kasld_emit_scalar(SF_PHYS_MAX_PFN, v, CONF_PARSED);
+  if ((v = kasld_read_vmalloc_total_bytes()))
+    kasld_emit_scalar(SF_VMALLOC_TOTAL, v, CONF_PARSED);
   return 0;
 }
