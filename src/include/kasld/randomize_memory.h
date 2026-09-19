@@ -43,9 +43,11 @@
 //   - the summary, which needs the window's SIZE as the denominator for the
 //     direct-map base's residual entropy ("~4 of N bits"). It cannot read that
 //     back off the resolved estimate: the rule deliberately emits no lower
-//     bound on Q_PAGE_OFFSET (the x86_64 direct-map floor is held at the
-//     canonical half boundary so low static-layout addresses are not
-//     rejected), so the resolved window's low edge is not vaddr_start.
+//     bound on Q_PAGE_OFFSET, so the resolved window's low edge comes from the
+//     quantity's own floor rather than from this model. That floor is
+//     vaddr_min, the lowest base the level admits, and a denominator has to be
+//     counted from it rather than from [lo, hi] -- the window here is the
+//     kernel's own, and the residual it would divide spans one PGD entry more.
 //
 // The whole model rests on the direct-map size, i.e. on the SF_PHYS_MAX_PFN
 // observation: `pfn_conf` is carried out with the window so a caller can hold
@@ -86,9 +88,18 @@
 /* Per-paging-level layout constants. */
 struct kasld_rm_level {
   unsigned long vaddr_start; /* __PAGE_OFFSET_BASE */
-  unsigned long vaddr_end;   /* CPU_ENTRY_AREA_BASE */
-  unsigned long vmalloc_tb;  /* VMALLOC_SIZE_TB */
-  unsigned long dm_max_tb;   /* 1 << (MAX_PHYSMEM_BITS - TB_SHIFT) */
+  /* The lowest base this level has ever placed the direct map at, which is one
+   * PGD entry below vaddr_start: the entry the PTI LDT remap was later given
+   * took its slot, so a kernel predating that change based the map there. The
+   * [lo, hi] below is the kernel's own window and starts at vaddr_start, but
+   * Q_PAGE_OFFSET is floored at this constant instead so a pre-remap base is
+   * not excluded. Anything counting candidates against that quantity counts
+   * from here, or it states a set one PGD entry of placements smaller than the
+   * residual it is meant to divide. */
+  unsigned long vaddr_min;  /* PAGE_OFFSET_BASE_MIN_L4 / _L5 */
+  unsigned long vaddr_end;  /* CPU_ENTRY_AREA_BASE */
+  unsigned long vmalloc_tb; /* VMALLOC_SIZE_TB */
+  unsigned long dm_max_tb;  /* 1 << (MAX_PHYSMEM_BITS - TB_SHIFT) */
 };
 
 /* Everything the budget model produces from one evidence set: the inputs it
@@ -116,6 +127,7 @@ __attribute__((unused)) static int
 kasld_rm_level_for(unsigned long va_bits, struct kasld_rm_level *lv) {
   if (va_bits == 48) {
     lv->vaddr_start = 0xffff888000000000ul;
+    lv->vaddr_min = PAGE_OFFSET_BASE_MIN_L4;
     lv->vaddr_end = 0xfffffe0000000000ul;
     lv->vmalloc_tb = 32ul;
     lv->dm_max_tb = 1ul << (46 - KASLD_RM_TB_SHIFT); /* 64 TiB */
@@ -123,6 +135,7 @@ kasld_rm_level_for(unsigned long va_bits, struct kasld_rm_level *lv) {
   }
   if (va_bits == 57) {
     lv->vaddr_start = 0xff11000000000000ul;
+    lv->vaddr_min = PAGE_OFFSET_BASE_MIN_L5;
     lv->vaddr_end = 0xfffffe0000000000ul;
     lv->vmalloc_tb = 12800ul;
     lv->dm_max_tb = 1ul << (52 - KASLD_RM_TB_SHIFT); /* 4096 TiB */

@@ -1851,9 +1851,16 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
       struct kasld_rm_budget b;
       if (kasld_rm_budget_from_evidence(&auth->ev, auth->est, &b) &&
           kasld_conf_min(CONF_INFERRED, b.pfn_conf) >= KASLD_SOUND_FLOOR) {
+        /* Floored at the lowest base the level admits, not at the model's
+         * own low edge. The model reports the window kernel_randomize_memory()
+         * draws from on THIS layout, while Q_PAGE_OFFSET is floored one PGD
+         * entry lower so a kernel that based the direct map before the PTI LDT
+         * remap took that slot is not excluded. The residual therefore counts
+         * those placements, and a denominator that did not would state a set
+         * 512 candidates smaller than the count it divides. */
         struct estimate budget;
         memset(&budget, 0, sizeof(budget));
-        budget.lo = b.lo;
+        budget.lo = b.lv.vaddr_min;
         budget.hi = b.hi;
         unsigned long top =
             quantity_slots(Q_PAGE_OFFSET, &budget, KASLD_SOUND_FLOOR, NULL, 0,

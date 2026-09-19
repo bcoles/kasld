@@ -5290,6 +5290,17 @@ static void test_x86_64_randomize_memory_budget_shared_window(void) {
    * minimum direct map and the 32 TiB vmalloc hole, a third of what is left. */
   unsigned long pud = 1ul << 30;
   TH_CHECK((b.hi - b.lo) / pud + 1 == 28843);
+  /* The SUMMARY counts from vaddr_min instead, one PGD entry lower, and that
+   * difference is the whole point of carrying the field. Q_PAGE_OFFSET is
+   * floored there so a kernel that based the direct map before the PTI LDT
+   * remap took the slot is not excluded, so the residual spans those 512
+   * placements; a denominator counted from the kernel's own vaddr_start would
+   * sit below the count it divides. The baseline is an upper bound on the
+   * window, and its slack is required to run this way. */
+  TH_CHECK(b.lo - b.lv.vaddr_min == (1ul << 39)); /* one PGD entry, 512 GiB */
+  TH_CHECK((b.hi - b.lv.vaddr_min) / pud + 1 == 29355);
+  TH_CHECK(((b.hi - b.lv.vaddr_min) / pud + 1) - ((b.hi - b.lo) / pud + 1) ==
+           512);
   /* The gate input: the confidence of the SF_PHYS_MAX_PFN observation the
    * whole window is sized from, carried out verbatim so a caller can hold the
    * denominator to a floor. */
