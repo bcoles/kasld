@@ -86,7 +86,15 @@ for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
     [ -n "$run" ] || continue
   fi
 
-  KASLD_SYSROOT="$sysroot" $run "$bin" -j >"$TMP/$arch--$host.json" 2>/dev/null &
+  # KASLD_EXEC_WRAPPER lets the orchestrator execve its component children
+  # under the same qemu-user binary that runs the tool. Without it a
+  # foreign-arch capture renders with no component having run, so every
+  # quantity sits at its a-priori window and the document carries no pair
+  # worth checking -- the guard would report the corpus while exercising
+  # only the architectures the host runs natively. Empty for those, which
+  # leaves the wrapper unset and the children exec directly.
+  KASLD_SYSROOT="$sysroot" KASLD_EXEC_WRAPPER="$run" \
+    $run "$bin" -j >"$TMP/$arch--$host.json" 2>/dev/null &
   inflight=$((inflight + 1))
   if [ "$inflight" -ge "$JOBS" ]; then
     wait

@@ -68,7 +68,8 @@ TMP_E=$(mktemp) || exit 1
 # component set to produce bytes already in hand.
 TMP_TXT=$(mktemp) || exit 1
 TMP_MDR=$(mktemp) || exit 1
-trap 'rm -f "$TMP_T" "$TMP_M" "$TMP_RAW" "$TMP_J" "$TMP_E" "$TMP_TXT" "$TMP_MDR"' EXIT INT TERM
+TMP_PREP=$(mktemp -d) || exit 1
+trap 'rm -f "$TMP_T" "$TMP_M" "$TMP_RAW" "$TMP_J" "$TMP_E" "$TMP_TXT" "$TMP_MDR"; rm -rf "$TMP_PREP"' EXIT INT TERM
 note() {
   printf '  FAIL: %s\n' "$1"
   fail=1
@@ -377,9 +378,14 @@ PY
 compare_one() {
   label=$1 q=$2 bin=$3 sysroot=$4
   compdir=$(dirname "$bin")/components
+  # KASLD_EXEC_WRAPPER is what lets a foreign-arch target's component children
+  # execve at all: the orchestrator execve's them directly, which the host
+  # kernel refuses for a guest-arch ELF unless binfmt_misc is registered. It
+  # changes nothing for a target rendering no capture -- the children find
+  # nothing to read either way -- and everything for one that does.
   run() {
     KASLD_SYSROOT="$sysroot" KASLD_COMPONENT_DIR="$compdir" \
-      $q "$bin" -q "$@" 2>/dev/null
+      KASLD_EXEC_WRAPPER="$q" $q "$bin" -q "$@" 2>/dev/null
   }
   run    >"$TMP_TXT"
   run -m >"$TMP_MDR"
@@ -517,6 +523,47 @@ for cand in "$ROOT"/build/*/kasld; do
   q=$(resolve_qemu "$(qemu_for "$triple")") || continue
   [ -n "$q" ] || continue
   compare_one "$triple" "$q" "$cand" "/nonexistent-sysroot"
+  n=$((n + 1))
+done
+
+# The same cross binaries against a capture of their OWN architecture. The
+# sweep above reaches the unsupported posture but never a RESOLVED one: with no
+# sysroot every quantity stays at its a-priori window, so the formats are only
+# ever compared on a document with nothing in it. A renderer that dropped a
+# quantity which only a foreign architecture resolves -- s390's image base, a
+# riscv64 layout -- would agree with the others about an empty run and diverge
+# on every real one.
+#
+# One capture per triple. The question is whether the formats agree, not what
+# they agree on, so a second capture of the same architecture buys nothing and
+# each costs three renders under emulation.
+seen_triples=
+for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
+  [ -d "$sysroot" ] || continue
+  fxdir=$(dirname "$sysroot")
+  m=$(sed -n 's/^uname_m_raw: *//p' "$fxdir/meta.txt" 2>/dev/null)
+  e=$(sed -n 's/^endianness: *//p' "$fxdir/meta.txt" 2>/dev/null)
+  [ -n "$m" ] || continue
+  triple=$(target_triple_for "$(effective_machine "$m" "$e")")
+  [ -n "$triple" ] || continue
+  case " $seen_triples " in *" $triple "*) continue ;; esac
+
+  cand=
+  for c in "$ROOT"/build/"$triple"*/kasld; do
+    [ -x "$c" ] && [ "$c" != "$BIN" ] && cand=$c && break
+  done
+  [ -n "$cand" ] || continue
+  host_runs_arch "${triple%%-*}" && continue
+  q=$(resolve_qemu "$(qemu_for "$triple")") || continue
+  [ -n "$q" ] || continue
+
+  # Reconstructed, not read where it lies: a capture holds its files truncated
+  # and a component reading them directly resolves less than the capture holds.
+  rm -rf "$TMP_PREP/r"
+  "$ROOT/extra/prepare-bundle" "$fxdir" "$TMP_PREP/r" >/dev/null 2>&1 || continue
+
+  seen_triples="$seen_triples $triple"
+  compare_one "$triple:$(basename "$fxdir")" "$q" "$cand" "$TMP_PREP/r"
   n=$((n + 1))
 done
 

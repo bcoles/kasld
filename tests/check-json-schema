@@ -139,6 +139,7 @@ docs=0
 arches=
 qemu_used=0
 native_fx=
+PREP=$TMP/prep
 
 for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
   [ -d "$sysroot" ] || continue
@@ -164,14 +165,30 @@ for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
   [ -n "$bin" ] || continue
 
   if host_runs_arch "${triple%%-*}"; then
-    [ -n "$native_fx" ] || native_fx=$sysroot
+    [ -n "$native_fx" ] || native_fx=$fxdir
   else
     run=$(resolve_qemu "$(qemu_for "$triple")") || continue
     [ -n "$run" ] || continue
     qemu_used=1
   fi
 
-  KASLD_SYSROOT="$sysroot" $run "$bin" -j -H > "$TMP/$arch--$host.json" 2>/dev/null
+  # Reconstructed rather than read where it lies. A captured tree holds each
+  # file at a truncated length with its true size recorded alongside, so a
+  # component reading it directly sees degenerate data and resolves less than
+  # the capture supports. extra/prepare-bundle owns what restoring takes, and
+  # is what tests/replay and an operator both use, so all three read the same
+  # tree.
+  rm -rf "$PREP"
+  "$ROOT/extra/prepare-bundle" "$fxdir" "$PREP" >/dev/null 2>&1 || continue
+
+  # KASLD_EXEC_WRAPPER lets the orchestrator execve its component children
+  # under the same qemu-user binary that runs the tool. Without it a
+  # foreign-arch capture renders with no component having run, so the
+  # document carries only the keys an unresolved run emits and the corpus
+  # reaches far less of the schema than the count below suggests. Empty on
+  # a native capture, which leaves it unset.
+  KASLD_SYSROOT="$PREP" KASLD_EXEC_WRAPPER="$run" \
+    $run "$bin" -j -H > "$TMP/$arch--$host.json" 2>/dev/null
   [ -s "$TMP/$arch--$host.json" ] || continue
   docs=$((docs + 1))
   case " $arches " in *" $arch "*) ;; *) arches="$arches $arch" ;; esac
@@ -182,14 +199,21 @@ done
 # (components[].output), -x admits the experimental components, and skipping
 # everything leaves the arrays empty — the state in which a separator keyed on a
 # loop index rather than on what was emitted produces malformed JSON.
-if [ -n "$native_fx" ]; then
+if [ -n "$native_fx" ] &&
+  "$ROOT/extra/prepare-bundle" "$native_fx" "$TMP/prep-native" >/dev/null 2>&1; then
+  # Reconstructed like the per-capture renders above, and into its own tree
+  # because theirs is rebuilt for each fixture. A flag sweep over a truncated
+  # capture still produces a document, but not the same one, and the shapes
+  # under test are the ones a reader gets from the recipe in the docs.
+  #
   # Globbing off for the loop: the skip-everything pattern is a literal `*`,
   # and an unquoted expansion of it is the directory listing instead.
   set -f
   for flags in "-j" "-j -v -H" "-j -x -H" "-j -s *"; do
     tag=$(printf '%s' "$flags" | tr -cd 'a-zA-Z')
     # shellcheck disable=SC2086
-    KASLD_SYSROOT="$native_fx" "$BIN" $flags > "$TMP/zz-$tag.json" 2>/dev/null
+    KASLD_SYSROOT="$TMP/prep-native" "$BIN" $flags \
+      > "$TMP/zz-$tag.json" 2>/dev/null
     [ -s "$TMP/zz-$tag.json" ] || continue
     docs=$((docs + 1))
   done
@@ -242,19 +266,12 @@ kaslr.memory_kaslr.virt_vmemmap_base.likely.max
 kaslr.memory_kaslr.virt_vmemmap_base.likely.min
 kaslr.memory_kaslr.virt_vmemmap_base.likely.slots
 kaslr.memory_kaslr.virt_vmemmap_base.likely.speculative
-kaslr.module_base.likely
-kaslr.module_base.likely.max
-kaslr.module_base.likely.min
-kaslr.module_base.likely.slots
-kaslr.module_base.likely.speculative
-kaslr.physical.speculative
 kaslr.physical.stext
 kaslr.va_bits.likely
 kaslr.va_bits.likely.candidates
 kaslr.va_bits.likely.speculative
 kaslr.va_bits.likely.values
 kaslr.virtual.speculative
-kaslr.virtual.stext
 EOF
 
 python3 - "$SCHEMA" "$TMP/unexercised" "$TMP"/*.json <<'PYEOF' || rc=1
