@@ -250,14 +250,20 @@ const char *kasld_entropy_phrase(int bits, int bits_top,
    * this line can stand on, and is withheld rather than inverted.
    *
    * The comparison is the Candidates cell's, applied AFTER ceil(log2) rather
-   * than before, so the two can disagree on one run: a caller may know a window
-   * tighter than the one the engine searched, and 29355 candidates against a
-   * top of 28843 suppresses the count's ratio while both round to 15 bits and
-   * keep this one. That is the rule degrading correctly, not two policies --
-   * push the count far
-   * enough past the top and the bit forms separate too, and this falls back to
-   * a bare residual. Both statements are true either way, so a caller wanting
-   * them adjacent needs no extra gate. */
+   * than before, so the two can disagree on one run. A count that passes its
+   * baseline by less than the rounding suppresses the count's ratio while both
+   * figures still round to the same number of bits, and this line keeps its
+   * ratio where the cell has dropped one. That is the rule degrading correctly
+   * rather than two policies: push the count far enough past the baseline and
+   * the bit forms separate too, and this falls back to a bare residual. Both
+   * statements are true either way, so a caller wanting them adjacent needs no
+   * extra gate.
+   *
+   * Stated as the condition rather than as a row that meets it. Which rows do
+   * is a property of the run and of what the model covers, and a count that
+   * passes its baseline is a defect wherever it appears -- check-slots-subset
+   * exists to catch exactly that, so any example named here is one somebody is
+   * working to remove. */
   if (bits_top > 0 && bits_top >= bits) {
     /* Both figures are shown, so the mark is dropped only when neither rounded.
      */
