@@ -20,10 +20,22 @@
 //       heuristic, the resolver discards it (lower confidence), the leak
 //       wins. Soundness preserved.
 //
-// x86_64 only — the only arch that widens today. Other arches whose
-// VIRT_TEXT_MIN_DEFAULT_CONFIG doesn't embed configurable knobs get
-// VIRT_TEXT_MIN_ANY_CONFIG == VIRT_TEXT_MIN_DEFAULT_CONFIG at default and this
-// rule has nothing to do.
+// x86_64 only, though not because it is the only arch whose invariant floor
+// sits below its default-build floor: arm64, riscv64 and s390 all widen theirs.
+// What separates them is the CAUSE of the gap.
+//
+// Here it is a build option carrying a documented default that almost no build
+// changes, so assuming the default is a claim about the kernel's build system
+// and stands at heuristic confidence. There it is layout and era variation --
+// several text placements, several VA layouts -- where the same move would be a
+// bet on which kernel is running, and the layout is recoverable from evidence
+// instead: rule_arm64_text_base and rule_riscv64_text_base re-narrow once it
+// resolves. s390 widens for neither reason; its floor has no derivable value to
+// restore, so there is nothing for a rule of this shape to put back.
+//
+// On the arches whose VIRT_TEXT_MIN_DEFAULT_CONFIG embeds no configurable knob,
+// VIRT_TEXT_MIN_ANY_CONFIG == VIRT_TEXT_MIN_DEFAULT_CONFIG and this rule has
+// nothing to do.
 // ---
 // <bcoles@gmail.com>
 
