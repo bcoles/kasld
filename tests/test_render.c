@@ -3257,6 +3257,27 @@ static void test_render_excluded_ranges_are_disclosed(void) {
     snprintf(hex, sizeof hex, "`0x%016lx` - `0x%016lx`", t_excl_lo, t_excl_hi);
     TH_CHECK(strstr(render_cap, hex) != NULL);
   }
+
+  /* And json, which is the only consumer of these keys that nothing else
+   * reaches. The corpus used to cover it: a capture resolved the width at the
+   * sound floor, the holes carved below it survived, and the emitter ran. That
+   * route closed when the width was moved below the floor -- correctly, since
+   * the figure it rested on is container-fakeable -- and no capture has reached
+   * this path since. A machine-readable field with no test and no corpus is one
+   * a rename would silently delete, so the format is asserted here directly. */
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  {
+    char pair[96];
+    TH_CHECK(strstr(render_cap, "\"excluded_total\"") != NULL);
+    TH_CHECK(strstr(render_cap, "\"excluded\"") != NULL);
+    /* The range itself, as the emitter spells a member of that array. */
+    snprintf(pair, sizeof pair, "\"min\": \"0x%016lx\"", t_excl_lo);
+    TH_CHECK(strstr(render_cap, pair) != NULL);
+    snprintf(pair, sizeof pair, "\"max\": \"0x%016lx\"", t_excl_hi);
+    TH_CHECK(strstr(render_cap, pair) != NULL);
+  }
 }
 
 static void test_render_directmap_residual_has_a_denominator(void) {

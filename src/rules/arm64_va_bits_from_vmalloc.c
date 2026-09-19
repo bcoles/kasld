@@ -31,10 +31,50 @@
 // the width stays where the rest of the engine left it. Adding an era can only
 // make the rule answer more often; it cannot make an existing answer wrong.
 //
-// Sound because the match is exact. A width is emitted only when the modelled
-// layout reproduces the observed total to the byte, and the alternatives are
-// separated by terabytes rather than by rounding -- at 4 KiB pages the 48-bit
-// layout totals 0x7dff3f800000 and the 52-bit one 0x41ff3f800000.
+// The match is exact at the resolution the figure is published in. The kernel
+// prints the span >> 10, so the comparison is made in kB rather than bytes --
+// a byte-exact test cannot succeed on a span that is not 1024-aligned, and
+// x86_64's is not. Nothing is lost by it: the alternatives are separated by
+// terabytes rather than by rounding, and at 4 KiB pages the 48-bit layout
+// totals 0x7dff3f800000 against the 52-bit one's 0x41ff3f800000.
+//
+// CAPPED AT CONF_HEURISTIC ALL THE SAME, so the pin shapes the LIKELY window
+// and never the guaranteed one. Exactness is not the question. /proc/meminfo is
+// container-fakeable -- lxcfs rewrites it wholesale, and a hostile mount can
+// state anything -- and no container-fakeable input may move the guaranteed
+// window. An exact match on a forged figure is still a forged figure, and here
+// it would be worse than a wrong count: the width it pins is what PAGE_OFFSET
+// and the text band are derived from, so a chosen value moves those too.
+//
+// There is no second source to check it against. The trusted counterpart for
+// RAM is zoneinfo, which the memtotal rules prefer for exactly this reason;
+// vmalloc has no such file, and /proc/vmallocinfo is root-only. Until one
+// exists this stays below the sound floor, alongside virt_ceiling_from_memtotal
+// and the rest of the meminfo family.
+//
+// ARCHITECTURE COVERAGE for this family of rules, recorded here because the
+// siblings point at it.
+//
+// Four architectures declare VA_BITS_CANDIDATES, and so have a width for a rule
+// of this shape to pin: arm64, riscv64 and x86_64 have one each; s390
+// deliberately has none. Its VMALLOC_START and VMALLOC_END are runtime
+// variables, sized from installed memory during boot rather than fixed by the
+// layout -- VMALLOC_DEFAULT_SIZE is 512 GiB less the module region -- so the
+// figure it reports says nothing about the paging level and inverts to no
+// width. Its level is derived by reproducing the boot code's own choice
+// instead, in s390_va_bits_from_config.
+//
+// On every other architecture the question does not arise: there is no width
+// quantity to pin, whatever the span does. The spans carry no layout signal
+// either. Their headers put ppc32's and x86_32's span at high_memory, so it
+// tracks installed memory rather than the layout, and arm32's starts there too
+// but holds at the configured size once RAM passes the lowmem limit. The
+// remainder -- mips32, mips64, ppc64, riscv32 and loongarch64 -- report one
+// span across every capture, or two between kernel eras; that is an
+// observation of the corpus rather than a reading of their headers, and
+// several of them have only one or two captures, which is too few to call a
+// span constant from. It does not need to be settled: none of them declares a
+// width, so there is nothing for a rule of this shape to pin either way.
 //
 // arm64 only; inert elsewhere.
 // ---
@@ -84,7 +124,8 @@ static unsigned long arm64_vmalloc_total(const struct arm64_vmalloc_era *era,
   const unsigned long page_offset = 0ul - (1ul << va_bits);
 
   const unsigned long vmemmap_range = page_end - page_offset;
-  const unsigned long vmemmap_size = (vmemmap_range >> page_shift) * struct_page;
+  const unsigned long vmemmap_size =
+      (vmemmap_range >> page_shift) * struct_page;
   const unsigned long vmemmap_start = (0ul - era->vmemmap_end) - vmemmap_size;
 
   const unsigned long vmalloc_start = page_end + era->modules_vsize;
@@ -104,25 +145,17 @@ int rule_arm64_va_bits_from_vmalloc(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  unsigned long observed = 0, page_size = 0, struct_page = 0;
   enum kasld_confidence conf = CONF_UNKNOWN;
   uint32_t src = 0;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_SCALAR || !o->scalar_value)
-      continue;
-    if (o->scalar_fact == SF_VMALLOC_TOTAL) {
-      observed = o->scalar_value;
-      conf = o->conf;
-      src = o->id;
-    } else if (o->scalar_fact == SF_PAGE_SIZE) {
-      page_size = o->scalar_value;
-    } else if (o->scalar_fact == SF_STRUCT_PAGE_BYTES) {
-      struct_page = o->scalar_value;
-    }
-  }
+  const unsigned long observed =
+      kasld_scalar_fact_value(ev, SF_VMALLOC_TOTAL, &conf, &src);
   if (!observed)
     return 0;
+  /* Page size through its own accessor, which rejects a value the architecture
+   * does not admit rather than passing it on to be enumerated against. */
+  const unsigned long page_size = kasld_page_size_observed(ev, NULL, NULL);
+  const unsigned long struct_page =
+      kasld_scalar_fact_value(ev, SF_STRUCT_PAGE_BYTES, NULL, NULL);
 
   /* Unobserved inputs are enumerated rather than assumed. A guess that happened
    * to be wrong would not produce a wrong answer here -- the total would simply
@@ -140,9 +173,8 @@ int rule_arm64_va_bits_from_vmalloc(const struct evidence_set *ev,
          e < sizeof(arm64_vmalloc_eras) / sizeof(arm64_vmalloc_eras[0]) &&
          !matched;
          e++)
-      for (size_t p = 0; p < sizeof(page_sizes) / sizeof(page_sizes[0]) &&
-                         !matched;
-           p++) {
+      for (size_t p = 0;
+           p < sizeof(page_sizes) / sizeof(page_sizes[0]) && !matched; p++) {
         if (page_size && page_sizes[p] != page_size)
           continue;
         for (size_t s = 0;
@@ -150,8 +182,13 @@ int rule_arm64_va_bits_from_vmalloc(const struct evidence_set *ev,
              s++) {
           if (struct_page && struct_pages[s] != struct_page)
             continue;
-          if (arm64_vmalloc_total(&arm64_vmalloc_eras[e], widths[w],
-                                  page_sizes[p], struct_pages[s]) == observed)
+          const unsigned long modelled =
+              arm64_vmalloc_total(&arm64_vmalloc_eras[e], widths[w],
+                                  page_sizes[p], struct_pages[s]);
+          /* Compared at kB, the resolution the kernel published: VmallocTotal
+           * is printed as (VMALLOC_END - VMALLOC_START) >> 10, so up to 1023
+           * bytes are floored away before the figure is read. */
+          if (modelled && (modelled >> 10) == (observed >> 10))
             matched = 1;
         }
       }
@@ -172,7 +209,7 @@ int rule_arm64_va_bits_from_vmalloc(const struct evidence_set *ev,
   c->q = Q_VA_BITS;
   c->op = C_EQUALS;
   c->value = found;
-  c->conf = kasld_conf_min(conf, CONF_INFERRED);
+  c->conf = kasld_conf_min(conf, CONF_HEURISTIC);
   if (src) {
     c->derived_from[0] = src;
     c->lineage_count = 1;

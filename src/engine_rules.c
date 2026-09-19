@@ -113,6 +113,8 @@ static const rule_fn k_rules[] = {
     rule_arm64_va_bits_from_vmemmap,
     rule_arm64_va47_modern_floor,
     rule_arm64_va_bits_from_vmalloc,
+    rule_riscv64_va_bits_from_vmalloc,
+    rule_x86_64_va_bits_from_vmalloc,
     rule_arm64_page_offset_from_va_bits,
     rule_va_bits_from_scalar,
     rule_arm64_text_phys_residue,

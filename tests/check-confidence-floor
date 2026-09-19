@@ -212,6 +212,24 @@ RULES=$ROOT/src/rules
 #                                 OpenSBI load offset is a firmware convention.
 #                                 Likely window only
 #   riscv64_text_base             gated on a KASLR-disabled signal, conf-capped
+#   riscv64_va_bits_from_vmalloc  computed: the width whose reserved vmalloc
+#                                 span reproduces the observed VmallocTotal.
+#                                 riscv64's span is 2^(VA_BITS-3) -- the mode
+#                                 alone fixes it, with no page size or struct
+#                                 size to enumerate -- so the three modes are
+#                                 64 GiB, 32 TiB and 16 PiB and cannot be
+#                                 confused. Matched at kB, the resolution the
+#                                 kernel prints. Capped below the sound floor:
+#                                 meminfo is container-fakeable
+#   x86_64_va_bits_from_vmalloc   computed: the paging level from the same
+#                                 figure. The span is chosen at RUNTIME by
+#                                 pgtable_l5_enabled(), 32 TiB against 12800,
+#                                 which is why it says something cpuinfo cannot
+#                                 -- that field is the CPU's capability. A KMSAN
+#                                 build quarters the span and is not modelled,
+#                                 so it matches nothing and the rule is silent.
+#                                 Capped below the sound floor for the same
+#                                 reason as its siblings
 #   arm64_va_bits_from_vmalloc    computed: the width that reproduces the
 #                                 observed VmallocTotal exactly. Derived, not
 #                                 assumed -- the figure is read from
@@ -251,6 +269,8 @@ RULES=$ROOT/src/rules
 #                                 up, so the two ranges cannot meet
 ALLOW="arm64_efi_kimg_align
 arm64_va_bits_from_vmalloc
+riscv64_va_bits_from_vmalloc
+x86_64_va_bits_from_vmalloc
 arm64_page_offset_from_va_bits
 arm64_text_base
 arm64_phys_text_residue

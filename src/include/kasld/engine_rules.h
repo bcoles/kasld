@@ -391,6 +391,8 @@ R(arm64_va_bits_from_directmap);
 R(arm64_va_bits_from_vmemmap);
 R(arm64_va47_modern_floor);
 R(arm64_va_bits_from_vmalloc);
+R(riscv64_va_bits_from_vmalloc);
+R(x86_64_va_bits_from_vmalloc);
 R(arm64_page_offset_from_va_bits);
 R(arm64_text_phys_residue);
 R(arm64_phys_text_residue);

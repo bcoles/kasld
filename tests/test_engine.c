@@ -5311,6 +5311,143 @@ static void test_arm64_va_bits_from_vmalloc(void) {
 #endif
 }
 
+/* The same inversion on riscv64 and x86_64. Both spans are pure functions of
+ * the paging mode, so the models are short enough to state here: riscv64
+ * reserves 2^(VA_BITS-3) and x86_64 (VMALLOC_SIZE_TB << 40) - 1, with the size
+ * chosen at runtime by pgtable_l5_enabled().
+ *
+ * The figures are compared at kB because that is the resolution /proc/meminfo
+ * publishes -- the kernel prints the span >> 10, so up to 1023 bytes are gone
+ * before anything reads it, and a byte-exact test silently fails on a span that
+ * is not 1024-aligned. x86_64's span is not. */
+static void test_va_bits_from_vmalloc_siblings(void) {
+  unsigned long v = 0;
+  (void)v;
+#if defined(__riscv) && __riscv_xlen == 64
+  const rule_fn rrules[] = {rule_riscv64_va_bits_from_vmalloc};
+  /* sv39, sv48, sv57 as three real captures report them. */
+  const struct {
+    unsigned long total, want;
+  } rcases[] = {{67108864ul * 1024ul, 39ul},
+                {34359738368ul * 1024ul, 48ul},
+                {17592186044416ul * 1024ul, 57ul},
+                /* the era that reports one byte less, floored to one kB less */
+                {67108863ul * 1024ul, 39ul}};
+  for (size_t i = 0; i < sizeof(rcases) / sizeof(rcases[0]); i++) {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, rcases[i].total, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    engine_run(&e, rrules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == rcases[i].want);
+  }
+#endif
+#if defined(__x86_64__)
+  const rule_fn xrules[] = {rule_x86_64_va_bits_from_vmalloc};
+  /* Four levels, as every captured x86_64 kernel reports it. The value is NOT
+   * 1024-aligned, which is the case the kB comparison exists for. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, 34359738367ul * 1024ul, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    engine_run(&e, xrules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == 48);
+  }
+  /* Five levels: 12800 TiB rather than 32. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, 13743895347199ul * 1024ul, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    engine_run(&e, xrules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == 57);
+  }
+  /* A KMSAN build quarters the span and is not modelled, so nothing is said. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, (32ul << 40) / 4ul, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    engine_run(&e, xrules, 1);
+    for (int i = 0; i < e.n_constraints; i++)
+      TH_CHECK(e.constraints[i].q != Q_VA_BITS);
+  }
+#endif
+  TH_CHECK(1);
+}
+
+/* The three vmalloc inversions must stay BELOW the sound floor.
+ *
+ * /proc/meminfo is container-fakeable, and no container-fakeable input may move
+ * the guaranteed window. The perturbation sweep enforces that end to end, but
+ * it can only test what the corpus holds: every captured x86_64 kernel resolves
+ * its paging level soundly from elsewhere, so faking the figure there moves
+ * nothing and the sweep passes whatever confidence this rule emits. The one
+ * machine where it would matter -- an LA57-capable part booted with four levels
+ * -- is not in the corpus. So the cap is asserted here directly, on the
+ * constraint, where no coverage gap can hide it. */
+static void test_va_bits_from_vmalloc_stays_below_the_floor(void) {
+  const rule_fn rules[] = {
+#if defined(__aarch64__)
+      rule_arm64_va_bits_from_vmalloc,
+#elif defined(__riscv) && __riscv_xlen == 64
+      rule_riscv64_va_bits_from_vmalloc,
+#elif defined(__x86_64__)
+      rule_x86_64_va_bits_from_vmalloc,
+#endif
+      NULL};
+  if (!rules[0]) {
+    TH_CHECK(1); /* an architecture with no such rule */
+    return;
+  }
+
+  /* A figure each architecture's own model reproduces, so the rule fires. */
+#if defined(__aarch64__)
+  const unsigned long total = 0x7dff3f800000ul;
+#elif defined(__riscv) && __riscv_xlen == 64
+  const unsigned long total = 67108864ul * 1024ul;
+#elif defined(__x86_64__)
+  const unsigned long total = 34359738367ul * 1024ul;
+#else
+  const unsigned long total = 0;
+#endif
+
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_scalar(SF_VMALLOC_TOTAL, total, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  engine_run(&e, rules, 1);
+
+  int seen = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    if (e.constraints[i].q != Q_VA_BITS)
+      continue;
+    if (strcmp(e.constraints[i].origin, "arm64_va_bits_from_vmalloc") != 0 &&
+        strcmp(e.constraints[i].origin, "riscv64_va_bits_from_vmalloc") != 0 &&
+        strcmp(e.constraints[i].origin, "x86_64_va_bits_from_vmalloc") != 0)
+      continue;
+    seen = 1;
+    /* The whole point: strictly below the floor the guaranteed window reads.
+     * Spelled CONF_INFERRED because the floor itself is KASLD_SOUND_FLOOR in
+     * orchestrator.c, which is not a header and so cannot be named here. */
+    TH_CHECK((int)e.constraints[i].conf < (int)CONF_INFERRED);
+  }
+  /* The observation was chosen to fire, so silence here means the model and
+   * the test have drifted apart and the assertion above tested nothing. */
+  TH_CHECK(seen);
+}
+
 /* The budget model has a second consumer: the summary uses the SIZE of the
  * page_offset window as the denominator for the direct-map residual entropy
  * ("~4 of N bits"). It cannot read that window back off the resolved estimate
@@ -9883,6 +10020,8 @@ int main(void) {
   RUN(test_x86_64_vmalloc_upper_l4_when_po_unresolved);
   RUN(test_x86_64_randomize_memory_budget);
   RUN(test_arm64_va_bits_from_vmalloc);
+  RUN(test_va_bits_from_vmalloc_siblings);
+  RUN(test_va_bits_from_vmalloc_stays_below_the_floor);
   RUN(test_x86_64_randomize_memory_budget_shared_window);
   RUN(test_x86_64_randomize_memory_budget_subfloor_pfn);
   RUN(test_x86_64_randomize_memory_budget_no_max_pfn);

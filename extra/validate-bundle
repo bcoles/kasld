@@ -191,7 +191,14 @@ JSON=$TMP/kasld.json
 # qemu-user) over an arbitrary sysroot.
 run_kasld_sysroot() {
   if [ -n "$RUNNER" ]; then
-    KASLD_SYSROOT="$1" KASLD_UNAME_RELEASE="$REL" \
+    # KASLD_EXEC_WRAPPER is what lets the orchestrator execve its component
+    # children on a foreign architecture: it execve's them directly, which the
+    # host kernel refuses for a guest-arch ELF unless binfmt_misc is
+    # registered. Without it the run completes having read nothing, every
+    # quantity stays at its a-priori window, and a perturbation of the input
+    # cannot move an output that no component produced -- so the sweep passes
+    # on every foreign capture without testing anything.
+    KASLD_SYSROOT="$1" KASLD_UNAME_RELEASE="$REL" KASLD_EXEC_WRAPPER="$RUNNER" \
       "$RUNNER" "$BIN" -j -q > "$2" 2>/dev/null
   else
     KASLD_SYSROOT="$1" KASLD_UNAME_RELEASE="$REL" \
@@ -224,11 +231,52 @@ guaranteed_sig() {
 # (see the two cases below). A future rule that reads another spoofable file into
 # the window drops in here as another fake_* mutator + perturb_case.
 
-# fake_meminfo DIR — shrink MemTotal/LowTotal, as a small memory cgroup reports.
+# fake_meminfo DIR — shrink MemTotal/LowTotal, as a small memory cgroup
+# reports, and restate VmallocTotal as a different virtual layout would.
+#
+# One mutator because they share a file: anything that rewrites /proc/meminfo
+# can state all of them, and lxcfs rewrites it wholesale. The memory figures are
+# the ones a cgroup limit changes; VmallocTotal is the one a reader can invert
+# into the kernel's VA layout, which is why a rule reading it must stay below
+# the sound floor.
+#
+# The substituted vmalloc figure is chosen for THIS capture's architecture, and
+# then against the figure the capture already carries. The rules that read it
+# match a modelled span exactly and say nothing otherwise, so one architecture's
+# figure fed to another reproduces no layout and the rule goes silent -- the
+# sweep would pass without testing it. A figure that merely happens to equal
+# what is already there substitutes nothing at all, which is the same failure
+# one level down. So each architecture offers two real layouts of its own and
+# the one that differs from the capture is used.
+fake_vmalloc_total() {  # ARCH CURRENT -> kB, or empty where no rule reads it
+  case "$1" in
+  aarch64*) fvt_a=70863806464; fvt_b=135288315904 ;;   # 52-bit, 48-bit
+  riscv64*) fvt_a=67108864; fvt_b=17592186044416 ;;    # sv39, sv57
+  x86_64*) fvt_a=13743895347199; fvt_b=34359738367 ;;  # 5-level, 4-level
+  *) echo ""; return 0 ;;
+  esac
+  # Matched with a kilobyte of slack either way, not for equality. A layout has
+  # more than one spelling: where VMALLOC_END is the last address of the span
+  # rather than one past it the figure is a byte lower, which the kB conversion
+  # floors to one kilobyte lower. Testing equality against a single spelling
+  # picks the other candidate for a capture written the other way, substituting
+  # a number that differs while inverting to the SAME width -- the bytes move
+  # and the inference does not, so the case has nothing to detect.
+  case "$2" in
+  "$fvt_a" | "$((fvt_a - 1))" | "$((fvt_a + 1))") echo "$fvt_b" ;;
+  *) echo "$fvt_a" ;;
+  esac
+}
+
 fake_meminfo() {
   sed -i -E 's/^(MemTotal:)[[:space:]]*[0-9]+/\1          65536/;
              s/^(LowTotal:)[[:space:]]*[0-9]+/\1          65536/' \
     "$1/proc/meminfo" 2>/dev/null || true
+  fm_cur=$(awk '/^VmallocTotal:/ {print $2; exit}' "$1/proc/meminfo" 2>/dev/null)
+  fm_vt=$(fake_vmalloc_total "$SUB" "${fm_cur:-}")
+  [ -n "$fm_vt" ] && sed -i -E "s/^(VmallocTotal:)[[:space:]]*[0-9]+/\1   $fm_vt/" \
+    "$1/proc/meminfo" 2>/dev/null
+  return 0
 }
 
 # perturb_case NAME REAL FAKE — run both sysroots and assert the guaranteed
