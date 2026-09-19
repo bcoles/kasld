@@ -151,14 +151,20 @@ struct kasld_report_quantity {
    * `entropy_top` is an UPPER BOUND on what the kernel chose among, counted at
    * the finest grain this build can prove. This is the denominator a reader
    * wants -- "8 of N" means 8 of the places the kernel could have put itself.
-   * It is filled in two tiers, and which one answered is not recorded because
-   * both are upper bounds and a consumer treats them alike:
+   * It is filled in three tiers, and which one answered is not recorded because
+   * all three are upper bounds and a consumer treats them alike:
    *
-   *   1. a window PROVED for this run -- the caller's, derived from evidence
+   *   1. the LEAK-FREE resolution -- the same rules over the same run with
+   *      every observation that locates the kernel withheld, leaving the window
+   *      the machine alone fixes. Where the board's memory map bounds where a
+   *      kernel could have been placed, that is the set it drew from, and this
+   *      is the only tier that can answer for a quantity whose top is an
+   *      address width rather than a window. Rejected where it bounds nothing:
+   *      what is left of the whole address space is not a window.
+   *   2. a window PROVED for this run -- the caller's, derived from evidence
    *      the builder cannot reach, or a randomization span the architecture
-   *      declares for the quantity. This is the set the kernel actually drew
-   *      from, so it is the tightest honest answer.
-   *   2. failing that, and only where the quantity's honest top is a window
+   *      declares for the quantity.
+   *   3. failing both, and only where the quantity's honest top is a window
    *      rather than a bound on address width, the set the ENGINE started from
    *      -- `search_top` below. Wider than any one kernel's window, because a
    *      top has to span every layout the architecture admits.
@@ -196,13 +202,23 @@ struct kasld_report_quantity {
    * margin is 7 slots on x86_64 (an unknown CONFIG_PHYSICAL_START) and 127x on
    * riscv64, where two different text layouts must both fit.
    *
-   * A resolved count CAN exceed `entropy_top`, but only under tier 1: a caller
-   * that proved a window tighter than the one the engine searched leaves the
-   * numerator counted over the wider set. Under tier 2 the two are equal by
-   * construction and the count cannot pass it. Both fields are carried so a
-   * format can notice the tier-1 case and present a bare count instead of an
-   * incoherent ratio -- a presentation rule, which is why it lives in the
+   * A resolved count CAN exceed `entropy_top`, under either of the first two
+   * tiers. A caller that proved a window tighter than the one the engine
+   * searched leaves the numerator counted over the wider set. The leak-free
+   * window is normally a superset of the resolved one -- it is the same rules
+   * over strictly less evidence -- but a rule that fires on the ABSENCE of an
+   * observation can narrow it where the full evidence did not, so the
+   * relationship is not guaranteed by construction. Under tier 3 the two are
+   * equal by construction and the count cannot pass it. Both fields are carried
+   * so a format can notice the inverted case and present a bare count instead
+   * of an incoherent ratio -- a presentation rule, which is why it lives in the
    * formats and not here.
+   *
+   * One denominator serves both windows, and a format is not obliged to print
+   * it twice: the set a likely row narrows is the guaranteed row's own count,
+   * which is already on the line above it. The readout states the figure on the
+   * guaranteed row alone for that reason, and the reasoning sits with the
+   * column that makes the choice rather than here.
    *
    * Narrowing is `candidates < search_top`: read from the counts, never stored,
    * because a copy of a derived fact goes stale. */
@@ -359,8 +375,20 @@ int kasld_report_likely_is_tighter(const struct kasld_report_quantity *it);
 int kasld_report_value(const struct kasld_report_quantity *it,
                        unsigned long *out);
 
+/* `config` is a third resolution, optional: the same rules over the same
+ * evidence with every leaked ADDRESS withheld, leaving only what describes the
+ * machine -- the paging width, the build's load address and alignment, how much
+ * RAM is present. What the engine still proves from that is the window the
+ * kernel drew from, so it is the denominator the residual is stated against and
+ * `slots` out of it is exactly what the leaks removed.
+ *
+ * It is counted here rather than by the caller because the count has to be
+ * taken on the same grain as the numerator, and `q_grain` chooses that grain
+ * once, below. NULL where no such resolution was run, which leaves the
+ * denominator to the tiers described at `entropy_top`. */
 void kasld_report_build(struct kasld_resolution_view guaranteed,
                         struct kasld_resolution_view likely,
+                        const struct kasld_resolution_view *config,
                         const struct kasld_report_point *points,
                         enum kasld_posture posture, int replay,
                         struct kasld_report *out);

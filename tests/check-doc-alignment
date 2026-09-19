@@ -26,15 +26,16 @@
 # The `Image-base slots` column is NOT checked. It used to be compared against
 # the denominator of the row's Candidates, and the two have since become
 # different quantities. The document states the slots a DEFAULT build randomizes
-# over; the readout's denominator is the set the engine started from, which spans
-# every configuration the architecture admits. On x86_64 that is 505 against 512
-# -- close enough to look comparable and wrong to assert, since the two agree at
-# 16 MiB and differ at 2 MiB for reasons that have nothing to do with each other.
+# over; the readout's denominator is the window left once every observation
+# locating the kernel is withheld, which is a build's window narrowed further
+# by what the captured machine itself admits. On x86_64 that is 477 against 512
+# -- close enough to look comparable and wrong to assert, since one figure moves
+# with the Kconfig and the other with how much RAM the captured machine had.
 # The slot figure in the document is arithmetic on the window and the grain, both
 # stated in the prose around the table, and stays there because it is what the
-# sentence is about. Should a per-architecture window ever be derived from
-# resolved facts and published as the denominator, the two would name the same
-# thing again and the comparison would belong back here.
+# sentence is about. The two would name the same thing again only if the readout
+# published an architecture's declared window untouched by the capture, which is
+# the one thing the denominator is no longer allowed to be.
 #
 # Rows are read from the table marked in the document, so the guard and the
 # prose cannot disagree about which figures are under test:

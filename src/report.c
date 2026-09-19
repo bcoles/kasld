@@ -203,58 +203,77 @@ static int report_bits(unsigned long v) {
   return r;
 }
 
-/* Whether this quantity's honest top is a WINDOW the value was placed within,
- * as opposed to a bound on how wide an address can be.
+/* What this quantity's honest top IS, which decides whether a denominator may
+ * be built from it and from what.
  *
- * It decides whether the a-priori count may stand as a denominator when no
- * proved window is available. The distinction is the difference between "one of
- * the 512 placements this architecture admits" and "one of the 2^31 addresses
- * that fit" -- the first is a derandomization result, the second is a property
- * of the pointer. It follows from which constant quantities.c seeds the top
- * with, so it is a question about the quantity, answered per architecture only
- * where the architecture changes what that constant means.
+ * The distinction is the difference between "one of the 512 placements this
+ * architecture admits" and "one of the 2^31 addresses that fit" -- the first is
+ * a derandomization result, the second is a property of the pointer. It follows
+ * from which constant quantities.c seeds the top with, so it is a question
+ * about the quantity, answered per architecture only where the architecture
+ * changes what that constant means.
  *
- * The image base's top is [VIRT_TEXT_MIN_ANY_CONFIG, VIRT_TEXT_MAX_ANY_CONFIG],
- * which the arch headers define as the widest placement any build admits: a
- * window, loose on an architecture with several VA layouts but a window still.
- * That holds only where the architecture randomizes the base at all. Where it
- * does not, the same constants bound where a bootloader may have put the image
- * -- a real unknown, and one this tool narrows, but not a set the kernel drew
- * from. A ratio against it would read as entropy that was never there, so those
- * architectures state the count alone.
+ * Three answers, because a top that is not a window fails to be one for two
+ * unrelated reasons and they do not license the same thing:
  *
- * The physical base has no counterpart and can have none -- where a kernel
- * lands physically is set by where the board puts DRAM, so its top is
- * PHYS_ADDR_TOP, an address width. The memory-KASLR regions are drawn from a
- * shared RAM budget rather than from the address space their top spans; the
- * two that can prove that budget receive it through points[], and the third
- * states a bare count rather than counting the whole kernel VAS. */
-static int q_top_is_window(enum kasld_quantity q) {
+ *   Q_TOP_DRAWN_WINDOW   the top is itself the set the value was drawn from.
+ *     The image base's top is [VIRT_TEXT_MIN_ANY_CONFIG,
+ *     VIRT_TEXT_MAX_ANY_CONFIG], the widest placement any build admits: loose
+ *     on an architecture with several VA layouts, but a window still, and
+ *     publishable as a denominator on its own.
+ *
+ *   Q_TOP_ADDRESS_WIDTH  the top bounds how wide an address can be, and says
+ *     nothing about placement. Where a kernel lands physically is set by where
+ *     the board puts DRAM, so the physical top is PHYS_ADDR_TOP; the
+ *     memory-KASLR regions are drawn from a RAM budget rather than from the
+ *     address space their top spans. A ratio against the raw top would read as
+ *     entropy that was never there -- but a top NARROWED by what the machine
+ *     has is the set the kernel drew from, and does count. Such a quantity
+ *     therefore has a denominator exactly when something established one.
+ *
+ *   Q_TOP_NOT_DRAWN      the value was not drawn from a set at all: an
+ *     architecture that does not randomize the base, an alignment, a module
+ *     band that is fixed or rides the text slide. Here narrowing establishes
+ *     nothing either, because there was never a choice to reduce. These state
+ *     the count alone.
+ *
+ * The middle answer is why this is not a boolean. Collapsing it into the last
+ * one suppresses a real window; collapsing it into the first publishes an
+ * address width as though the kernel had chosen among its addresses. */
+enum q_top_kind {
+  Q_TOP_DRAWN_WINDOW,
+  Q_TOP_ADDRESS_WIDTH,
+  Q_TOP_NOT_DRAWN,
+};
+
+static enum q_top_kind q_top_kind(enum kasld_quantity q) {
   switch (q) {
   case Q_VIRT_IMAGE_BASE:
-    return KASLR_SUPPORTED;
+    return KASLR_SUPPORTED ? Q_TOP_DRAWN_WINDOW : Q_TOP_NOT_DRAWN;
   case Q_MODULE_BASE:
     /* The module band is a declared region, but on most architectures it is not
      * a set the base was DRAWN from: it is fixed, it rides the text slide, or
      * it brackets the image. Counting it would state a reduction against
-     * addresses the allocator never chose among. Where an architecture does
-     * randomize the base within a span of its own, q_entropy_top supplies that
-     * span and this fallback is not reached. */
-    return 0;
+     * addresses the allocator never chose among, and narrowing it by what the
+     * machine has would not make it one. Where an architecture does randomize
+     * the base within a span of its own, q_entropy_top supplies that span and
+     * this answer is never reached. */
+    return Q_TOP_NOT_DRAWN;
   case Q_VA_BITS:
     /* Moot: a finite set is its own denominator, and RSHAPE_SET is read from
      * search_top directly without passing through here. */
-    return 1;
+    return Q_TOP_DRAWN_WINDOW;
   case Q_PHYS_IMAGE_BASE:
   case Q_PAGE_OFFSET:
   case Q_VMALLOC_BASE:
   case Q_VMEMMAP_BASE:
+    return Q_TOP_ADDRESS_WIDTH;
   case Q_VIRT_KASLR_ALIGN:
   case Q_PHYS_KASLR_ALIGN:
   case Q__COUNT:
-    return 0;
+    return Q_TOP_NOT_DRAWN;
   }
-  return 0;
+  return Q_TOP_NOT_DRAWN;
 }
 
 /* The window the kernel's own randomization draws from, in candidates.
@@ -278,7 +297,7 @@ static int q_top_is_window(enum kasld_quantity q) {
  *
  * Zero here does not mean the row goes without a denominator. It means this
  * function has nothing to say, and the caller falls back to the set the engine
- * started from -- see the two tiers where entropy_top is assigned. */
+ * started from -- see the three tiers where entropy_top is assigned. */
 static unsigned long q_entropy_top(enum kasld_quantity q, unsigned long grain) {
   unsigned long lo = 0, hi = 0;
   switch (q) {
@@ -518,6 +537,7 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
 
 void kasld_report_build(struct kasld_resolution_view guaranteed,
                         struct kasld_resolution_view likely,
+                        const struct kasld_resolution_view *config,
                         const struct kasld_report_point *points,
                         enum kasld_posture posture, int replay,
                         struct kasld_report *out) {
@@ -547,10 +567,12 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
 
     /* What the engine was willing to consider, counted the same way the
      * resolved window is so the two are directly comparable. */
+    int have_top = 0;
     if (quantities[q].lattice == LK_FINSET) {
       it->search_top = (unsigned long)quantities[q].n_candidates;
     } else if (quantities[q].init_top) {
       quantities[q].init_top(&top);
+      have_top = 1;
       /* Counted on the same terms a resolved window is counted on, and under
        * the same condition, so a denominator never stands over a numerator that
        * was not stated: an interval is counted, an alignment is not. */
@@ -558,15 +580,19 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
         it->search_top =
             quantity_slots(q, &top, guaranteed.floor, NULL, 0, grain);
     }
-    /* The set the residual is stated against, in two tiers.
+    /* The set the residual is stated against, in three tiers.
      *
-     * First a window PROVED from this run: the caller may know one the builder
+     * First the leak-free resolution, where it bounds the quantity at all: the
+     * window the machine alone fixes, which is the only answer available where
+     * the honest top is an address width rather than a window.
+     *
+     * Then a window PROVED from this run: the caller may know one the builder
      * cannot derive -- the memory regions' RAM budget is the worked example --
      * and an architecture that declares its own randomization window supplies
      * it through q_entropy_top. Either is the set the kernel actually drew
-     * from, so it is the tightest honest denominator there is.
+     * from.
      *
-     * Failing that, and only where the quantity's honest top is a WINDOW, the
+     * Failing both, and only where the quantity's honest top is a WINDOW, the
      * set the engine started from: search_top, the top counted at the same
      * grain the resolved window is counted at. That is an upper bound on the
      * kernel's window rather than the window itself, since an architecture
@@ -580,10 +606,39 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
      *
      * Assigned here rather than at the two places that read it, so the count
      * and the bit figure below cannot answer this question differently. */
-    it->entropy_top = (points && points[q].entropy_top)
-                          ? points[q].entropy_top
-                          : q_entropy_top(q, grain);
-    if (it->entropy_top == 0 && q_top_is_window(q))
+    const enum q_top_kind kind = q_top_kind(q);
+    it->entropy_top = 0;
+
+    /* The leak-free resolution: the same rules over the same run with every
+     * observation that locates the kernel withheld, so what it leaves is the
+     * window the kernel chose within, as far as the machine alone fixes it.
+     * Rejected where the quantity was never drawn from a set, and where it
+     * establishes nothing -- a count equal to the a-priori top means no fact
+     * bounded the quantity, and on an address-width top that is the whole
+     * address space rather than a window. */
+    if (config && config->est && kind != Q_TOP_NOT_DRAWN &&
+        (quantities[q].lattice == LK_INTERVAL ||
+         quantities[q].lattice == LK_FINSET)) {
+      unsigned long cfg = quantity_slots(q, &config->est[q], config->floor,
+                                         config->cs, config->n_cs, grain);
+      /* An address-width top becomes a window only once something BOUNDS the
+       * quantity -- the board's DRAM extent is what does it for the physical
+       * base. Holes carved inside the top do not: what is left of the whole
+       * address space once MMIO is removed from it is still the whole address
+       * space, and counting it would state a reduction against addresses no
+       * kernel was ever placed among. So the test is on the hull, not on the
+       * count, which a hole moves without anything having been learned. */
+      int bounded = kind == Q_TOP_DRAWN_WINDOW ||
+                    (have_top && (config->est[q].lo > top.lo ||
+                                  config->est[q].hi < top.hi));
+      if (cfg && bounded)
+        it->entropy_top = cfg;
+    }
+    if (it->entropy_top == 0)
+      it->entropy_top = (points && points[q].entropy_top)
+                            ? points[q].entropy_top
+                            : q_entropy_top(q, grain);
+    if (it->entropy_top == 0 && kind == Q_TOP_DRAWN_WINDOW)
       it->entropy_top = it->search_top;
 
     build_window(&it->guaranteed, q, guaranteed, grain);

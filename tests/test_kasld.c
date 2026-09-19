@@ -865,7 +865,7 @@ static void test_compute_kaslr_info_uses_kernel_image_anchor(void) {
   r->set_mask = LO_SET;
 
   struct summary s = {0};
-  compute_kaslr_info(&s, NULL, NULL, NULL);
+  compute_kaslr_info(&s, NULL, NULL, NULL, NULL);
   TH_CHECK(s.kaslr.vtext ==
            layout.virt_kaslr_text_min + layout.virt_kaslr_align);
 }
@@ -895,14 +895,14 @@ static void test_compute_kaslr_info_engine_pin_overrides_raw_anchor(void) {
 
   /* No snapshot: the raw pick stands, as the tests above already pin. */
   struct summary s = {0};
-  compute_kaslr_info(&s, NULL, NULL, NULL);
+  compute_kaslr_info(&s, NULL, NULL, NULL, NULL);
   TH_CHECK(s.kaslr.vtext == raw);
 
   /* With a snapshot holding a sound pin, that pin is authoritative. */
   auth.est[Q_VIRT_IMAGE_BASE].lo = pinned;
   auth.est[Q_VIRT_IMAGE_BASE].hi = pinned;
   memset(&s, 0, sizeof(s));
-  compute_kaslr_info(&s, &auth, NULL, NULL);
+  compute_kaslr_info(&s, &auth, NULL, NULL, NULL);
   TH_CHECK(s.kaslr.vtext == pinned);
 }
 
@@ -979,7 +979,7 @@ static void test_compute_kaslr_info_directmap_base_follows_likely(void) {
    * starts at 0, so a zero sentinel IS the expected value there. */
   layout.virt_page_offset = pin_want + 1;
   struct summary s = {0};
-  compute_kaslr_info(&s, &auth, &likely, NULL);
+  compute_kaslr_info(&s, &auth, &likely, NULL, NULL);
   if (auth_pinned) {
     /* The sound resolution already answered, so the speculative one must not
      * overwrite it -- the whole fallback is gated on the guaranteed side NOT
@@ -998,7 +998,7 @@ static void test_compute_kaslr_info_directmap_base_follows_likely(void) {
     qd->init_top(&likely.est[Q_PAGE_OFFSET]);
     layout.virt_page_offset = pin_want + 1;
     memset(&s, 0, sizeof(s));
-    compute_kaslr_info(&s, &auth, &likely, NULL);
+    compute_kaslr_info(&s, &auth, &likely, NULL, NULL);
 #if !TEXT_TRACKS_DIRECTMAP
     /* Coupled arches have a second fallback (the proven floor) that
      * legitimately moves the field here; decoupled ones do not. */
@@ -1034,7 +1034,7 @@ static void test_compute_kaslr_info_likely_window_reaches_the_model(void) {
     const struct kasld_report_quantity *it;
 
     /* No likely snapshot: nothing speculative is reported. */
-    compute_kaslr_info(&s, &auth, NULL, &rep);
+    compute_kaslr_info(&s, &auth, NULL, NULL, &rep);
     it = kasld_report_find(&rep, Q_VIRT_IMAGE_BASE);
     TH_CHECK(it != NULL);
     TH_CHECK(!kasld_report_likely_is_tighter(it));
@@ -1044,7 +1044,7 @@ static void test_compute_kaslr_info_likely_window_reaches_the_model(void) {
     likely.est[Q_VIRT_IMAGE_BASE].lo = lo;
     likely.est[Q_VIRT_IMAGE_BASE].hi = hi;
     memset(&s, 0, sizeof(s));
-    compute_kaslr_info(&s, &auth, &likely, &rep);
+    compute_kaslr_info(&s, &auth, &likely, NULL, &rep);
     it = kasld_report_find(&rep, Q_VIRT_IMAGE_BASE);
     TH_CHECK(it != NULL);
     TH_CHECK(kasld_report_likely_is_tighter(it));
@@ -1064,7 +1064,7 @@ static void test_compute_kaslr_info_falls_back_to_kernel_text(void) {
   r->set_mask = LO_SET;
 
   struct summary s = {0};
-  compute_kaslr_info(&s, NULL, NULL, NULL);
+  compute_kaslr_info(&s, NULL, NULL, NULL, NULL);
   /* A KERNEL_TEXT (_stext) fallback resolves vtext to the image base, i.e. down
    * by the head gap (STEXT_OFFSET): 0 on most arches, nonzero on arm64
    * (0x10000) and loongarch64 (0x20000). */
@@ -1562,7 +1562,7 @@ static void test_synthesized_result_sets_fields_correctly(void) {
 static void test_compute_kaslr_info_no_anchors_yields_zero_vtext(void) {
   reset_results();
   struct summary s = {0};
-  compute_kaslr_info(&s, NULL, NULL, NULL);
+  compute_kaslr_info(&s, NULL, NULL, NULL, NULL);
   /* No anchors → vtext=0; the slot/entropy fields are still populated from
    * the layout, but vtext itself is the "no information" sentinel. */
   TH_CHECK(s.kaslr.vtext == 0);
@@ -2020,7 +2020,7 @@ static void test_compute_kaslr_info_sets_decoupled_note(void) {
   r->set_mask = LO_SET;
 
   struct summary s = {0};
-  compute_kaslr_info(&s, NULL, NULL, NULL);
+  compute_kaslr_info(&s, NULL, NULL, NULL, NULL);
   TH_CHECK(s.kaslr.vtext == 0);    /* no virt anchor */
   TH_CHECK(s.decoupled_note == 1); /* note must be set */
 }
@@ -2045,7 +2045,7 @@ static void test_compute_kaslr_info_no_note_when_vtext_present(void) {
   v->set_mask = LO_SET;
 
   struct summary s = {0};
-  compute_kaslr_info(&s, NULL, NULL, NULL);
+  compute_kaslr_info(&s, NULL, NULL, NULL, NULL);
   TH_CHECK(s.kaslr.vtext != 0);
   TH_CHECK(s.decoupled_note == 0);
 }
@@ -2055,7 +2055,7 @@ static void test_compute_kaslr_info_no_note_without_phys_landmark(void) {
   /* No phys leaks at all — note shouldn't fire (there's nothing to
    * explain). */
   struct summary s = {0};
-  compute_kaslr_info(&s, NULL, NULL, NULL);
+  compute_kaslr_info(&s, NULL, NULL, NULL, NULL);
   TH_CHECK(s.decoupled_note == 0);
 }
 #endif /* !TEXT_TRACKS_DIRECTMAP */

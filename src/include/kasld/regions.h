@@ -137,5 +137,46 @@ static inline int is_kernel_locating_region(enum kasld_region r) {
          r == REGION_KERNEL_DATA || r == REGION_KERNEL_BSS;
 }
 
+/* Regions whose address describes the MACHINE rather than where the kernel was
+ * put: the board's memory map and its firmware tables, all fixed before a
+ * kernel is loaded and identical across boots of the same hardware.
+ *
+ * It separates evidence that narrows where the kernel COULD have been placed
+ * from evidence of where it actually IS -- the distinction the leak-free
+ * resolution rests on, since a window narrowed by a leak is no longer the set
+ * the leak reduced.
+ *
+ * A whitelist, not an exclusion list: a region added later is machine-
+ * describing only once someone says so here. The failure direction of an
+ * omission is a wider window, which understates a reduction; the failure
+ * direction of a wrong inclusion is a window narrowed by the very leak it is
+ * meant to be measured against, which overstates one.
+ *
+ * Deliberately NOT here, though each is physical and none is a kernel section:
+ * INITRD, CMDLINE, VMCOREINFO, CRASHKERNEL, RESERVED_MEM, SWIOTLB and
+ * EFI_LOADER_IMAGE. Every one is placed during boot by the loader or the
+ * kernel, so its address moves with the kernel's -- initrd_above_kernel derives
+ * a kernel bound from the first of them precisely because it does. MMIO, PCI,
+ * PMEM and the ACPI regions stay in: they are hardware, and the holes they
+ * carve are slots the kernel never had. */
+static inline int is_machine_describing_region(enum kasld_region r) {
+  switch (r) {
+  case REGION_RAM:
+  case REGION_DMA:
+  case REGION_DMA32:
+  case REGION_NUMA_NODE:
+  case REGION_MMIO:
+  case REGION_PCI_MMIO:
+  case REGION_PMEM:
+  case REGION_ACPI_TABLE:
+  case REGION_ACPI_NVS:
+  case REGION_EFI_MEMMAP:
+  case REGION_CMDLINE_MEMMAP:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
 #endif /* KASLD_REGION_PREDICATES */
 #endif /* KASLD_REGIONS_H */

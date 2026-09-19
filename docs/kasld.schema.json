@@ -801,7 +801,7 @@
           "type": "integer"
         },
         "entropy_bits": { "type": "integer" },
-        "slots_initial": { "description": "The set the residual is measured against, so `slots` out of `slots_initial` is what the evidence removed. An upper bound on the set the kernel drew from rather than an identity, so the reduction it implies is a ceiling: it is a window proved from this run where one could be, and otherwise the set the engine started from, which spans every layout the architecture admits. Absent where the quantity has neither.", "type": "integer" },
+        "slots_initial": { "description": "The set the residual is measured against, so `slots` out of `slots_initial` is what the evidence removed. An upper bound on the set the kernel drew from rather than an identity, so the reduction it implies is a ceiling. It is the window that remains once every observation locating the kernel is withheld and the same rules are run again -- what the machine alone fixes about where the kernel could have gone; failing that, a window proved from this run, or the set the engine started from, which spans every layout the architecture admits. Absent where the quantity has none of those.", "type": "integer" },
         "entropy_bits_initial": { "type": "integer" },
         "slots": { "type": "integer" },
         "slots_upper_bound": {
@@ -812,8 +812,7 @@
       }
     },
     "physicalBasePoint": {
-      "description": "The physical axis of the same object. It carries no `slots_initial` / `entropy_bits_initial`, and cannot: where a kernel lands in physical memory is set by where the board puts DRAM, so the architecture declares no window for it and the engine's starting set is an address width rather than a set of placements. A ratio against that would state a reduction the tool did not make, so the count stands alone.",
-      "description": "A single headline base address. `speculative` is present and true where the base came from a sub-sound-floor leak while the guaranteed window is still a range - a best guess, not proven; the guaranteed window is then also emitted.",
+      "description": "A single headline base address. `speculative` is present and true where the base came from a sub-sound-floor leak while the guaranteed window is still a range - a best guess, not proven; the guaranteed window is then also emitted. The physical axis of the same object, which carries `slots_initial` only where something bounds where the kernel could have been placed -- the board's DRAM extent is what does it. The engine's starting set for this axis is an address width rather than a set of placements, and a ratio against that would state a reduction the tool did not make.",
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -832,6 +831,8 @@
         },
         "entropy_bits": { "type": "integer" },
         "slots": { "type": "integer" },
+        "slots_initial": { "description": "The set the residual is measured against, so `slots` out of `slots_initial` is what the evidence removed. An upper bound on the set the kernel drew from rather than an identity, so the reduction it implies is a ceiling. It is the window that remains once every observation locating the kernel is withheld and the same rules are run again -- what the machine alone fixes about where the kernel could have gone; failing that, a window proved from this run, or the set the engine started from, which spans every layout the architecture admits. Absent where the quantity has none of those.", "type": "integer" },
+        "entropy_bits_initial": { "type": "integer" },
         "slots_upper_bound": {
           "description": "true where the counts are ceilings rather than exact: the grain they stand on is a lower bound wherever the engine resolved alignment without anything capping it, so a more coarsely aligned kernel sits on fewer placements than `slots` states.",
           "type": "boolean"
@@ -848,7 +849,7 @@
         "range_min": { "$ref": "#/$defs/addressOrNull" },
         "range_max": { "$ref": "#/$defs/addressOrNull" },
         "slots": { "type": "integer" },
-        "slots_initial": { "description": "The set the residual is measured against, so `slots` out of `slots_initial` is what the evidence removed. An upper bound on the set the kernel drew from rather than an identity, so the reduction it implies is a ceiling: it is a window proved from this run where one could be, and otherwise the set the engine started from, which spans every layout the architecture admits. Absent where the quantity has neither.", "type": "integer" },
+        "slots_initial": { "description": "The set the residual is measured against, so `slots` out of `slots_initial` is what the evidence removed. An upper bound on the set the kernel drew from rather than an identity, so the reduction it implies is a ceiling. It is the window that remains once every observation locating the kernel is withheld and the same rules are run again -- what the machine alone fixes about where the kernel could have gone; failing that, a window proved from this run, or the set the engine started from, which spans every layout the architecture admits. Absent where the quantity has none of those.", "type": "integer" },
         "entropy_bits": { "type": "integer" },
         "entropy_bits_initial": { "type": "integer" },
         "excluded_total": {
@@ -862,8 +863,7 @@
       }
     },
     "physicalGuaranteedWindow": {
-      "description": "The physical axis of the same object. It carries no `slots_initial` / `entropy_bits_initial`, and cannot: where a kernel lands in physical memory is set by where the board puts DRAM, so the architecture declares no window for it and the engine's starting set is an address width rather than a set of placements. A ratio against that would state a reduction the tool did not make, so the count stands alone.",
-      "description": "A window resolved at the sound floor: the true value is inside it. range_min/range_max are the convex hull, and `slots` already excludes the carved interior.",
+      "description": "A window resolved at the sound floor: the true value is inside it. range_min/range_max are the convex hull, and `slots` already excludes the carved interior. The physical axis of the same object, which carries `slots_initial` only where something bounds where the kernel could have been placed -- the board's DRAM extent is what does it. The engine's starting set for this axis is an address width rather than a set of placements, and a ratio against that would state a reduction the tool did not make.",
       "type": "object",
       "additionalProperties": false,
       "required": ["range_min", "range_max"],
@@ -871,6 +871,8 @@
         "range_min": { "$ref": "#/$defs/addressOrNull" },
         "range_max": { "$ref": "#/$defs/addressOrNull" },
         "slots": { "type": "integer" },
+        "slots_initial": { "description": "The set the residual is measured against, so `slots` out of `slots_initial` is what the evidence removed. An upper bound on the set the kernel drew from rather than an identity, so the reduction it implies is a ceiling. It is the window that remains once every observation locating the kernel is withheld and the same rules are run again -- what the machine alone fixes about where the kernel could have gone; failing that, a window proved from this run, or the set the engine started from, which spans every layout the architecture admits. Absent where the quantity has none of those.", "type": "integer" },
+        "entropy_bits_initial": { "type": "integer" },
         "entropy_bits": { "type": "integer" },
         "excluded_total": {
           "description": "How many sub-ranges were carved. Compare against the length of `excluded` to tell a complete list from a truncated one.",
@@ -906,7 +908,7 @@
         "slots": { "type": "integer" },
         "entropy_bits": { "type": "integer" },
         "slots_upper_bound": { "type": "boolean" },
-        "slots_initial": { "description": "The set the residual is measured against, so `slots` out of `slots_initial` is what the evidence removed. An upper bound on the set the kernel drew from rather than an identity, so the reduction it implies is a ceiling: it is a window proved from this run where one could be, and otherwise the set the engine started from, which spans every layout the architecture admits. Absent where the quantity has neither.", "type": "integer" },
+        "slots_initial": { "description": "The set the residual is measured against, so `slots` out of `slots_initial` is what the evidence removed. An upper bound on the set the kernel drew from rather than an identity, so the reduction it implies is a ceiling. It is the window that remains once every observation locating the kernel is withheld and the same rules are run again -- what the machine alone fixes about where the kernel could have gone; failing that, a window proved from this run, or the set the engine started from, which spans every layout the architecture admits. Absent where the quantity has none of those.", "type": "integer" },
         "entropy_bits_initial": { "type": "integer" },
         "likely": {
           "type": "object",

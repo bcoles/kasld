@@ -27,6 +27,7 @@
 #include "include/kasld/internal.h"
 #include "include/kasld/outcome.h"
 #include "include/kasld/randomize_memory.h"
+#include "include/kasld/regions.h"
 #include "include/kasld/render_internal.h"
 #include "include/kasld/report.h"
 
@@ -1512,6 +1513,12 @@ struct engine_resolution {
 static void engine_resolve(struct engine *e);
 static struct engine g_auth_engine; /* the GUARANTEED (primary) resolution */
 static struct engine_resolution g_likely;
+/* The LEAK-FREE resolution: same rules, same evidence, every leaked address
+ * withheld. What survives is what describes the machine, so what the engine
+ * still proves is the window the kernel drew from -- the denominator the
+ * residual is stated against. */
+static struct engine_resolution g_config;
+static int g_have_config;
 /* The report model for this run. Built once from the two resolutions above and
  * read by every format; nothing consumes it yet, and the formats migrate onto
  * it one section at a time. */
@@ -1632,6 +1639,7 @@ static int page_offset_narrowed(void) {
 
 void compute_kaslr_info(struct summary *s, const struct engine *auth,
                         const struct engine_resolution *likely,
+                        const struct engine_resolution *config,
                         struct kasld_report *report) {
   if (auth) {
     /* The layered engine is the sole inference path: resolve every quantity
@@ -1973,7 +1981,20 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
     lv.cs = likely ? likely->constraints : NULL;
     lv.n_cs = likely ? likely->n_constraints : 0;
     lv.floor = CONF_BRUTE;
-    kasld_report_build(gv, lv, pts, posture,
+    /* The leak-free resolution, as a view on the same terms as the other two.
+     * Absent where no such resolution was run -- the build that does not link
+     * the engine, and any caller that passes none -- which leaves the
+     * denominator to the tiers report.c describes. */
+    struct kasld_resolution_view cv;
+    const struct kasld_resolution_view *cvp = NULL;
+    if (config) {
+      cv.est = config->est;
+      cv.cs = config->constraints;
+      cv.n_cs = config->n_constraints;
+      cv.floor = KASLD_SOUND_FLOOR;
+      cvp = &cv;
+    }
+    kasld_report_build(gv, lv, cvp, pts, posture,
                        kasld_fact_source() == KASLD_FACTS_CAPTURE, report);
   }
 }
@@ -2307,7 +2328,8 @@ static int origins_all_excluded(const struct origin_set *origins,
  * advisor's "what if this leak were closed" projection; pass NULL/0 for the
  * full set. */
 static void engine_build_evidence(struct evidence_set *ev,
-                                  const char *const *exclude, int n_exclude) {
+                                  const char *const *exclude, int n_exclude,
+                                  enum kasld_evidence_scope scope) {
   struct origin_set excluded;
   origin_exclude_set(exclude, n_exclude, &excluded);
 
@@ -2337,6 +2359,15 @@ static void engine_build_evidence(struct evidence_set *ev,
       evidence_add_covering(ev, &cv);
       continue;
     }
+
+    /* The leak-free scope keeps addresses that describe the BOARD -- where its
+     * DRAM is, where its device windows are -- and drops the rest. Dropping
+     * every address instead would also discard the memory map, leaving the
+     * physical base bounded by nothing but PHYS_ADDR_TOP and the window it
+     * counts a reduction against an address width rather than the RAM the
+     * kernel had to land in. */
+    if (scope == EV_SCOPE_NO_LEAKS && !is_machine_describing_region(r->region))
+      continue;
 
     struct observation o;
     memset(&o, 0, sizeof(o));
@@ -2375,6 +2406,14 @@ static void engine_build_evidence(struct evidence_set *ev,
   /* Direct constraints collected from component `C` records. */
   for (int i = 0; i < num_constraint_facts; i++) {
     if (origin_set_has(&excluded, constraint_facts[i].origin))
+      continue;
+    /* The direct-constraint channel carries both kinds: proc_cpuinfo states the
+     * address width, perf_lbr_sampling bounds the image base from observed
+     * branch targets. Only the second is a leak, and what separates them is the
+     * quantity -- a bound on where something IS discloses placement, a bound on
+     * what the machine IS does not. */
+    if (scope == EV_SCOPE_NO_LEAKS &&
+        !kasld_quantity_is_parameter(constraint_facts[i].q))
       continue;
     struct observation o;
     memset(&o, 0, sizeof(o));
@@ -2610,7 +2649,7 @@ static void engine_resolve(struct engine *e) {
   const rule_fn *rules = engine_rules(&n_rules);
   const verdict_fn *vrules = engine_verdict_rules(&n_vrules);
   engine_init(e);
-  engine_build_evidence(&e->ev, NULL, 0);
+  engine_build_evidence(&e->ev, NULL, 0, EV_SCOPE_ALL);
 
   /* Two resolutions are computed from one evidence build (below). Both are pure
    * rule evaluation over the already-collected evidence — no component re-runs,
@@ -2638,6 +2677,37 @@ static void engine_resolve(struct engine *e) {
    * read. */
   engine_run_full_floored(e, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
                           n_vrules);
+
+  /* Leak-free resolution (third): the same rules over the same evidence with
+   * every ADDRESS observation withheld, at the sound floor. Scalar facts stay
+   * -- the paging width, the build's load address and alignment, how much RAM
+   * is present -- so what the engine proves here is the placement the machine
+   * allowed, before anything was leaked. Counted per quantity by the report
+   * builder, which owns the grain.
+   *
+   * Withholding evidence can only remove constraints, never add them, so this
+   * window contains the guaranteed one and the residual can never exceed it.
+   * That is the property that makes it usable as a denominator without a
+   * coherence test.
+   *
+   * A third fixpoint over evidence already collected: no component re-runs and
+   * no I/O, the same trade the two resolutions above already take. A rule doing
+   * heavy per-pass work would now pay for it three times.
+   *
+   * The engine is ~1.3 MiB, so static rather than on the stack, and engine_init
+   * resets it fully. */
+  {
+    static struct engine ce;
+    engine_init(&ce);
+    engine_build_evidence(&ce.ev, NULL, 0, EV_SCOPE_NO_LEAKS);
+    engine_run_full_floored(&ce, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
+                            n_vrules);
+    memcpy(g_config.est, ce.est, sizeof(g_config.est));
+    g_config.n_constraints = ce.n_constraints;
+    memcpy(g_config.constraints, ce.constraints,
+           (size_t)ce.n_constraints * sizeof(ce.constraints[0]));
+    g_have_config = 1;
+  }
 
   /* Project after the GUARANTEED run, and only that one. The likely run admits
    * every signal, so it curates and conflicts more freely by design; counting
@@ -2668,7 +2738,7 @@ void kasld_project_posture(const char *const *exclude, int n_exclude,
   const verdict_fn *vrules = engine_verdict_rules(&n_vrules);
   memset(out, 0, sizeof(*out));
   engine_init(&pe);
-  engine_build_evidence(&pe.ev, exclude, n_exclude);
+  engine_build_evidence(&pe.ev, exclude, n_exclude, EV_SCOPE_ALL);
   engine_run_full_floored(&pe, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
                           n_vrules);
   out->available = 1;
@@ -3531,9 +3601,9 @@ static void emit_summary(void) {
   engine_resolve(&g_auth_engine);
   engine_sync_authoritative(&g_auth_engine);
   compute_kaslr_info(&s, &g_auth_engine, g_have_likely ? &g_likely : NULL,
-                     &g_report);
+                     g_have_config ? &g_config : NULL, &g_report);
 #else
-  compute_kaslr_info(&s, NULL, NULL, NULL);
+  compute_kaslr_info(&s, NULL, NULL, NULL, NULL);
 #endif
   /* cross-region derivations arrive as ordinary CONF_DERIVED component results;
    * there is no separate derive pass. */

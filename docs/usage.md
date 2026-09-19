@@ -397,23 +397,23 @@ diagrams:
 KASLR analysis:
   Quantity             Certainty   Window                                   Candidates        Grain
   -------------------  ----------  ---------------------------------------  ----------------  -----
-  Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000              1 of 512  2 MiB
-  Physical Image Base  guaranteed          0x19600000 slide +0x18600000                    1  2 MiB
-  Direct Map Base      guaranteed  0xffff880000000000 - 0xffffa4aa80000000            29,355  1 GiB
+  Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000              1 of 490  2 MiB
+  Physical Image Base  guaranteed          0x19600000 slide +0x18600000             1 of 490  2 MiB
+  Direct Map Base      guaranteed  0xffff880000000000 - 0xffffa4aa80000000  29,355 of 29,355  1 GiB
   Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79,191 of 79,191  1 GiB
-  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000            85,504  1 GiB
+  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000  85,504 of 85,504  1 GiB
   Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000    1,025 of 1,025  4 KiB
   Paging Level         guaranteed  48                                                 1 of 2  -
 
   Compile-time default: 0xffffffff81000000
-  Virtual entropy:      0 of 9 bits
-  Physical entropy:     0 bits
+  Virtual entropy:      ~0 of 9 bits
+  Physical entropy:     ~0 of 9 bits
   Direct map entropy:   ~15 of 15 bits
 
 ----------------------------------------
 Candidates within each resolved window (to scale):
 
-  Direct Map Base  29,355 candidates · ~15 of 15 bits · 1 GiB grain
+  Direct Map Base  29,355 of 29,355 candidates · ~15 of 15 bits · 1 GiB grain
     0xffff880000000000 │████████████████████████████████████████████████│ 0xffffa4aa80000000
 
   Module Region Base  1,025 of 1,025 candidates · ~11 of 11 bits · 4 KiB grain

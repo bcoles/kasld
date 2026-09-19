@@ -958,6 +958,26 @@ void compute_component_stats(struct summary *s);
 struct engine;
 struct engine_resolution;
 
+/* Which of the collected evidence an engine resolution is built over. One axis
+ * with a mandatory value rather than a flag, because the two are alternatives
+ * and a third scope would be a value here rather than a second boolean. */
+enum kasld_evidence_scope {
+  EV_SCOPE_ALL,      /* everything the components produced */
+  EV_SCOPE_NO_LEAKS, /* what describes the MACHINE, with every disclosure of a
+                        kernel address withheld: scalar facts, RAM coverings and
+                        direct constraints on the parameter quantities. What the
+                        engine proves from this is the placement the machine
+                        allowed, before anything leaked. */
+};
+
+/* Whether a quantity is a PARAMETER of the search rather than a location in it.
+ * A bound on the address width or the slot alignment says what the machine is;
+ * a bound on an image or region base says where the kernel landed, which is the
+ * thing a leak discloses. */
+static inline int kasld_quantity_is_parameter(enum kasld_quantity q) {
+  return q == Q_VA_BITS || q == Q_VIRT_KASLR_ALIGN || q == Q_PHYS_KASLR_ALIGN;
+}
+
 struct kasld_report; /* kasld/report.h; a pointer is all this needs */
 
 /* Projects `layout` plus the engine's two resolutions into the summary, and
@@ -967,6 +987,7 @@ struct kasld_report; /* kasld/report.h; a pointer is all this needs */
  * build that does not link the engine, where a caller passes NULL. */
 void compute_kaslr_info(struct summary *s, const struct engine *auth,
                         const struct engine_resolution *likely,
+                        const struct engine_resolution *config,
                         struct kasld_report *report);
 
 /* =========================================================================

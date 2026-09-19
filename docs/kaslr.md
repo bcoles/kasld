@@ -569,8 +569,11 @@ For KASLD's own engine and tool vocabulary (quantity, estimate, covering, rule,
   [Default text base](#default-text-base-and-kaslr-alignment).
 - **search space** — how many slots a quantity could still be in, given the
   evidence, which is the brute-force cost of that row. The readout carries the
-  count, and states it against the set the row narrows wherever that set is a
-  window rather than an address width (`24 of 512`). See
+  count, and states it against the set the row narrows wherever one can be
+  established: the window that remains once every observation locating the
+  kernel is withheld (`24 of 490`), else a window proved from the run or the
+  one the architecture declares. Absent where no such set exists, since a
+  reduction counted against an address width is not a reduction. See
   [usage.md](usage.md#default-text-mode).
 - **entropy** — the number of random bits in the placement, `log2(slots)`; the
   same fact as the search space, expressed as a logarithm, and shown as

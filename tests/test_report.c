@@ -126,7 +126,7 @@ int main(void) {
   lv.cs = NULL;
   lv.n_cs = 0;
   lv.floor = CONF_BRUTE;
-  kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+  kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
 
   CHECK(r.n_quantities > 0);
   for (int i = 0; i < r.n_quantities; i++) {
@@ -140,7 +140,9 @@ int main(void) {
     CHECK(!r.quantities[i].likely.present);
 
     /* Which quantities may state a denominator at all, with nothing resolved
-     * and no caller-supplied window -- the two tiers reduced to their second.
+     * and no caller-supplied window: the leak-free resolution bounds nothing
+     * on a report built with no evidence at all, so the tiers reduce to the
+     * last.
      *
      * The virtual image base answers from the set the engine started from,
      * where the architecture randomizes it: its top is then the widest
@@ -179,7 +181,7 @@ int main(void) {
   lv.est = lest;
   lv.cs = NULL;
   lv.n_cs = 0;
-  kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+  kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
 
   for (int i = 0; i < r.n_quantities; i++) {
     const struct kasld_report_quantity *it = &r.quantities[i];
@@ -215,7 +217,7 @@ int main(void) {
     gv.cs = cs;
     gv.n_cs = 1;
     lv.est = NULL;
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
 
     for (int i = 0; i < r.n_quantities; i++) {
       const struct kasld_report_quantity *it = &r.quantities[i];
@@ -274,7 +276,7 @@ int main(void) {
     gv.n_cs = 4;
     gv.floor = CONF_INFERRED;
     lv.est = NULL;
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
 
     for (int i = 0; i < r.n_quantities; i++) {
       const struct kasld_report_quantity *it = &r.quantities[i];
@@ -337,7 +339,7 @@ int main(void) {
     gv.n_cs = N_HOLES;
     gv.floor = CONF_INFERRED;
     lv.est = NULL;
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
 
     for (int i = 0; i < r.n_quantities; i++) {
       const struct kasld_report_quantity *it = &r.quantities[i];
@@ -376,7 +378,7 @@ int main(void) {
     gv.n_cs = 1;
     gv.floor = CONF_INFERRED;
     lv.est = NULL;
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
 
     for (int i = 0; i < r.n_quantities; i++) {
       const struct kasld_report_quantity *it = &r.quantities[i];
@@ -405,7 +407,7 @@ int main(void) {
 
     /* Identical sets: the likely view reached the same answer, and saying so
      * twice would restate the proven one under a weaker grade. */
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VA_BITS);
     CHECK(it != NULL);
     CHECK(it->guaranteed.shape == RSHAPE_SET);
@@ -425,7 +427,7 @@ int main(void) {
       c.conf = CONF_PARSED;
       estimate_meet(&lest[Q_VA_BITS], &quantities[Q_VA_BITS], &c);
     }
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VA_BITS);
     CHECK(it != NULL);
     CHECK(kasld_report_likely_is_tighter(it));
@@ -465,7 +467,7 @@ int main(void) {
     memset(pts, 0, sizeof(pts));
     pts[Q_VIRT_IMAGE_BASE].present = 1;
     pts[Q_VIRT_IMAGE_BASE].value = lo + span / 2;
-    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, pts, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
     CHECK(it != NULL);
     CHECK(it->guaranteed.candidates > 1);
@@ -478,7 +480,7 @@ int main(void) {
     memset(pts, 0, sizeof(pts));
     pts[Q_VIRT_IMAGE_BASE].present = 1;
     pts[Q_VIRT_IMAGE_BASE].value = gest[Q_VIRT_IMAGE_BASE].lo;
-    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, pts, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
     CHECK(it != NULL);
     CHECK(it->guaranteed.candidates == 1);
@@ -489,7 +491,7 @@ int main(void) {
     memset(pts, 0, sizeof(pts));
     pts[Q_VIRT_IMAGE_BASE].present = 1;
     pts[Q_VIRT_IMAGE_BASE].value = gest[Q_VIRT_IMAGE_BASE].lo + 0x1000ul;
-    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, pts, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
     CHECK(it != NULL);
     CHECK(!it->has_point);
@@ -526,7 +528,7 @@ int main(void) {
      * that the supplied value arrives would pass on a builder that ignored the
      * supply and happened to compute the same figure. */
     memset(pts, 0, sizeof(pts));
-    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, pts, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_PAGE_OFFSET);
     CHECK(it != NULL);
     unsupplied = it->entropy_top;
@@ -534,7 +536,7 @@ int main(void) {
 
     memset(pts, 0, sizeof(pts));
     pts[Q_PAGE_OFFSET].entropy_top = 16384;
-    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, pts, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_PAGE_OFFSET);
     CHECK(it != NULL);
     CHECK(it->entropy_top == 16384);
@@ -587,7 +589,7 @@ int main(void) {
       /* Unbound zero floor: still both edges, and counted over the whole of
        * the architecture's own window -- so the count equals the search top it
        * would be measured against, rather than being withheld. */
-      kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+      kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
       it = kasld_report_find(&r, zq);
       CHECK(it != NULL);
       CHECK(it->guaranteed.present);
@@ -605,7 +607,7 @@ int main(void) {
       gest[zq].hi_binding = 1;
       gest[zq].lo_conf = CONF_PARSED;
       gest[zq].hi_conf = CONF_PARSED;
-      kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+      kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
       it = kasld_report_find(&r, zq);
       CHECK(it != NULL);
       CHECK(it->guaranteed.present);
@@ -630,15 +632,15 @@ int main(void) {
     lv.n_cs = 0;
     lv.floor = CONF_BRUTE;
 
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 1, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 1, &r);
     CHECK(r.replay == 1);
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
     CHECK(r.replay == 0);
 
     /* An empty resolution returns early from the builder; the flag is set
      * before that return, so a run that resolved nothing is still labelled. */
     gv.est = NULL;
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 1, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 1, &r);
     CHECK(r.replay == 1);
     CHECK(r.n_quantities == 0);
   }
@@ -668,7 +670,7 @@ int main(void) {
 
     /* A floor alone: the architecture's minimum bounds the grain from below and
      * says nothing about the kernel this run is looking at. */
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
     CHECK(it != NULL);
     CHECK(!it->align_exact);
@@ -679,7 +681,7 @@ int main(void) {
      * The count does not move -- only what the count is claimed to be. */
     gest[Q_VIRT_KASLR_ALIGN].lo = grain;
     gest[Q_VIRT_KASLR_ALIGN].hi = grain;
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
     it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
     CHECK(it != NULL);
     CHECK(it->align_min == grain);
@@ -691,7 +693,7 @@ int main(void) {
     if (grain > 1) {
       gest[Q_VIRT_KASLR_ALIGN].lo = grain / 2;
       gest[Q_VIRT_KASLR_ALIGN].hi = grain / 2;
-      kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+      kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
       it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
       CHECK(it != NULL);
       CHECK(it->align_min == grain);
@@ -718,7 +720,7 @@ int main(void) {
     lv.cs = NULL;
     lv.n_cs = 0;
     lv.floor = CONF_BRUTE;
-    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &r);
+    kasld_report_build(gv, lv, NULL, NULL, RPOSTURE_RANDOMIZED, 0, &r);
 
     it = kasld_report_find(&r, Q_MODULE_BASE);
     if (it != NULL) {

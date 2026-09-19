@@ -390,12 +390,20 @@ const char *const layout_hdr[LAYOUT_COLS] = {"Quantity", "Certainty", "Window",
  *
  * The column reports the size of the set still to be searched, whether or not
  * evidence shrank it. A row that narrowed nothing still has a size worth
- * stating -- it is what a baseline run is for -- so only the absence of a
- * MODELLED set withholds the figure. That is the sole meaning of "-": no
- * window is modelled for this quantity, so there is no count to give -- vmalloc
- * and vmemmap, whose randomization windows are not modelled at all, and the
- * direct map on a run with no max_pfn, since its window is sized from that
- * observation rather than fixed by the architecture. "Nothing was learned" is
+ * stating -- it is what a baseline run is for -- so a figure is withheld only
+ * where there is no count to give. That is the sole meaning of "-", and it is
+ * the count that is missing rather than the set: a quantity whose window sits
+ * on no modelled grid has no pitch to count on, and one whose admissible set is
+ * carved away entirely has nothing left to count. Those are the two ways
+ * quantity_slots answers zero, and the bare "-" is the pair of them meeting a
+ * row that also has no set to divide -- otherwise the set alone is stated, as
+ * "- of N" below.
+ *
+ * Stated as the conditions rather than as the quantities that meet them. Which
+ * quantities those are is a property of the run and of what the model covers,
+ * both of which move: a region acquires a modelled set the moment something
+ * bounds it, and a list of names written when it had none reads as a claim
+ * about the region long after it stopped being true. "Nothing was learned" is
  * carried by the Window column reading `not narrowed`, not by a blank here.
  *
  * An omitted denominator asserts nothing. It arises three ways -- no set is
