@@ -590,10 +590,13 @@ int main(int argc, char **argv) {
 
   /* The paging mode is a result in its own right, and it is settled before the
    * scan that may not be: which candidate linear map is backed identifies
-   * VA_BITS, and PAGE_OFFSET follows from it. Published at CONF_TIMING because
-   * it rests on the same measurement everything else here does -- the
-   * mmap-probe component states the same fact at CONF_INFERRED, and the
-   * strongest-wins resolver keeps that one where both run. */
+   * VA_BITS, and PAGE_OFFSET follows from it. This is the KERNEL's width, not
+   * userspace's: what is measured is which candidate linear map has backing,
+   * and the linear map is the kernel's own. That is why this publishes the
+   * width directly where the mmap probe publishes a userspace width for a rule
+   * to map -- a probe that maps a page can only measure TASK_SIZE, and this
+   * does not map a page. Published at CONF_TIMING because it rests on the same
+   * measurement everything else here does. */
   kasld_emit_scalar(SF_VIRT_ADDR_BITS, va_bits, CONF_TIMING);
   emitted = 1;
 

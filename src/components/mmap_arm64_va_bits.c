@@ -1,16 +1,28 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// arm64 active VA_BITS detection via an mmap boundary probe.
+// arm64 USERSPACE virtual address width detection via an mmap boundary probe.
 //
-// PROBING-phase component. On arm64 TASK_SIZE = 1<<VA_BITS, so a one-page probe
-// at (1<<c) - PAGE_SIZE is mappable iff c <= VA_BITS; probing the candidate
-// ladder largest-first and taking the first that maps yields the exact ACTIVE
-// VA_BITS. That is published as SF_VIRT_ADDR_BITS; va_bits_from_scalar
-// pins Q_VA_BITS from it, and arm64_page_offset_from_va_bits then derives the
-// exact PAGE_OFFSET = -(1<<VA_BITS) (not randomized on arm64). Emitting the
-// width — rather than the direct PAGE_OFFSET — resolves Q_VA_BITS leak-free
-// (which a REGION_PAGE_OFFSET landmark alone does not) and mirrors the x86_64
-// probe.
+// PROBING-phase component. A one-page probe at (1<<c) - PAGE_SIZE is mappable
+// iff c is within TASK_SIZE, so probing the candidate ladder largest-first and
+// taking the first that maps yields the exact width of the address space
+// USERSPACE is given.
+//
+// That is the width of userspace, which is not always the width the kernel uses
+// for its own mappings, so it is published as SF_USER_VIRT_ADDR_BITS and
+// arm64_va_bits_from_user_width maps it onto Q_VA_BITS. A probe cannot do
+// better: it maps pages, and mapping a page measures TASK_SIZE.
+//
+// The distinction is not academic on this architecture. A kernel can give
+// userspace a 52-bit space while keeping 48 bits for itself -- TASK_SIZE_64 is
+// built from the userspace width, and the kernel's own VA_BITS is a separate
+// number -- so reading this probe as the kernel width pins a value the kernel
+// does not use. It is the width PAGE_OFFSET and the text band are derived from,
+// so a wrong one moves those too.
+//
+// Where the width lands on Q_VA_BITS, arm64_page_offset_from_va_bits derives
+// the exact PAGE_OFFSET = -(1<<VA_BITS) (not randomized on arm64). Emitting a
+// width — rather than the direct PAGE_OFFSET — resolves Q_VA_BITS leak-free,
+// which a REGION_PAGE_OFFSET landmark alone does not.
 //
 // MAP_FIXED_NOREPLACE distinguishes "beyond TASK_SIZE" (ENOMEM/EINVAL → probe a
 // smaller boundary) from "occupied" (EEXIST → the address is within TASK_SIZE)
@@ -38,10 +50,13 @@
 
 KASLD_EXPLAIN(
     "Probes mmap(MAP_FIXED_NOREPLACE) at the 1<<VA_BITS boundaries on arm64 "
-    "(52/48/47/42/39/36): the largest that maps is the active VA_BITS. "
-    "Publishes "
-    "the width, from which PAGE_OFFSET = -(1<<VA_BITS) is derived (not "
-    "randomized on arm64). arm64 only; unprivileged.");
+    "(52/48/47/42/39/36): the largest that maps is the width USERSPACE is "
+    "given, because mapping a page measures TASK_SIZE. Publishes that "
+    "userspace width; a rule derives the width the kernel uses for its own "
+    "mappings, which is the same number except on a 64K-page kernel that "
+    "gives userspace 52 bits and keeps 48. The kernel width is what "
+    "PAGE_OFFSET = -(1<<VA_BITS) follows from (not randomized on arm64). "
+    "arm64 only; unprivileged.");
 
 KASLD_META("method:inferred\n"
            "phase:probing\n"
@@ -98,7 +113,7 @@ int main(void) {
 
   kasld_info("active VA_BITS=%lu (PAGE_OFFSET = %#lx)", va_bits,
              arm64_page_offset_for(va_bits));
-  kasld_emit_scalar(SF_VIRT_ADDR_BITS, va_bits, CONF_INFERRED);
+  kasld_emit_scalar(SF_USER_VIRT_ADDR_BITS, va_bits, CONF_INFERRED);
   return 0;
 #else
   return 0;

@@ -70,10 +70,10 @@ int rule_x86_64_va_bits_from_vmalloc(const struct evidence_set *ev,
   unsigned long found = 0;
   int n_found = 0;
   for (size_t i = 0; i < sizeof(levels) / sizeof(levels[0]); i++) {
-  /* Compared at kB, the resolution the kernel published. VmallocTotal is
-   * printed as (VMALLOC_END - VMALLOC_START) >> 10, so up to 1023 bytes are
-   * floored away before the figure is ever read and a byte-exact test against
-   * the modelled span cannot succeed on a span that is not 1024-aligned. */
+    /* Compared at kB, the resolution the kernel published. VmallocTotal is
+     * printed as (VMALLOC_END - VMALLOC_START) >> 10, so up to 1023 bytes are
+     * floored away before the figure is ever read and a byte-exact test against
+     * the modelled span cannot succeed on a span that is not 1024-aligned. */
     const unsigned long span = levels[i].size_tb << 40;
     if ((observed >> 10) == (span >> 10) ||
         (observed >> 10) == ((span - 1) >> 10)) {

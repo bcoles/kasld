@@ -71,6 +71,19 @@ RULES=$ROOT/src/rules
 #                                 PAGE_OFFSET is not randomized; the pre-v5.4
 #                                 47/48 layout collision is gated on an
 #                                 independent proof of the modern layout
+#   arm64_va_bits_from_user_width read: the measured USERSPACE width, filtered
+#                                 to the arch's own VA_BITS_CANDIDATES. Only a
+#                                 reading BELOW the widest candidate collapses,
+#                                 and that case is conclusive: arm64 hands
+#                                 userspace a wider space than the kernel keeps
+#                                 in one arrangement only, and that arrangement
+#                                 gives userspace the widest width there is. A
+#                                 reading OF the widest is ambiguous between two
+#                                 kernels and emits a C_LOWER_BOUND instead, so
+#                                 the pair both survive -- it is the false pin
+#                                 this rule exists to prevent. Observed, never
+#                                 computed or defaulted; an inadmissible width
+#                                 yields no constraint at all
 #   va_bits_from_scalar           read: the cpuinfo/probe width itself, filtered
 #                                 to the arch's own VA_BITS_CANDIDATES. The
 #                                 value is observed, never computed or
@@ -268,6 +281,7 @@ RULES=$ROOT/src/rules
 #                                 floor, and L4 randomization only moves the base
 #                                 up, so the two ranges cannot meet
 ALLOW="arm64_efi_kimg_align
+arm64_va_bits_from_user_width
 arm64_va_bits_from_vmalloc
 riscv64_va_bits_from_vmalloc
 x86_64_va_bits_from_vmalloc

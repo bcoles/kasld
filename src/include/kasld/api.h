@@ -2214,6 +2214,17 @@ enum kasld_scalar_fact {
   /* Consumed by s390_image_base_from_config to recover  */
   /* a tight Q_VIRT_IMAGE_BASE window without trusting    */
   /* version numbers.                                    */
+  SF_USER_VIRT_ADDR_BITS, /* width of the USERSPACE virtual address space, as */
+  /* a userspace boundary probe measures it. Distinct from */
+  /* SF_VIRT_ADDR_BITS because the two are not the same    */
+  /* quantity: a probe maps pages, so it reads TASK_SIZE,  */
+  /* and an architecture may give userspace a wider space  */
+  /* than the kernel uses for its own mappings. Where a   */
+  /* userspace width determines the kernel width -- one    */
+  /* value, not a set -- a component may publish the       */
+  /* kernel width directly; where one userspace width      */
+  /* admits several, it publishes this and a rule states   */
+  /* what actually follows.                                */
   SF__COUNT,
 };
 
@@ -2248,6 +2259,7 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_VMALLOC_TOTAL] = "vmalloc_total",
     [SF_TEXT_ORDER] = "text_order",
     [SF_VIRT_KERNEL_IMAGE_BASE] = "virt_kernel_image_base",
+    [SF_USER_VIRT_ADDR_BITS] = "user_virt_addr_bits",
     [SF_PPC64_MMU_MODE] = "ppc64_mmu_mode",
     [SF_KMSAN_ENABLED] = "kmsan_enabled",
     [SF_KASLR_RANDOMIZED] = "kaslr_randomized",

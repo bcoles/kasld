@@ -62,10 +62,10 @@ int rule_riscv64_va_bits_from_vmalloc(const struct evidence_set *ev,
   for (size_t w = 0; w < sizeof(widths) / sizeof(widths[0]); w++) {
     if (widths[w] < 4 || widths[w] > 63)
       continue;
-  /* Compared at kB, the resolution the kernel published. VmallocTotal is
-   * printed as (VMALLOC_END - VMALLOC_START) >> 10, so up to 1023 bytes are
-   * floored away before the figure is ever read and a byte-exact test against
-   * the modelled span cannot succeed on a span that is not 1024-aligned. */
+    /* Compared at kB, the resolution the kernel published. VmallocTotal is
+     * printed as (VMALLOC_END - VMALLOC_START) >> 10, so up to 1023 bytes are
+     * floored away before the figure is ever read and a byte-exact test against
+     * the modelled span cannot succeed on a span that is not 1024-aligned. */
     const unsigned long span = 1ul << (widths[w] - 3);
     /* Both spellings of the span's end. */
     if ((observed >> 10) == (span >> 10) ||

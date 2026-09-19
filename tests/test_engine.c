@@ -5431,6 +5431,139 @@ static void test_va_bits_from_vmalloc_siblings(void) {
   TH_CHECK(1);
 }
 
+/* The userspace width is not the kernel width, and the rule that maps one onto
+ * the other has to keep them apart.
+ *
+ * A probe maps a page, so it measures TASK_SIZE. arm64 hands userspace 52 bits
+ * while the kernel keeps 48 in one arrangement, so a probe reads 52 from a
+ * kernel that is not using it, and pinning the width from that reading states
+ * a guaranteed window around an address space the kernel never touches.
+ *
+ * The widths are written as the constants the Kconfig fixes them to, NOT
+ * derived from positions in the candidate table. A test that derived them the
+ * way the rule does could not detect the rule's assumption becoming false. */
+#if defined(__aarch64__)
+#define TH_SPLIT_USER_WIDTH 52ul
+#define TH_SPLIT_KERNEL_WIDTH 48ul
+
+/* A reading other than 52 is conclusive: no arrangement gives userspace a
+ * width below 52 while the kernel keeps less. */
+static void test_arm64_va_bits_user_width_below_split_pins(void) {
+  const struct quantity_def *qd = &quantities[Q_VA_BITS];
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_scalar(SF_USER_VIRT_ADDR_BITS, 39ul, CONF_INFERRED);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_arm64_va_bits_from_user_width};
+  engine_run(&e, rules, 1);
+
+  unsigned long v = 0;
+  TH_CHECK(estimate_finset_value(qd, &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 39ul);
+}
+
+/* 52 on a 64K-page kernel is ambiguous: the split arrangement depends on that
+ * page size, so both widths stay admissible and neither is pinned. */
+static void test_arm64_va_bits_user_width_52_on_64k_leaves_pair(void) {
+  const struct quantity_def *qd = &quantities[Q_VA_BITS];
+  struct engine e;
+  engine_init(&e);
+  struct observation o =
+      mk_scalar(SF_USER_VIRT_ADDR_BITS, TH_SPLIT_USER_WIDTH, CONF_INFERRED);
+  evidence_add(&e.ev, &o);
+  struct observation ps = mk_scalar(SF_PAGE_SIZE, 65536ul, CONF_PARSED);
+  evidence_add(&e.ev, &ps);
+
+  const rule_fn rules[] = {rule_arm64_va_bits_from_user_width};
+  engine_run(&e, rules, 1);
+
+  unsigned long v = 0;
+  TH_CHECK(!estimate_finset_value(qd, &e.est[Q_VA_BITS], &v));
+  /* Specifically NOT pinned to the userspace width -- the false pin this rule
+   * exists to prevent -- and the kernel width of the split still admitted. */
+  TH_CHECK(!finset_is(&e.est[Q_VA_BITS], TH_SPLIT_USER_WIDTH));
+  TH_CHECK(
+      quantity_admits(Q_VA_BITS, &e.est[Q_VA_BITS], TH_SPLIT_KERNEL_WIDTH));
+  TH_CHECK(quantity_admits(Q_VA_BITS, &e.est[Q_VA_BITS], TH_SPLIT_USER_WIDTH));
+  for (int i = 0; i < qd->n_candidates; i++)
+    if (qd->candidates[i] < TH_SPLIT_KERNEL_WIDTH)
+      TH_CHECK(
+          !quantity_admits(Q_VA_BITS, &e.est[Q_VA_BITS], qd->candidates[i]));
+}
+
+/* 52 on a 4K-page kernel is conclusive: the split arrangement cannot be built
+ * at that page size, so the width reached is the kernel's own. 16K likewise. */
+static void test_arm64_va_bits_user_width_52_off_64k_pins(void) {
+  const struct quantity_def *qd = &quantities[Q_VA_BITS];
+  const unsigned long sizes[] = {4096ul, 16384ul};
+  for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_USER_VIRT_ADDR_BITS, TH_SPLIT_USER_WIDTH, CONF_INFERRED);
+    evidence_add(&e.ev, &o);
+    struct observation ps = mk_scalar(SF_PAGE_SIZE, sizes[i], CONF_PARSED);
+    evidence_add(&e.ev, &ps);
+
+    const rule_fn rules[] = {rule_arm64_va_bits_from_user_width};
+    engine_run(&e, rules, 1);
+
+    unsigned long v = 0;
+    TH_CHECK(estimate_finset_value(qd, &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == TH_SPLIT_USER_WIDTH);
+  }
+}
+
+/* An unobserved page size is NOT 64K by elimination. It leaves the split
+ * admissible, which is the wide answer and the safe one. */
+static void test_arm64_va_bits_user_width_52_unknown_page_size_is_wide(void) {
+  const struct quantity_def *qd = &quantities[Q_VA_BITS];
+  struct engine e;
+  engine_init(&e);
+  struct observation o =
+      mk_scalar(SF_USER_VIRT_ADDR_BITS, TH_SPLIT_USER_WIDTH, CONF_INFERRED);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_arm64_va_bits_from_user_width};
+  engine_run(&e, rules, 1);
+
+  unsigned long v = 0;
+  TH_CHECK(!estimate_finset_value(qd, &e.est[Q_VA_BITS], &v));
+  TH_CHECK(
+      quantity_admits(Q_VA_BITS, &e.est[Q_VA_BITS], TH_SPLIT_KERNEL_WIDTH));
+}
+
+/* A width the architecture does not admit yields no constraint at all, rather
+ * than one the meet has to discard. */
+static void test_arm64_va_bits_user_width_rejects_inadmissible(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_scalar(SF_USER_VIRT_ADDR_BITS, 63ul, CONF_INFERRED);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_arm64_va_bits_from_user_width};
+  engine_run(&e, rules, 1);
+
+  for (int i = 0; i < e.n_constraints; i++)
+    TH_CHECK(e.constraints[i].q != Q_VA_BITS);
+}
+#else
+static void test_arm64_va_bits_user_width_below_split_pins(void) {
+  TH_CHECK(1);
+}
+static void test_arm64_va_bits_user_width_52_on_64k_leaves_pair(void) {
+  TH_CHECK(1);
+}
+static void test_arm64_va_bits_user_width_52_off_64k_pins(void) { TH_CHECK(1); }
+static void test_arm64_va_bits_user_width_52_unknown_page_size_is_wide(void) {
+  TH_CHECK(1);
+}
+static void test_arm64_va_bits_user_width_rejects_inadmissible(void) {
+  TH_CHECK(1);
+}
+#endif
+
 /* The two pre-flip vmalloc shapes, each against a figure measured on a booted
  * kernel of that arrangement rather than computed from the model under test.
  * Both compute PAGE_OFFSET - PUD_SIZE - VMEMMAP_SIZE - SZ_64K against a
@@ -10149,6 +10282,11 @@ int main(void) {
   RUN(test_x86_64_vmalloc_upper_l4_when_po_unresolved);
   RUN(test_x86_64_randomize_memory_budget);
   RUN(test_arm64_va_bits_from_vmalloc);
+  RUN(test_arm64_va_bits_user_width_below_split_pins);
+  RUN(test_arm64_va_bits_user_width_52_on_64k_leaves_pair);
+  RUN(test_arm64_va_bits_user_width_52_off_64k_pins);
+  RUN(test_arm64_va_bits_user_width_52_unknown_page_size_is_wide);
+  RUN(test_arm64_va_bits_user_width_rejects_inadmissible);
   RUN(test_arm64_va_bits_from_vmalloc_preflip);
   RUN(test_va_bits_from_vmalloc_siblings);
   RUN(test_va_bits_from_vmalloc_stays_below_the_floor);
