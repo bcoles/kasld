@@ -3499,8 +3499,12 @@ test_x86_64_vmalloc_vmemmap_invariant_ok(void) {
 static void test_arm64_va_bits_from_vmemmap_pins_52(void) {
   struct engine e;
   engine_init(&e);
-  /* Below the VA48 VMEMMAP_START floor → VA52-only witness. */
-  unsigned long v_mm = 0xfff8000000000000ul;
+  /* Inside VA52's own vmemmap region and below the VA48 floor, which is what
+   * makes it a VA52-only witness. The region is [0xffffc1ffc0000000,
+   * 0xfffffdffc0000000) at the 64-byte struct page; an address in VA52's LINEAR
+   * map is not a vmemmap witness, whichever side of the VA48 floor it falls
+   * on. The below-floor edge is covered by its own test. */
+  unsigned long v_mm = 0xffffd00000000000ul;
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, v_mm,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
@@ -3528,6 +3532,40 @@ static void test_arm64_va_bits_from_vmemmap_pins_52(void) {
 }
 
 /* VMEMMAP observation at or above the VA48 floor: no discrimination. */
+/* The lower edge, and the one the guard exists for. An address below VA52's own
+ * vmemmap floor is not a vmemmap address under either layout: a pre-flip kernel
+ * puts its vmemmap just under PAGE_OFFSET -- which is -(1 << (VA_BITS - 1))
+ * there, nowhere near the -1 GiB the modern one hangs from -- so every pre-flip
+ * vmemmap address sits below the VA48 floor without being evidence of VA52. A
+ * rule testing only that upper edge called every pre-flip kernel VA52, which a
+ * 4.14 boot showed it doing against a 48-bit kernel.
+ *
+ * The witness is the value that used to stand in the positive test above: it is
+ * in VA52's linear map, not its vmemmap. Mirrors above_floor_inert, which makes
+ * the same assertion for the other edge. */
+static void test_arm64_va_bits_from_vmemmap_below_floor_inert(void) {
+  struct engine e;
+  engine_init(&e);
+  /* Immediately below VMEMMAP_START(VA52) = 0xffffc1ffc0000000 at the 64-byte
+   * struct page, so it tests the edge itself rather than a value far from it.
+   * A real pre-flip vmemmap address sits much lower -- just under PAGE_OFFSET,
+   * around 0xffff7e0000000000 on a 48-bit kernel -- and is caught by the same
+   * comparison. */
+  unsigned long v_mm = 0xffffc00000000000ul;
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, v_mm,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_arm64_va_bits_from_vmemmap};
+  engine_run(&e, rules, 1);
+
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  TH_CHECK(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
+  for (int i = 0; i < e.n_constraints; i++)
+    TH_CHECK(e.constraints[i].q != Q_VA_BITS);
+}
+
 static void test_arm64_va_bits_from_vmemmap_above_floor_inert(void) {
   struct engine e;
   engine_init(&e);
@@ -3549,15 +3587,21 @@ static void test_arm64_va_bits_from_vmemmap_above_floor_inert(void) {
 }
 
 /* Recurrence guard (see arm64_va_bits_from_vmemmap.c header): the VA52
- * discrimination is a likely-window HEURISTIC — the pre-v5.4 low-vmemmap layout
- * is ambiguous with modern VA52 — so it must NEVER land in the guaranteed band,
- * where it would override a directly-observed directmap PAGE_OFFSET. Do not
- * raise its confidence back to parsed/inferred. */
+ * discrimination is a likely-window HEURISTIC, so it must NEVER land in the
+ * guaranteed band, where it would override a directly-observed directmap
+ * PAGE_OFFSET. Do not raise its confidence back to parsed/inferred.
+ *
+ * The pre-v5.4 low-vmemmap layout was the reason given for the cap. It is no
+ * longer a reason: that layout puts its vmemmap just under PAGE_OFFSET, far
+ * below the region a VA52 kernel maps, and the rule now tests both edges and
+ * declines an address outside it rather than reading it as VA52. The cap
+ * stands on its own footing -- a vmemmap witness bounds the mode, it does not
+ * observe it. */
 static void test_arm64_va_bits_from_vmemmap_is_heuristic(void) {
   struct engine e;
   engine_init(&e);
   struct observation o =
-      mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, 0xfff8000000000000ul,
+      mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, 0xffffd00000000000ul,
              LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
   struct constraint out[4];
@@ -5382,6 +5426,91 @@ static void test_va_bits_from_vmalloc_siblings(void) {
     engine_run(&e, xrules, 1);
     for (int i = 0; i < e.n_constraints; i++)
       TH_CHECK(e.constraints[i].q != Q_VA_BITS);
+  }
+#endif
+  TH_CHECK(1);
+}
+
+/* The two pre-flip vmalloc shapes, each against a figure measured on a booted
+ * kernel of that arrangement rather than computed from the model under test.
+ * Both compute PAGE_OFFSET - PUD_SIZE - VMEMMAP_SIZE - SZ_64K against a
+ * VMALLOC_START above the region at VA_START, which is a different arrangement
+ * from the modern one rather than different constants in the same one. They
+ * differ only in that region: a module window alone, or a BPF window of equal
+ * size below it.
+ *
+ * The widths asserted here are not taken from the inversion. Each boot reported
+ * a kernel text address in the same log, and neither figure was derived from
+ * the other.
+ *
+ * The 128 MiB boot ran without randomisation, placing _text at
+ * 0xffff000008080000 -- VA_START + 128 MiB + TEXT_OFFSET, giving VA_START
+ * 0xffff000000000000 and so a width of 48. It also settles the arrangement on
+ * its own: with a BPF window below the module region the image would have
+ * started 128 MiB higher.
+ *
+ * The 256 MiB boot was randomised, so its _text carries no fixed offset to
+ * invert. It still discriminates, because 0xffff49238f880000 falls inside the
+ * kernel half of a 48-bit layout and inside no other candidate width's, and
+ * that kernel was configured for 48 besides.
+ *
+ * The struct-page case is why sizeof(struct page) is rounded rather than
+ * required to be a power of two: STRUCT_PAGE_MAX_SHIFT is order_base_2 of it,
+ * so 56 and 64 give the same shift and the same span. Requiring a power of two
+ * made this shape inert on every machine whose struct page is not one. */
+static void test_arm64_va_bits_from_vmalloc_preflip(void) {
+  unsigned long v = 0;
+  (void)v;
+#if defined(__aarch64__)
+  const rule_fn rules[] = {rule_arm64_va_bits_from_vmalloc};
+  const unsigned long observed = 133009506240ul * 1024ul;
+
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o = mk_scalar(SF_VMALLOC_TOTAL, observed, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    struct observation ps = mk_scalar(SF_PAGE_SIZE, 65536ul, CONF_PARSED);
+    evidence_add(&e.ev, &ps);
+    engine_run(&e, rules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == 48);
+  }
+
+  /* Same span, struct page stated as 56: the rounded shift is 6 either way. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o = mk_scalar(SF_VMALLOC_TOTAL, observed, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    struct observation ps = mk_scalar(SF_PAGE_SIZE, 65536ul, CONF_PARSED);
+    evidence_add(&e.ev, &ps);
+    struct observation sp = mk_scalar(SF_STRUCT_PAGE_BYTES, 56ul, CONF_PARSED);
+    evidence_add(&e.ev, &sp);
+    engine_run(&e, rules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == 48);
+  }
+
+  /* The module window with no BPF window below it, from a 4.14 boot at VA48 on
+   * 4 KiB pages printing VmallocTotal 135290290112 kB. A second page size as
+   * well as a second arrangement, so it exercises the PUD and vmemmap terms at
+   * a different level count than the case above. Modelling only the 256 MiB
+   * region left this kernel unanswered. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, 135290290112ul * 1024ul, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    struct observation ps = mk_scalar(SF_PAGE_SIZE, 4096ul, CONF_PARSED);
+    evidence_add(&e.ev, &ps);
+    engine_run(&e, rules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == 48);
   }
 #endif
   TH_CHECK(1);
@@ -10020,6 +10149,7 @@ int main(void) {
   RUN(test_x86_64_vmalloc_upper_l4_when_po_unresolved);
   RUN(test_x86_64_randomize_memory_budget);
   RUN(test_arm64_va_bits_from_vmalloc);
+  RUN(test_arm64_va_bits_from_vmalloc_preflip);
   RUN(test_va_bits_from_vmalloc_siblings);
   RUN(test_va_bits_from_vmalloc_stays_below_the_floor);
   RUN(test_x86_64_randomize_memory_budget_shared_window);
@@ -10041,6 +10171,7 @@ int main(void) {
   RUN(test_arm64_memstart_align);
   RUN(test_arm64_va_bits_from_vmemmap_pins_52);
   RUN(test_arm64_va_bits_from_vmemmap_is_heuristic);
+  RUN(test_arm64_va_bits_from_vmemmap_below_floor_inert);
   RUN(test_arm64_va_bits_from_vmemmap_above_floor_inert);
   RUN(test_arm64_va47_modern_floor);
   RUN(test_va_bits_la57_l5);

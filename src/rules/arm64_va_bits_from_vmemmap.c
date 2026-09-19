@@ -14,10 +14,10 @@
 //   VA_BITS=52: VMEMMAP_RANGE is 15.5×128 TiB and VMEMMAP_SIZE is PiB-scale,
 //               so VMEMMAP_START is far below the VA_BITS=48 floor.
 //
-// Inference: a VIRT/VMEMMAP observation V_mm at an address strictly below
-// VMEMMAP_START(VA48) cannot lie in VA_BITS=48's vmemmap region, so the kernel
-// must be VA_BITS=52. Pin Q_VA_BITS=52 + the matching Q_PAGE_OFFSET ceiling at
-// the VA52 floor.
+// Inference: a VIRT/VMEMMAP observation V_mm inside VA52's vmemmap region but
+// strictly below VMEMMAP_START(VA48) cannot lie in VA_BITS=48's region, so the
+// kernel must be VA_BITS=52. Pin Q_VA_BITS=52 + the matching Q_PAGE_OFFSET
+// ceiling at the VA52 floor.
 //
 // The opposite branch (V_mm ≥ VMEMMAP_START(VA48)) is *consistent with both*
 // paging modes and so does not discriminate — the rule emits nothing for that
@@ -102,8 +102,30 @@ int rule_arm64_va_bits_from_vmemmap(const struct evidence_set *ev,
   unsigned long va48_vmemmap_start =
       ARM64_VMEMMAP_END - (1ul << 35) * struct_page_bytes;
 
-  if (src == 0 || lowest >= va48_vmemmap_start)
-    return 0; /* no leak, or consistent with both modes (no discrimination) */
+  /* VMEMMAP_START(VA52) = VMEMMAP_END - ((1<<52) - (1<<47) >> PAGE_SHIFT) *
+   * struct_page_bytes: the floor of the region a VA52 kernel actually maps.
+   *
+   * Needed because the test above is one-sided, and "below the VA48 floor"
+   * is not the same statement as "inside VA52's region". On a pre-flip kernel
+   * -- before the linear map and the kernel half exchanged places -- the
+   * vmemmap does not hang from -1 GiB at all: it sits just under PAGE_OFFSET,
+   * which is -(1 << (VA_BITS - 1)) there. Every such address is far below the
+   * VA48 floor, so the one-sided test called every pre-flip kernel VA52, and
+   * on a 4.14 boot with a 48-bit kernel that is exactly what it did.
+   *
+   * ARM64_VMEMMAP_END is marked VA_BITS-invariant above, and it is -- across
+   * the widths of ONE layout. It is not invariant across the layouts.
+   *
+   * An address below this floor is evidence of neither mode and the rule says
+   * nothing, which is what it already does for an address above the VA48 one.
+   * The struct-page default errs the safe way here: a larger one would put the
+   * true floor lower, so assuming 64 can only withhold an answer, never invent
+   * one. */
+  unsigned long va52_vmemmap_start =
+      ARM64_VMEMMAP_END - ((1ul << 40) - (1ul << 35)) * struct_page_bytes;
+
+  if (src == 0 || lowest >= va48_vmemmap_start || lowest < va52_vmemmap_start)
+    return 0; /* no leak, consistent with both modes, or not this layout */
 
   int n = 0;
   if (n < out_max) {

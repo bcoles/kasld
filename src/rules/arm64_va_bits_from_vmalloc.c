@@ -24,12 +24,27 @@
 // nothing.
 //
 // SILENCE IS THE SAFE FAILURE, and it is what an unmodelled era produces. The
-// arm64 vmalloc layout has been through four shapes -- the pre-v5.4 image, the
-// v5.4 window, the SZ_256M gap of v5.15 through v6.6, and the SZ_8M gap with a
-// vmemmap anchored at -1 GiB from v6.12 -- and only the last is modelled here.
-// A kernel from any other matches no combination, so the rule says nothing and
-// the width stays where the rest of the engine left it. Adding an era can only
-// make the rule answer more often; it cannot make an existing answer wrong.
+// arm64 vmalloc layout has been rearranged repeatedly -- the kernel half and
+// the linear map exchanged places, the module region grew and moved, a BPF
+// window appeared below it and later went away again, and the vmemmap stopped
+// hanging under PAGE_OFFSET and was anchored at a fixed -1 GiB instead. Three
+// of those arrangements are modelled below. A kernel from any of the others
+// matches no combination, so the rule says nothing and the width stays where
+// the rest of the engine left it.
+//
+// The modelled set is what boots could be obtained for and checked against, not
+// what the history contains. Each shape here reproduces the figure a real
+// kernel of that arrangement printed, at a width confirmed from a different
+// artefact of the same boot.
+//
+// An era added here cannot make an existing answer WRONG: a width is emitted
+// only where the observation is reproduced, and a new shape does not stop an
+// old one reproducing it. It can, however, make the rule answer LESS often. A
+// new shape can reproduce the same figure at a different width, and two
+// surviving widths is not an answer -- the count below rejects it. That is the
+// right outcome, since the observation genuinely does not separate them, but it
+// means an era is not free: adding one can take an answer away, and each has to
+// be measured against the corpus rather than assumed to be an improvement.
 //
 // The match is exact at the resolution the figure is published in. The kernel
 // prints the span >> 10, so the comparison is made in kB rather than bytes --
@@ -87,53 +102,106 @@
 
 #if defined(__aarch64__)
 
-/* The layout constants this rule models, one struct per era so that adding
- * another is a table entry rather than a branch. Only the shape from v6.12 is
- * here; the fields are named for what they mean rather than for the release
- * that introduced them, since a version number is not something to key on. */
-struct arm64_vmalloc_era {
-  unsigned long modules_vsize; /* MODULES_VSIZE: vmalloc starts above it    */
-  unsigned long vmemmap_end;   /* VMEMMAP_END, as a negative offset from 0  */
-  unsigned long vmalloc_gap;   /* VMALLOC_END = VMEMMAP_START - this        */
-};
+/* One function per layout SHAPE, because the eras do not differ only in their
+ * constants: where the vmemmap sits, what it is sized from, and what the
+ * vmalloc span is measured against all changed between them. A table of
+ * constants modelled the newest shape and could not express the others.
+ *
+ * Each is named for what it computes rather than for the release that
+ * introduced it. A version number is not something to key on, and nothing here
+ * selects a shape: the caller tries them all and keeps the widths that any of
+ * them reproduces. */
+typedef unsigned long (*arm64_vmalloc_fn)(unsigned long va_bits,
+                                          unsigned long page_shift,
+                                          unsigned long struct_page);
 
-static const struct arm64_vmalloc_era arm64_vmalloc_eras[] = {
-    /* MODULES_VADDR = _PAGE_END(VA_BITS_MIN), MODULES_VSIZE = SZ_2G,
-     * VMEMMAP_END = -SZ_1G, VMALLOC_END = VMEMMAP_START - SZ_8M. */
-    {1ul << 31, 1ul << 30, 1ul << 23},
-};
-
-/* VMALLOC_TOTAL for one (era, width, page size, struct page size), or 0 where
- * the combination cannot be evaluated. All arithmetic is on the unsigned
- * wrap-around the kernel's own macros rely on: _PAGE_END and PAGE_OFFSET are
- * negative offsets from the top of the address space. */
-static unsigned long arm64_vmalloc_total(const struct arm64_vmalloc_era *era,
-                                         unsigned long va_bits,
-                                         unsigned long page_size,
-                                         unsigned long struct_page) {
-  if (va_bits < 2 || va_bits > 63 || page_size == 0 || struct_page == 0)
-    return 0;
-  unsigned long page_shift = 0;
-  while ((1ul << page_shift) < page_size)
-    page_shift++;
-  if ((1ul << page_shift) != page_size)
-    return 0;
-
+/* The newest shape. VMEMMAP_END is a fixed -1 GiB and the vmemmap hangs below
+ * it, sized from the linear map; vmalloc ends SZ_8M under that and starts above
+ * a 2 GiB module region at _PAGE_END(VA_BITS_MIN). */
+static unsigned long arm64_vmalloc_vmemmap_anchored(unsigned long va_bits,
+                                                    unsigned long page_shift,
+                                                    unsigned long struct_page) {
   const unsigned long va_min = va_bits < 48ul ? va_bits : 48ul;
   const unsigned long page_end = 0ul - (1ul << (va_min - 1));
   const unsigned long page_offset = 0ul - (1ul << va_bits);
-
-  const unsigned long vmemmap_range = page_end - page_offset;
   const unsigned long vmemmap_size =
-      (vmemmap_range >> page_shift) * struct_page;
-  const unsigned long vmemmap_start = (0ul - era->vmemmap_end) - vmemmap_size;
-
-  const unsigned long vmalloc_start = page_end + era->modules_vsize;
-  const unsigned long vmalloc_end = vmemmap_start - era->vmalloc_gap;
-  if (vmalloc_end <= vmalloc_start)
-    return 0;
-  return vmalloc_end - vmalloc_start;
+      ((page_end - page_offset) >> page_shift) * struct_page;
+  const unsigned long vmemmap_start = (0ul - (1ul << 30)) - vmemmap_size;
+  const unsigned long vmalloc_start = page_end + (1ul << 31);
+  const unsigned long vmalloc_end = vmemmap_start - (1ul << 23);
+  return vmalloc_end > vmalloc_start ? vmalloc_end - vmalloc_start : 0;
 }
+
+/* The pre-flip shape, before the kernel half and the linear map exchanged
+ * places. PAGE_OFFSET is -(1 << (VA_BITS - 1)) rather than -(1 << VA_BITS);
+ * the vmemmap is a power-of-two block below it; and vmalloc ends a PUD, a
+ * vmemmap and 64 KiB under PAGE_OFFSET, starting above the reserved region
+ * that sits at VA_START.
+ *
+ * That region is the one thing the two pre-flip arrangements disagree on, so
+ * its size is the parameter. Either a module window alone, or a BPF window of
+ * the same size below it -- once JIT allocations were moved out of the module
+ * area they needed their own, and VMALLOC_START rose by 128 MiB without
+ * anything else in the layout moving. Both are tried; see the wrappers.
+ *
+ * KASAN moves VMALLOC_START, since the lowest window begins above the shadow.
+ * It is taken as absent: a shadow shifts the span by its own size, so a kernel
+ * built with one reproduces nothing here and the rule stays silent on it
+ * rather than answering from a layout it does not have. */
+static unsigned long arm64_vmalloc_preflip(unsigned long va_bits,
+                                           unsigned long page_shift,
+                                           unsigned long struct_page,
+                                           unsigned long reserved_below) {
+  /* STRUCT_PAGE_MAX_SHIFT is order_base_2(sizeof(struct page)), which ROUNDS
+   * UP: a 56-byte struct page gives 6, the same shift a 64-byte one gives.
+   * Rounding rather than requiring a power of two is the kernel's own
+   * arithmetic, and requiring one made this shape inert on every machine whose
+   * struct page is not a power of two. */
+  unsigned long spms = 0;
+  while ((1ul << spms) < struct_page)
+    spms++;
+  if (va_bits < page_shift + 2 || page_shift < 4)
+    return 0;
+
+  const unsigned long va_start = 0ul - (1ul << va_bits);
+  const unsigned long page_offset = 0ul - (1ul << (va_bits - 1));
+  const unsigned long vmemmap_size = 1ul << (va_bits - page_shift - 1 + spms);
+  /* PUD_SIZE for the levels this page size gives at this width: each level
+   * below the top covers PAGE_SHIFT - 3 bits, and a folded PUD is the pgd. */
+  const unsigned long per_level = page_shift - 3ul;
+  unsigned long levels = 1;
+  while (page_shift + per_level * levels < va_bits)
+    levels++;
+  const unsigned long pud_shift = levels >= 4
+                                      ? page_shift + per_level * 2ul
+                                      : page_shift + per_level * (levels - 1ul);
+  const unsigned long pud_size = 1ul << pud_shift;
+
+  const unsigned long vmalloc_start = va_start + reserved_below;
+  const unsigned long vmalloc_end =
+      page_offset - pud_size - vmemmap_size - (1ul << 16);
+  return vmalloc_end > vmalloc_start ? vmalloc_end - vmalloc_start : 0;
+}
+
+/* A module window of 128 MiB at VA_START, and nothing below it. */
+static unsigned long arm64_vmalloc_preflip_modules(unsigned long va_bits,
+                                                   unsigned long page_shift,
+                                                   unsigned long struct_page) {
+  return arm64_vmalloc_preflip(va_bits, page_shift, struct_page, 1ul << 27);
+}
+
+/* A BPF window of 128 MiB below the module window, so 256 MiB in total. */
+static unsigned long arm64_vmalloc_preflip_bpf(unsigned long va_bits,
+                                               unsigned long page_shift,
+                                               unsigned long struct_page) {
+  return arm64_vmalloc_preflip(va_bits, page_shift, struct_page, 1ul << 28);
+}
+
+static const arm64_vmalloc_fn arm64_vmalloc_shapes[] = {
+    arm64_vmalloc_vmemmap_anchored,
+    arm64_vmalloc_preflip_bpf,
+    arm64_vmalloc_preflip_modules,
+};
 
 #endif /* __aarch64__ */
 
@@ -170,7 +238,7 @@ int rule_arm64_va_bits_from_vmalloc(const struct evidence_set *ev,
   for (size_t w = 0; w < sizeof(widths) / sizeof(widths[0]); w++) {
     int matched = 0;
     for (size_t e = 0;
-         e < sizeof(arm64_vmalloc_eras) / sizeof(arm64_vmalloc_eras[0]) &&
+         e < sizeof(arm64_vmalloc_shapes) / sizeof(arm64_vmalloc_shapes[0]) &&
          !matched;
          e++)
       for (size_t p = 0;
@@ -182,9 +250,11 @@ int rule_arm64_va_bits_from_vmalloc(const struct evidence_set *ev,
              s++) {
           if (struct_page && struct_pages[s] != struct_page)
             continue;
+          unsigned long shift = 0;
+          while ((1ul << shift) < page_sizes[p])
+            shift++;
           const unsigned long modelled =
-              arm64_vmalloc_total(&arm64_vmalloc_eras[e], widths[w],
-                                  page_sizes[p], struct_pages[s]);
+              arm64_vmalloc_shapes[e](widths[w], shift, struct_pages[s]);
           /* Compared at kB, the resolution the kernel published: VmallocTotal
            * is printed as (VMALLOC_END - VMALLOC_START) >> 10, so up to 1023
            * bytes are floored away before the figure is read. */

@@ -91,6 +91,31 @@ static void dump_file(const char *path, const char *label) {
   printf("\n");
 }
 
+/* The kernel's own vmalloc span and page size, as ground truth for the rules
+ * that invert VmallocTotal into a VA width. The span is a function of the
+ * layout the kernel is running, and each layout era computes it differently, so
+ * a model for an era can only be checked against a kernel of that era actually
+ * reporting it. Printing it here puts that figure in every boot log, which is
+ * what makes a cell usable for the check years after it was built. */
+static void dump_vmalloc_ground_truth(void) {
+  printf("=== vmalloc span (/proc/meminfo) ===\n");
+  FILE *f = fopen("/proc/meminfo", "r");
+  if (!f) {
+    printf("  <unreadable>\n\n");
+    return;
+  }
+  char line[512];
+  while (fgets(line, sizeof line, f)) {
+    if (strncmp(line, "VmallocTotal:", 13) == 0) {
+      fputs("  ", stdout);
+      fputs(line, stdout);
+      break;
+    }
+  }
+  fclose(f);
+  printf("  page size: %ld\n\n", sysconf(_SC_PAGESIZE));
+}
+
 /* Print only the landmark kallsyms lines (the virtual text base etc.). This is
  * the ground truth tests/vm/run compares the inferred window against. */
 static void dump_kallsyms_landmarks(void) {
@@ -763,6 +788,7 @@ int main(void) {
   dump_file("/proc/version", "version");
   dump_file("/proc/cmdline", "cmdline");
   dump_kallsyms_landmarks();
+  dump_vmalloc_ground_truth();
   dump_bpf_kfunc_offsets();
   dump_iomem_kernel();
   dump_region_kaslr_truth();
