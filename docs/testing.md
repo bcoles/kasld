@@ -196,6 +196,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-asm-syntax` | no inline asm switches the assembler's syntax. An Intel-syntax region receives the compiler's operands `%`-prefixed, which only GNU as accepts; elsewhere the component fails to compile and its target is removed, so the build reports success with the component absent |
 | `check-json-partial-skip` | `-j` stays well-formed when SOME components are held back, and says which and why. The guards that pair `-j` with a skip all use `-s '*'`, where an empty array is well-formed either way; the partial case is the one an index-keyed array separator breaks |
 | `check-json-schema` | `docs/kasld.schema.json` and the `-j` emitter describe the same document. Every fixture is replayed under a binary built for ITS architecture, and each emitted key must be declared while each declared key must be reached by that corpus or named in the guard's unexercised list — so a rename trips both directions. Where python3 `jsonschema` is installed the documents are also validated in full, against the same semantics a consumer's validator applies † |
+| `check-slots-subset` | every window reported as `slots` out of `slots_initial` has its count inside that set. The denominator is the leak-free resolution, which sees strictly less evidence and so normally yields a superset — but a rule firing on an observation's ABSENCE can narrow it where the full evidence did not. A format meeting an inverted pair drops the ratio for a bare count, so the inversion leaves no trace in the output it would otherwise corrupt; this is what sees it † |
 | `check-env-switches` | a `KASLD_` environment variable is bound to a pointer, never tested directly. A switch is read with `kasld_env_enabled()`, which treats `NAME=0` as off; a value (a path, a release) is bound and checked by its caller, since `0` is legitimate there. Testing `getenv()` asks only whether the name is set, which turns `NAME=0` into ON |
 | `check-bundle-prepare` | one program restores a captured bundle to a runnable sysroot — `extra/prepare-bundle`. A harness carrying its own copy of the restore builds a tree short a file length, and a run over it resolves one bound fewer with nothing to show for it |
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
@@ -343,6 +344,27 @@ cannot pass while the real build fails, and into a scratch `BUILD_DIR` rather
 than `./build`, so the guards that sweep `build/*/` do not silently gain a
 target as a side effect of this one running. Roughly ten seconds; skips when no
 clang is installed, and CI installs one for `check-fuzz-harnesses` already.
+
+**`check-slots-subset`** — A residual is only meaningful against the set it is
+measured from. The readout states one as "1 of 477" and the document as `slots`
+out of `slots_initial`, and the pair says something only while the count lies
+inside the set.
+
+That ordering is not guaranteed by construction. The denominator comes from the
+leak-free resolution: the same rules over the same run with every observation
+that locates the kernel withheld. Less evidence normally means no more
+constraints, so the window it leaves is a superset of the resolved one — but a
+rule that fires on an observation's ABSENCE can narrow it where the full
+evidence did not, and would then state a denominator below its own numerator.
+
+Nothing downstream would report that. A format meeting an inverted pair drops
+the ratio and prints a bare count, which is right for a reader and wrong to
+leave unexamined: the inversion vanishes from the very output it would corrupt,
+and every other test still passes. Checked against the json emitter, since
+check-render-parity already holds that in step with the readout and the document
+names the quantity a violation belongs to. The walk finds any object carrying
+both counts rather than naming the quantities, so one added later is covered the
+day it is emitted.
 
 **`check-json-schema`** — A schema is trusted harder than the prose it
 replaces: a consumer validates against it, generates types from it, and stops

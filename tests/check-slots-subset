@@ -1,0 +1,162 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-slots-subset — a resolved count never exceeds the set it is stated
+# against.
+#
+# Every window the tool resolves is reported as `slots` out of `slots_initial`,
+# which the readout renders as "1 of 477". The numerator is what the evidence
+# left; the denominator is the set the kernel is taken to have chosen from,
+# which comes from the leak-free resolution: the same rules over the same run
+# with every observation that locates the kernel withheld. The pair only means
+# anything while the first is inside the second.
+#
+# That relationship is NOT guaranteed by construction, which is why it is
+# checked here rather than asserted in a comment. The leak-free resolution sees
+# strictly less evidence, so it normally yields a superset -- but a rule that
+# fires on the ABSENCE of an observation can narrow it where the full evidence
+# did not, and would then state a denominator below its own numerator.
+#
+# Nothing else would notice. A format that meets an inverted pair drops the
+# ratio and prints a bare count, which is the right thing to show a reader and
+# the wrong thing to leave unexamined: the inversion disappears from the output
+# it would otherwise corrupt. This guard is what sees it.
+#
+# Checked against the json emitter rather than the readout. The two are already
+# held together by check-render-parity ("readout and json agree on every
+# count"), and the document names the quantity a violation belongs to, where the
+# readout would have to be re-parsed to find out.
+#
+# The corpus is every fixture paired with a binary built for ITS architecture --
+# native where the host runs that architecture, qemu-user otherwise. Rendering a
+# foreign capture under qemu-user is sound for this question: the claim is about
+# two numbers the same run prints about itself, not about the captured machine.
+#
+# Usage: tests/check-slots-subset   (also run by `make test`)
+#        JOBS=N to bound concurrency; JOBS=1 restores serial order.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
+# shellcheck source=tests/lib/host-build.sh
+. "$ROOT/tests/lib/host-build.sh"
+# shellcheck source=tests/lib/qemu-target.sh
+. "$ROOT/tests/lib/qemu-target.sh"
+
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# Renders are independent, so they run concurrently: the cost here is process
+# startup times the corpus, and under qemu-user that dominates everything else
+# the guard does.
+JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
+
+docs=0
+arches=
+inflight=0
+
+for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
+  [ -d "$sysroot" ] || continue
+  fxdir=$(dirname "$sysroot")
+  arch=$(basename "$(dirname "$fxdir")")
+  host=$(basename "$fxdir")
+
+  # The capture's recorded machine string is the authority for which build can
+  # read it; "mips" names both byte orders, so endianness supplies the rest.
+  m=$(sed -n 's/^uname_m_raw: *//p' "$fxdir/meta.txt" 2>/dev/null)
+  e=$(sed -n 's/^endianness: *//p' "$fxdir/meta.txt" 2>/dev/null)
+  [ -n "$m" ] || continue
+  triple=$(target_triple_for "$(effective_machine "$m" "$e")")
+  [ -n "$triple" ] || continue
+
+  bin=
+  for cand in "$ROOT"/build/"$triple"*/kasld; do
+    [ -x "$cand" ] || continue
+    bin=$cand
+    break
+  done
+  [ -n "$bin" ] || continue
+
+  run=
+  if ! host_runs_arch "${triple%%-*}"; then
+    run=$(resolve_qemu "$(qemu_for "$triple")") || continue
+    [ -n "$run" ] || continue
+  fi
+
+  KASLD_SYSROOT="$sysroot" $run "$bin" -j >"$TMP/$arch--$host.json" 2>/dev/null &
+  inflight=$((inflight + 1))
+  if [ "$inflight" -ge "$JOBS" ]; then
+    wait
+    inflight=0
+  fi
+  docs=$((docs + 1))
+  case " $arches " in *" $arch "*) ;; *) arches="$arches $arch" ;; esac
+done
+wait
+
+# A render that produced nothing is not a violation; the document simply has no
+# pair to check, and the count below reports what was actually examined.
+for f in "$TMP"/*.json; do
+  [ -s "$f" ] || rm -f "$f"
+done
+set -- "$TMP"/*.json
+if [ "$#" -eq 0 ] || [ ! -e "$1" ]; then
+  guard_skip "no fixture produced a document; run make cross for the foreign-arch sweep"
+  exit 0
+fi
+
+python3 - "$@" >"$TMP/report" 2>&1 <<'PYEOF'
+import json, sys
+
+# Every object carrying BOTH counts is a pair under test, wherever it sits in
+# the document: the image bases, the memory-KASLR regions and the module band
+# all use the same two field names, so the walk finds them without naming any
+# of them and a quantity added later is covered the day it is emitted.
+def pairs(node, path):
+    if isinstance(node, dict):
+        if isinstance(node.get('slots'), int) and \
+           isinstance(node.get('slots_initial'), int):
+            yield '.'.join(path), node['slots'], node['slots_initial']
+        for k, v in node.items():
+            yield from pairs(v, path + [k])
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            yield from pairs(v, path + [str(i)])
+
+bad = 0
+checked = 0
+for arg in sys.argv[1:]:
+    cell = arg.rsplit('/', 1)[-1]
+    if cell.endswith('.json'):
+        cell = cell[:-5]
+    try:
+        with open(arg) as fh:
+            doc = json.load(fh)
+    except (OSError, ValueError) as exc:
+        print('  %s: not a readable document (%s)' % (cell, exc))
+        bad += 1
+        continue
+    for where, slots, initial in pairs(doc, []):
+        checked += 1
+        if slots > initial:
+            print('  %s: %s states %d of %d -- the count exceeds the set it '
+                  'is measured against' % (cell, where, slots, initial))
+            bad += 1
+
+print('PAIRS %d' % checked)
+sys.exit(1 if bad else 0)
+PYEOF
+rc=$?
+
+pairs=$(sed -n 's/^PAIRS //p' "$TMP/report")
+sed '/^PAIRS /d' "$TMP/report" >&2
+
+if [ "$rc" -ne 0 ]; then
+  guard_fail "a resolved count exceeds the set it is stated against"
+  exit 1
+fi
+
+guard_ok "$docs document(s),$arches; $pairs slot pair(s), every count inside its set"
