@@ -280,8 +280,33 @@ fake_vmalloc_total() {  # ARCH CURRENT -> kB, or empty where no rule reads it
 }
 
 fake_meminfo() {
-  sed -i -E 's/^(MemTotal:)[[:space:]]*[0-9]+/\1          65536/;
-             s/^(LowTotal:)[[:space:]]*[0-9]+/\1          65536/' \
+  # MemTotal is read BEFORE anything is rewritten, because the substitution is
+  # computed from it.
+  #
+  # A flat small number would shrink it the way a memory cgroup does, and that
+  # is what this was, but MemTotal is no longer only a memory figure: divided
+  # by the page count zoneinfo reports, it states the page GRANULE. A number
+  # that does not divide that count exactly makes the derivation decline, so
+  # the sweep would test the granule being ABSENT rather than being WRONG --
+  # and a forged-but-plausible granule narrowing a window is the failure that
+  # matters, the same point the vmalloc and huge-page substitutions above are
+  # each chosen to avoid.
+  #
+  # So the figure is built from this capture's own page count times a DIFFERENT
+  # granule: it still divides exactly, still differs from the truth, and now
+  # inverts to a granule the kernel is not using. LowTotal keeps the flat
+  # shrink, which is the half that speaks to a cgroup.
+  fm_mt=$(awk '/^MemTotal:/ {print $2; exit}' "$1/proc/meminfo" 2>/dev/null)
+  fm_mg=$(awk '/^[[:space:]]*managed/ {s+=$2} END {print s+0}' \
+    "$1/proc/zoneinfo" 2>/dev/null)
+  fm_mem=65536
+  if [ -n "$fm_mt" ] && [ -n "$fm_mg" ] && [ "$fm_mg" -gt 0 ] 2>/dev/null; then
+    # The granule in kB the capture actually reports, then the other one.
+    if [ "$((fm_mt / fm_mg))" -eq 4 ]; then fm_g=64; else fm_g=4; fi
+    fm_mem=$((fm_mg * fm_g))
+  fi
+  sed -i -E "s/^(MemTotal:)[[:space:]]*[0-9]+/\1   $fm_mem/;
+             s/^(LowTotal:)[[:space:]]*[0-9]+/\1          65536/" \
     "$1/proc/meminfo" 2>/dev/null || true
   fm_cur=$(awk '/^VmallocTotal:/ {print $2; exit}' "$1/proc/meminfo" 2>/dev/null)
   fm_vt=$(fake_vmalloc_total "$SUB" "${fm_cur:-}")
