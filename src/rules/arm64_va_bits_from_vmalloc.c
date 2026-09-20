@@ -221,7 +221,23 @@ static unsigned long arm64_vmalloc_vmemmap_pow2(unsigned long va_bits,
  *
  * Below 52 bits this reduces to exactly the pre-flip shape -- both come to
  * 2^(VA_BITS-1) less the PUD, the vmemmap and 64 KiB -- so it earns its place
- * only on a 52-bit kernel of that era, where the two diverge. */
+ * only on a 52-bit kernel of that era, where the two diverge.
+ *
+ * THAT DEGENERACY IS ALSO A LIMIT ON WHAT THIS RULE MAY BE USED FOR. A span
+ * reproduced by both of them says nothing about which side of the layout flip
+ * the kernel is on, and the two agree at every width up to 48 at all three
+ * granules -- so on any kernel narrower than 52 bits the figure cannot date
+ * the layout. It is tempting to read the matching shape as proof of the era
+ * and use it to drop the pre-flip image position from the window, which would
+ * narrow the image base considerably on a machine with no leak. It is not
+ * sound: at the widths where it would be applied the shape is not determined,
+ * and the span is a container-fakeable figure besides, so an exclusion drawn
+ * from it could put the guaranteed window past a real pre-flip image.
+ *
+ * The era is settled by a resolved PAGE_OFFSET instead, which arm64_text_base
+ * already uses to license its tight floor -- a trustworthy observation of a
+ * kernel address, not an inversion of a number userspace can rewrite. Nothing
+ * here should grow a second answer to that question. */
 static unsigned long arm64_vmalloc_end_absolute(unsigned long va_bits,
                                                 unsigned long page_shift,
                                                 unsigned long struct_page,
