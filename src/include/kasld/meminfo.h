@@ -147,6 +147,62 @@ kasld_read_hugepagesize_bytes(void) {
   return (unsigned long)(kb << 10);
 }
 
+/* Total managed pages across every zone in /proc/zoneinfo, or 0 when the file
+ * is unreadable or names no zone. This is the same counter MemTotal is
+ * rendered from -- adjust_managed_page_count() adds to a zone's managed pages
+ * and to totalram in one call -- so the two move together and their ratio is
+ * the page size. */
+__attribute__((unused)) static unsigned long kasld_read_zone_managed(void) {
+  FILE *f = kasld_fopen("/proc/zoneinfo", "r");
+  if (!f)
+    return 0;
+
+  char line[256];
+  unsigned long total = 0;
+  while (fgets(line, sizeof(line), f)) {
+    unsigned long val;
+    if (sscanf(line, " managed %lu", &val) != 1)
+      continue;
+    if (val > ULONG_MAX - total) { /* refuse to wrap */
+      total = 0;
+      break;
+    }
+    total += val;
+  }
+  fclose(f);
+  return total;
+}
+
+/* The page size implied by a RAM total in bytes and the page count it was
+ * rendered from, or 0 where the pair implies none.
+ *
+ * MemTotal is totalram << (PAGE_SHIFT - 10) and the managed pages of every
+ * zone sum to that same totalram, so the quotient is the page size exactly --
+ * no relation to invert and no architecture to know. It is the only route to a
+ * page size that works on a REPLAYED capture whatever the architecture: the
+ * direct reader describes whoever is replaying, and the huge-page tell needs
+ * the huge page to be the PMD block.
+ *
+ * Refuses anything that does not divide exactly, is not a power of two, or
+ * falls outside the sizes this architecture admits. A clamped RAM total cannot
+ * slip through: the clamp is ULONG_MAX, which is odd, so any exact quotient of
+ * it is odd too and no odd number above one is a page size.
+ */
+__attribute__((unused)) static unsigned long
+kasld_page_size_from_ram_totals(unsigned long memtotal_bytes,
+                                unsigned long managed_pages) {
+  if (!memtotal_bytes || !managed_pages)
+    return 0;
+  if (memtotal_bytes % managed_pages)
+    return 0;
+  const unsigned long ps = memtotal_bytes / managed_pages;
+  if (ps & (ps - 1))
+    return 0;
+  if (ps < (unsigned long)PAGE_SIZE_MIN || ps > (unsigned long)PAGE_SIZE_MAX)
+    return 0;
+  return ps;
+}
+
 /* Invert a default huge page size to the page size it implies on an
  * architecture whose huge page is the PMD block, or 0 where it implies none.
  *

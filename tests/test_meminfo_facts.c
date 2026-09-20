@@ -97,6 +97,95 @@ static void test_max_pfn_is_the_highest_zone_end(void) {
 
 /* No files: nothing claimed. A component that reads nothing must say nothing
  * rather than emit a zero. */
+/* The page size from the RAM total and the page count it was rendered from.
+ *
+ * MemTotal is totalram << (PAGE_SHIFT - 10) and every zone's managed pages sum
+ * to that same totalram, so the quotient is the page size exactly. This is the
+ * only page-size route that works on a replayed capture whatever the
+ * architecture, so its rejections matter as much as its answers: a quotient
+ * that is not exact, not a power of two, or not a size this architecture
+ * admits must yield nothing rather than a number. */
+static void test_page_size_from_ram_totals(void) {
+  /* Every size this architecture admits inverts, and the sizes come from the
+   * arch's own range rather than a literal -- the function validates against
+   * that range, so a test written in fixed numbers would assert one
+   * architecture's answer everywhere. The managed count is a real one; the RAM
+   * total is what a kernel of that granule would report for it. */
+  const unsigned long managed = 506949ul;
+  for (unsigned long ps = (unsigned long)PAGE_SIZE_MIN;
+       ps <= (unsigned long)PAGE_SIZE_MAX; ps <<= 1)
+    TH_CHECK(kasld_page_size_from_ram_totals(managed * ps, managed) == ps);
+
+  /* One below and one above the admitted range, both exact powers of two. */
+  if ((unsigned long)PAGE_SIZE_MIN > 1)
+    TH_CHECK(kasld_page_size_from_ram_totals(
+                 managed * ((unsigned long)PAGE_SIZE_MIN >> 1), managed) == 0);
+  TH_CHECK(kasld_page_size_from_ram_totals(
+               managed * ((unsigned long)PAGE_SIZE_MAX << 1), managed) == 0);
+
+  /* Inexact division: the two figures did not come from one counter. */
+  TH_CHECK(kasld_page_size_from_ram_totals(managed * 4096ul, managed - 1) == 0);
+
+  /* Exact, but not a power of two. */
+  TH_CHECK(kasld_page_size_from_ram_totals(3000ul * 1024ul, 1000ul) == 0);
+
+  /* Either figure missing. */
+  TH_CHECK(kasld_page_size_from_ram_totals(0, 506949ul) == 0);
+  TH_CHECK(kasld_page_size_from_ram_totals(2027796ul * 1024ul, 0) == 0);
+
+  /* A RAM total clamped at ULONG_MAX cannot slip through: the clamp is odd, so
+   * any exact quotient of it is odd, and no odd number above one is a page
+   * size. Checked against the divisors that do divide it exactly. */
+  TH_CHECK(kasld_page_size_from_ram_totals(ULONG_MAX, 3ul) == 0);
+  TH_CHECK(kasld_page_size_from_ram_totals(ULONG_MAX, 5ul) == 0);
+  TH_CHECK(kasld_page_size_from_ram_totals(ULONG_MAX, 1ul) == 0);
+}
+
+/* The derivation end to end: the component reads both files and emits, and
+ * says nothing when either is absent or disagrees. */
+static void test_page_size_from_ram_totals_end_to_end(void) {
+  int rc;
+  char mi[128], zi[128];
+  /* A pair that inverts to the smallest size this architecture admits, so the
+   * fixture states a granule the function will accept wherever it runs. */
+  const unsigned long mg = 506949ul;
+  snprintf(mi, sizeof mi, "MemTotal:       %lu kB\n",
+           mg * (unsigned long)PAGE_SIZE_MIN / 1024ul);
+  snprintf(zi, sizeof zi, "Node 0, zone      DMA32\n        managed  %lu\n",
+           mg);
+  th_sysroot_clear();
+  th_sysroot_write("/proc/meminfo", mi);
+  th_sysroot_write("/proc/zoneinfo", zi);
+  run(&rc);
+  TH_CHECK(strstr(th_cap, "page_size") != NULL);
+
+  /* No zoneinfo: nothing to divide by. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/meminfo", mi);
+  run(&rc);
+  TH_CHECK(strstr(th_cap, "page_size") == NULL);
+
+  /* Figures that do not divide exactly: not one counter, so no page size. */
+  snprintf(zi, sizeof zi, "        managed  %lu\n", mg - 1ul);
+  th_sysroot_clear();
+  th_sysroot_write("/proc/meminfo", mi);
+  th_sysroot_write("/proc/zoneinfo", zi);
+  run(&rc);
+  TH_CHECK(strstr(th_cap, "page_size") == NULL);
+
+  /* Several zones, as a real kernel prints them: the SUM is what divides, so a
+   * parser taking one zone would get this wrong. */
+  snprintf(zi, sizeof zi,
+           "Node 0, zone      DMA\n        managed  %lu\n"
+           "Node 0, zone    Normal\n        managed  %lu\n",
+           6949ul, mg - 6949ul);
+  th_sysroot_clear();
+  th_sysroot_write("/proc/meminfo", mi);
+  th_sysroot_write("/proc/zoneinfo", zi);
+  run(&rc);
+  TH_CHECK(strstr(th_cap, "page_size") != NULL);
+}
+
 /* cmdline_lookup distinguishes three states where cmdline_has_prefix carries
  * two. The third -- the command line could not be read -- is the whole reason
  * it exists: a caller whose conclusion depends on a parameter being ABSENT
@@ -216,6 +305,8 @@ int main(void) {
   RUN(test_max_pfn_is_the_highest_zone_end);
 
   BEGIN_CATEGORY("Absence");
+  RUN(test_page_size_from_ram_totals);
+  RUN(test_page_size_from_ram_totals_end_to_end);
   RUN(test_cmdline_lookup_is_three_valued);
   RUN(test_cmdline_has_prefix_agrees_with_lookup);
 #if defined(HUGEPAGE_IS_PMD_BLOCK)
