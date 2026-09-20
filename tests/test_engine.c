@@ -5709,6 +5709,39 @@ static void test_arm64_va_bits_from_vmalloc_needs_the_granule(void) {
   TH_CHECK(1);
 }
 
+/* The newest layout at a 39-bit width, from a PHYSICAL machine rather than an
+ * emulated one.
+ *
+ * Every other figure these tests carry was measured under emulation, which
+ * reproduces the layout faithfully but is the same code computing it. This one
+ * was reported by a distribution kernel on real 39-bit arm64 silicon, and it
+ * is the only combination of width, granule and layout era the boot cells do
+ * not cover -- they reach 39 bits only on the older arrangement, and the
+ * newest arrangement only at 48 bits and wider.
+ *
+ * The figure was PREDICTED from the shape before it was read, so it is a test
+ * of the model rather than a number fitted to it. 39 is the only width that
+ * reproduces it. */
+static void test_arm64_va_bits_from_vmalloc_va39_hardware(void) {
+  unsigned long v = 0;
+  (void)v;
+#if defined(__aarch64__)
+  const rule_fn rules[] = {rule_arm64_va_bits_from_vmalloc};
+  struct engine e;
+  engine_init(&e);
+  struct observation o =
+      mk_scalar(SF_VMALLOC_TOTAL, 261087232ul * 1024ul, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  struct observation ps = mk_scalar(SF_PAGE_SIZE, 4096ul, CONF_PARSED);
+  evidence_add(&e.ev, &ps);
+  engine_run(&e, rules, 1);
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 39);
+#endif
+  TH_CHECK(1);
+}
+
 /* The newest layout at a 16 KiB granule, where VA_BITS_MIN is 47 and not 48.
  *
  * That granule reaches 48 bits only by adding a translation level it does not
@@ -10464,6 +10497,7 @@ int main(void) {
   RUN(test_arm64_va_bits_from_vmalloc_postflip_pow2);
   RUN(test_page_size_from_pmd_hugepage);
   RUN(test_arm64_va_bits_from_vmalloc_needs_the_granule);
+  RUN(test_arm64_va_bits_from_vmalloc_va39_hardware);
   RUN(test_arm64_va_bits_from_vmalloc_16k_granule);
   RUN(test_arm64_va_bits_from_vmalloc_fallback_is_not_arbitrary);
   RUN(test_va_bits_from_vmalloc_siblings);
