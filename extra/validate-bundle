@@ -232,7 +232,8 @@ guaranteed_sig() {
 # the window drops in here as another fake_* mutator + perturb_case.
 
 # fake_meminfo DIR — shrink MemTotal/LowTotal, as a small memory cgroup
-# reports, and restate VmallocTotal as a different virtual layout would.
+# reports, restate VmallocTotal as a different virtual layout would, and
+# restate Hugepagesize as a different page granule would.
 #
 # One mutator because they share a file: anything that rewrites /proc/meminfo
 # can state all of them, and lxcfs rewrites it wholesale. The memory figures are
@@ -248,6 +249,16 @@ guaranteed_sig() {
 # what is already there substitutes nothing at all, which is the same failure
 # one level down. So each architecture offers two real layouts of its own and
 # the one that differs from the capture is used.
+#
+# Hugepagesize is here for the same reason as VmallocTotal: it is a second
+# figure in this file that inverts to something structural. On arm64 the huge
+# page is the PMD block, so the figure names the page granule, and the granule
+# sets the image-base alignment. Forging it must not move the guaranteed
+# window -- which is what this sweep checks -- so the component deriving a page
+# size from it emits below the sound floor. Substituted with another granule's
+# real PMD size rather than a nonsense number, so the derivation succeeds and
+# yields a DIFFERENT granule; a value that simply failed to invert would leave
+# the rule silent and the sweep would pass without testing anything.
 fake_vmalloc_total() {  # ARCH CURRENT -> kB, or empty where no rule reads it
   case "$1" in
   aarch64*) fvt_a=70863806464; fvt_b=135288315904 ;;   # 52-bit, 48-bit
@@ -276,6 +287,14 @@ fake_meminfo() {
   fm_vt=$(fake_vmalloc_total "$SUB" "${fm_cur:-}")
   [ -n "$fm_vt" ] && sed -i -E "s/^(VmallocTotal:)[[:space:]]*[0-9]+/\1   $fm_vt/" \
     "$1/proc/meminfo" 2>/dev/null
+  # Another granule's real PMD size: 2 MiB, 32 MiB and 512 MiB are the three,
+  # so pick whichever differs from what the capture already reports.
+  fm_hp=$(awk '/^Hugepagesize:/ {print $2; exit}' "$1/proc/meminfo" 2>/dev/null)
+  if [ -n "$fm_hp" ]; then
+    if [ "$fm_hp" = "524288" ]; then fm_new=2048; else fm_new=524288; fi
+    sed -i -E "s/^(Hugepagesize:)[[:space:]]*[0-9]+/\1   $fm_new/" \
+      "$1/proc/meminfo" 2>/dev/null
+  fi
   return 0
 }
 

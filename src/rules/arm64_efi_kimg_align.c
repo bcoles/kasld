@@ -16,8 +16,19 @@
 // covers 4K/16K pages for both quantities; this rule raises Q_PHYS_KASLR_ALIGN
 // and Q_VIRT_KASLR_ALIGN to 128 KiB on 64K-page kernels.
 //
-// Reads SF_PAGE_SIZE (bridged from getpagesize). C_AT_LEAST_ALIGN; a value at
-// or below the arch baseline is dominated by kaslr_align_arch_default.
+// Reads SF_PAGE_SIZE. C_AT_LEAST_ALIGN; a value at or below the arch baseline
+// is dominated by kaslr_align_arch_default.
+//
+// This constraint is emitted at or above the sound floor, so the page size it
+// rests on must be one no untrusted input can state. The fact has more than
+// one producer: the live reader is trustworthy, because it asks the running
+// kernel and cannot be replayed, while a derivation from /proc/meminfo's huge
+// page size is container-fakeable and is emitted below the floor for that
+// reason. The floored run drops the latter, so this rule sees only the former
+// -- which is what keeps a forged granule from raising the alignment and
+// lowering the window's ceiling. A second producer added above the floor would
+// reopen that, so this is a constraint on what may emit SF_PAGE_SIZE, not just
+// a note about who does today.
 //
 // arm64 only; inert elsewhere.
 // ---

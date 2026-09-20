@@ -51,20 +51,30 @@ static int __attribute__((unused)) cmdline_has_word(const char *word) {
   return 0;
 }
 
-/* Check if /proc/cmdline contains a parameter whose key matches the given
- * prefix (e.g. "resume=" matches "resume=/dev/sda"). Only checks the left
- * word boundary — no right boundary check, since the value follows
- * immediately. Mirrors the kernel's own strstr-based check for key= params.
- * Returns 1 if found, 0 otherwise. */
-static int __attribute__((unused)) cmdline_has_prefix(const char *prefix) {
+/* Look up a `key=` parameter on /proc/cmdline: 1 present, 0 absent, -1 the
+ * command line could not be read.
+ *
+ * Matches on the key prefix (e.g. "resume=" matches "resume=/dev/sda"),
+ * checking the left word boundary only -- the value follows immediately, so
+ * there is no right boundary to check. That boundary is what keeps
+ * "nodefault_hugepagesz=" from matching "default_hugepagesz=". Mirrors the
+ * kernel's own strstr-based check for key= params.
+ *
+ * The third state is the reason this is not simply a boolean. A caller asking
+ * "was this parameter passed" can treat an unreadable command line as a no,
+ * and cmdline_has_prefix below does. A caller whose conclusion depends on the
+ * parameter being ABSENT cannot: absence has to be established, and a file
+ * that was never read establishes nothing. Those callers need to tell the two
+ * apart, which a boolean cannot express.
+ */
+static int __attribute__((unused)) cmdline_lookup(const char *prefix) {
   FILE *f = kasld_fopen("/proc/cmdline", "r");
   if (!f)
-    return 0;
-
+    return -1;
   char buf[2048];
   if (!fgets(buf, sizeof(buf), f)) {
     fclose(f);
-    return 0;
+    return -1;
   }
   fclose(f);
 
@@ -76,6 +86,15 @@ static int __attribute__((unused)) cmdline_has_prefix(const char *prefix) {
     p += plen;
   }
   return 0;
+}
+
+/* Check if /proc/cmdline contains a parameter whose key matches the given
+ * prefix. Returns 1 if found, 0 otherwise -- a command line that could not be
+ * read counts as not found, which is what a caller asking whether a parameter
+ * was passed wants. Where absence itself is load-bearing, use cmdline_lookup
+ * above and test for 0 rather than for falsity. */
+static int __attribute__((unused)) cmdline_has_prefix(const char *prefix) {
+  return cmdline_lookup(prefix) == 1;
 }
 
 /* Parse a `memparse` token at *pp: optional 0x/0 prefix, decimal/hex digits,

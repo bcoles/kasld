@@ -119,4 +119,62 @@ __attribute__((unused)) static unsigned long kasld_read_max_pfn(void) {
   return max_pfn;
 }
 
+/* Default huge page size in bytes from /proc/meminfo's `Hugepagesize:` line,
+ * or 0 when the line is absent (a kernel built without hugetlb does not print
+ * it). The value is reported in kB, as the kernel prints it.
+ *
+ * The caller is responsible for deciding whether the value means what the
+ * architecture's HPAGE_SIZE would mean: the line reports the DEFAULT hstate,
+ * which `default_hugepagesz=` on the command line can change. */
+__attribute__((unused)) static unsigned long
+kasld_read_hugepagesize_bytes(void) {
+  FILE *f = kasld_fopen("/proc/meminfo", "r");
+  if (!f)
+    return 0;
+
+  unsigned long long kb = 0;
+  char line[256];
+  int found = 0;
+  while (fgets(line, sizeof line, f)) {
+    if (sscanf(line, "Hugepagesize: %llu kB", &kb) == 1) {
+      found = 1;
+      break;
+    }
+  }
+  fclose(f);
+  if (!found || kb == 0 || kb > (ULONG_MAX >> 10))
+    return 0;
+  return (unsigned long)(kb << 10);
+}
+
+/* Invert a default huge page size to the page size it implies on an
+ * architecture whose huge page is the PMD block, or 0 where it implies none.
+ *
+ * The PMD block spans 2^(2*PAGE_SHIFT - 3) bytes, so the three granules give
+ * three distinct sizes and the inverse is unambiguous. A value that is not an
+ * exact power of two, does not invert to a whole shift, or lands on a granule
+ * the architecture does not admit yields 0 -- a huge page configured to some
+ * other supported size says nothing about the granule and must not be read as
+ * though it did.
+ *
+ * The CALLER must also establish that the reported size is the architecture's
+ * huge page rather than one chosen on the command line; this function sees
+ * only the number. */
+__attribute__((unused)) static unsigned long
+kasld_page_size_from_pmd_hugepage(unsigned long huge) {
+  if (!huge)
+    return 0;
+  unsigned long shift = 0;
+  while (shift < 64 && (1ul << shift) < huge)
+    shift++;
+  if (shift >= 64 || (1ul << shift) != huge)
+    return 0;
+  if (shift < 3 || ((shift + 3) & 1))
+    return 0;
+  const unsigned long page_shift = (shift + 3) / 2;
+  if (page_shift != 12 && page_shift != 14 && page_shift != 16)
+    return 0;
+  return 1ul << page_shift;
+}
+
 #endif /* KASLD_MEMINFO_H */

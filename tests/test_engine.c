@@ -10,6 +10,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/engine.h"
+#include "include/kasld/meminfo.h"
 #include "include/kasld/randomize_memory.h"
 #include "include/kasld/regions.h"
 #include "test_harness.h"
@@ -5649,6 +5650,178 @@ static void test_arm64_va_bits_from_vmalloc_preflip(void) {
   TH_CHECK(1);
 }
 
+/* The huge-page tell that supplies a page size to a REPLAYED capture.
+ *
+ * The direct reader cannot: it asks the running process, which describes the
+ * analysing host, so it is a live probe and a staged tree correctly suppresses
+ * it. A capture is also the only place the width inversion matters, since a
+ * live run resolves the width from the mmap probe -- so without a second
+ * source the page size is absent exactly where it is needed.
+ *
+ * The huge page is the PMD block here, 2^(2*PAGE_SHIFT - 3), giving three
+ * distinct sizes for the three granules. Anything else -- a size that is not
+ * a power of two, or one belonging to a huge page the architecture supports
+ * without it being the PMD block -- must invert to nothing rather than to a
+ * granule it does not imply. */
+static void test_page_size_from_pmd_hugepage(void) {
+  /* The three granules, as the kernel would report them. */
+  TH_CHECK(kasld_page_size_from_pmd_hugepage(2ul << 20) == 4096ul);
+  TH_CHECK(kasld_page_size_from_pmd_hugepage(32ul << 20) == 16384ul);
+  TH_CHECK(kasld_page_size_from_pmd_hugepage(512ul << 20) == 65536ul);
+
+  /* Other huge page sizes this architecture supports, none of which is the
+   * PMD block: a contiguous-PTE huge page at a 4 KiB granule, and a PUD one.
+   * Each must decline rather than name a granule. */
+  TH_CHECK(kasld_page_size_from_pmd_hugepage(64ul << 10) == 0);
+  TH_CHECK(kasld_page_size_from_pmd_hugepage(1ul << 30) == 0);
+  TH_CHECK(kasld_page_size_from_pmd_hugepage(2ul << 10) == 0);
+
+  /* Not a power of two, and zero. */
+  TH_CHECK(kasld_page_size_from_pmd_hugepage(3ul << 20) == 0);
+  TH_CHECK(kasld_page_size_from_pmd_hugepage(0) == 0);
+}
+
+/* Without a page size the post-flip figure does NOT resolve, and that is the
+ * honest outcome rather than a defect: the same span belongs to a 48-bit
+ * kernel at a 4 KiB granule and a 52-bit one at 64 KiB, and nothing in the
+ * figure separates them.
+ *
+ * This is the shape a replayed capture has before the huge-page tell supplies
+ * the granule, and it is asserted here so that a test which SUPPLIES the page
+ * size cannot be mistaken for evidence that the replay path works. */
+static void test_arm64_va_bits_from_vmalloc_needs_the_granule(void) {
+  unsigned long v = 0;
+  (void)v;
+#if defined(__aarch64__)
+  const rule_fn rules[] = {rule_arm64_va_bits_from_vmalloc};
+  struct engine e;
+  engine_init(&e);
+  struct observation o =
+      mk_scalar(SF_VMALLOC_TOTAL, 133143592960ul * 1024ul, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  /* deliberately NO SF_PAGE_SIZE */
+  engine_run(&e, rules, 1);
+  TH_CHECK(
+      !estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  for (int i = 0; i < e.n_constraints; i++)
+    TH_CHECK(e.constraints[i].q != Q_VA_BITS);
+#endif
+  TH_CHECK(1);
+}
+
+/* The newest layout at a 16 KiB granule, where VA_BITS_MIN is 47 and not 48.
+ *
+ * That granule reaches 48 bits only by adding a translation level it does not
+ * otherwise need, so a kernel built wider than 48 bits places its module
+ * region -- and therefore the whole vmalloc span -- a canonical bit away from
+ * where 4 KiB and 64 KiB kernels place theirs. Treating the minimum as 48
+ * everywhere reproduced no 16 KiB figure at all.
+ *
+ * The figure is from a boot of a kernel built CONFIG_ARM64_VA_BITS=52 on
+ * 16 KiB pages, on a CPU that supports the wider address space, so the running
+ * width is 52. Its own config is the ground truth, carried in the image. */
+static void test_arm64_va_bits_from_vmalloc_16k_granule(void) {
+  unsigned long v = 0;
+  (void)v;
+#if defined(__aarch64__)
+  const rule_fn rules[] = {rule_arm64_va_bits_from_vmalloc};
+  struct engine e;
+  engine_init(&e);
+  struct observation o =
+      mk_scalar(SF_VMALLOC_TOTAL, 51804889088ul * 1024ul, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  struct observation ps = mk_scalar(SF_PAGE_SIZE, 16384ul, CONF_PARSED);
+  evidence_add(&e.ev, &ps);
+  engine_run(&e, rules, 1);
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 52);
+#endif
+  TH_CHECK(1);
+}
+
+/* A kernel runs at the width it was built for, or at VA_BITS_MIN when the
+ * hardware cannot support that -- never at some third width. The span does not
+ * depend on the running width when the two agree, so admitting arbitrary
+ * fallbacks would make every narrower width reproduce the same figure and the
+ * rule would resolve nothing. This is the figure from a 4 KiB 48-bit boot,
+ * which must still pin rather than go silent. */
+static void test_arm64_va_bits_from_vmalloc_fallback_is_not_arbitrary(void) {
+  unsigned long v = 0;
+  (void)v;
+#if defined(__aarch64__)
+  const rule_fn rules[] = {rule_arm64_va_bits_from_vmalloc};
+  struct engine e;
+  engine_init(&e);
+  struct observation o =
+      mk_scalar(SF_VMALLOC_TOTAL, 135288315904ul * 1024ul, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  struct observation ps = mk_scalar(SF_PAGE_SIZE, 4096ul, CONF_PARSED);
+  evidence_add(&e.ev, &ps);
+  engine_run(&e, rules, 1);
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 48);
+#endif
+  TH_CHECK(1);
+}
+
+/* The post-flip shapes that precede the fixed vmemmap anchor, against figures
+ * measured on booted kernels of those arrangements.
+ *
+ * These sit between the pre-flip image and the anchored one: the kernel half
+ * and the linear map have already swapped, but the vmemmap is still placed at
+ * a power-of-two boundary rather than pinned near the top, and vmalloc ends
+ * SZ_256M below it. They also size the vmemmap by the ROUNDED struct-page
+ * shift, where the anchored shape uses the exact size -- so one cannot be
+ * reached from the other by changing a constant.
+ *
+ * Both figures come from boots whose width is confirmed from a second artefact
+ * of the same log, not from this inversion: the 48-bit case reports
+ * _text = 0xffff800008000000, which is _PAGE_END(48) + 128 MiB and therefore
+ * states the module region directly, and the 39-bit case is a kernel whose
+ * configured width is 39. */
+static void test_arm64_va_bits_from_vmalloc_postflip_pow2(void) {
+  unsigned long v = 0;
+  (void)v;
+#if defined(__aarch64__)
+  const rule_fn rules[] = {rule_arm64_va_bits_from_vmalloc};
+
+  /* 48-bit, 4 KiB pages, a module region with no BPF window below it. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, 133143592960ul * 1024ul, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    struct observation ps = mk_scalar(SF_PAGE_SIZE, 4096ul, CONF_PARSED);
+    evidence_add(&e.ev, &ps);
+    engine_run(&e, rules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == 48);
+  }
+
+  /* 39-bit, same arrangement: a width the pre-flip shapes cannot reproduce at
+   * this span, so it exercises the post-flip geometry rather than riding on a
+   * coincidence with an older one. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o =
+        mk_scalar(SF_VMALLOC_TOTAL, 259653632ul * 1024ul, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    struct observation ps = mk_scalar(SF_PAGE_SIZE, 4096ul, CONF_PARSED);
+    evidence_add(&e.ev, &ps);
+    engine_run(&e, rules, 1);
+    TH_CHECK(
+        estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+    TH_CHECK(v == 39);
+  }
+#endif
+  TH_CHECK(1);
+}
+
 /* The three vmalloc inversions must stay BELOW the sound floor.
  *
  * /proc/meminfo is container-fakeable, and no container-fakeable input may move
@@ -10288,6 +10461,11 @@ int main(void) {
   RUN(test_arm64_va_bits_user_width_52_unknown_page_size_is_wide);
   RUN(test_arm64_va_bits_user_width_rejects_inadmissible);
   RUN(test_arm64_va_bits_from_vmalloc_preflip);
+  RUN(test_arm64_va_bits_from_vmalloc_postflip_pow2);
+  RUN(test_page_size_from_pmd_hugepage);
+  RUN(test_arm64_va_bits_from_vmalloc_needs_the_granule);
+  RUN(test_arm64_va_bits_from_vmalloc_16k_granule);
+  RUN(test_arm64_va_bits_from_vmalloc_fallback_is_not_arbitrary);
   RUN(test_va_bits_from_vmalloc_siblings);
   RUN(test_va_bits_from_vmalloc_stays_below_the_floor);
   RUN(test_x86_64_randomize_memory_budget_shared_window);
