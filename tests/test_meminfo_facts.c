@@ -154,7 +154,7 @@ static void test_cmdline_has_prefix_agrees_with_lookup(void) {
   TH_CHECK(cmdline_has_prefix("resume=") == 0);
 }
 
-#if defined(__aarch64__)
+#if defined(HUGEPAGE_IS_PMD_BLOCK)
 /* The page-size derivation and its gate, end to end through the component.
  * The huge page is the PMD block here, so 2 MiB names a 4 KiB granule -- but
  * only where the command line can be read AND does not reassign the default
@@ -218,7 +218,7 @@ int main(void) {
   BEGIN_CATEGORY("Absence");
   RUN(test_cmdline_lookup_is_three_valued);
   RUN(test_cmdline_has_prefix_agrees_with_lookup);
-#if defined(__aarch64__)
+#if defined(HUGEPAGE_IS_PMD_BLOCK)
   RUN(test_page_size_from_hugepage_is_gated);
 #endif
   RUN(test_absent_sources_emit_nothing);

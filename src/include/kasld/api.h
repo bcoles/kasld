@@ -400,6 +400,25 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
 #error "Unrecognized architecture!"
 #endif
 
+/* An architecture declares HUGEPAGE_IS_PMD_BLOCK when its default huge page is
+ * the PMD block, so that a reported huge page size inverts to the page size --
+ * the only route a replayed capture has to one. The relation is 2*PAGE_SHIFT
+ * minus the pointer log, and the inversion is written for a log of 3.
+ *
+ * An architecture with four-byte pointers has a log of 2 and a different
+ * relation, so the declaration would not hold there. The inversion would in
+ * fact refuse every such figure -- that relation always yields an odd shift,
+ * which its parity test rejects -- but silence is not feedback. Checked here
+ * rather than beside the inversion because this header is compiled into the
+ * main binary, where a failure stops the build; a component that fails to
+ * compile is reported and skipped.
+ */
+#if defined(HUGEPAGE_IS_PMD_BLOCK) && defined(__SIZEOF_POINTER__) &&           \
+    __SIZEOF_POINTER__ != 8
+#error "HUGEPAGE_IS_PMD_BLOCK assumes eight-byte pointers: the huge-page \
+relation is 2*PAGE_SHIFT minus the pointer log, which differs at four bytes"
+#endif
+
 /* Sanity-check arch-supplied values. */
 #if KERNEL_VIRT_VAS_START > KERNEL_VIRT_VAS_END
 #error "Defined KERNEL_VIRT_VAS_START is larger than KERNEL_VIRT_VAS_END"

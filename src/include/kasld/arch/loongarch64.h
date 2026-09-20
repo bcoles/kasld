@@ -58,6 +58,19 @@
 #define PAGE_SIZE_MIN 0x1000ul
 #define PAGE_SIZE_MAX 0x10000ul
 
+/* The default huge page is the PMD block, so its size is 2^(2*PAGE_SHIFT - 3)
+ * and the three granules give three distinct sizes. That makes a reported huge
+ * page size invert to the page size, which is the only route a REPLAYED
+ * capture has to one -- the direct reader describes whoever is replaying it.
+ *
+ * Declared per architecture rather than tested for by name, because it is a
+ * property of the layout and not of the CPU: powerpc chooses its huge page at
+ * runtime from the MMU's page-size table, or fixes it independently of the
+ * granule, so the same figure there names nothing. An architecture gains the
+ * derivation by defining this and needs no other change.
+ */
+#define HUGEPAGE_IS_PMD_BLOCK 1
+
 #define PAGE_OFFSET_MIN 0x9000000000000000ul
 #define PAGE_OFFSET_MAX 0x9000000000000000ul
 

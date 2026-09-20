@@ -106,10 +106,15 @@ static void dump_vmalloc_ground_truth(void) {
   }
   char line[512];
   while (fgets(line, sizeof line, f)) {
-    if (strncmp(line, "VmallocTotal:", 13) == 0) {
+    /* Hugepagesize alongside the span: where the huge page is the PMD block
+     * it names the page granule, which is the only route a replayed capture
+     * has to one -- sysconf describes whoever is doing the replaying. Printing
+     * both next to the granule sysconf reports is what lets that derivation be
+     * checked against a kernel rather than argued from a header. */
+    if (strncmp(line, "VmallocTotal:", 13) == 0 ||
+        strncmp(line, "Hugepagesize:", 13) == 0) {
       fputs("  ", stdout);
       fputs(line, stdout);
-      break;
     }
   }
   fclose(f);
