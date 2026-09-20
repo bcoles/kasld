@@ -37,9 +37,10 @@
 #                                # (mainline cells: tests/vm/stage-modules)
 #   tests/vm/run spec-table      # render only the speculative-narrowing table
 #                                # (cells where the likely window beats guaranteed)
-#   tests/vm/run chart           # render the matrix as an SVG range chart, one
-#                                # row per arch, to stdout:
+#   tests/vm/run chart           # render one kernel line of the matrix as an SVG
+#                                # bar chart, one bar per arch, to stdout:
 #                                #   tests/vm/run chart > docs/diagrams/residual-entropy-by-arch.svg
+#                                # CHART_BASELINE selects the kernel line
 #   tests/vm/run table --with-timing        # include timing/side-channel rows in
 #   tests/vm/run spec-table --with-timing   # the speculative-narrowing table
 #                                # (excluded by default — see SPEC_INCLUDE_TIMING)
@@ -1457,73 +1458,93 @@ cmd_table() {
   cmd_spec_table
 }
 
-# Render the results matrix as an SVG range chart (docs/diagrams/residual-entropy-by-arch.svg).
+# Render the results matrix as an SVG bar chart (docs/diagrams/residual-entropy-by-arch.svg).
 # Reads cmd_table's own rows rather than the boot logs, so the chart and the
-# matrix cannot disagree: one extraction path, two renderings. One row per
-# architecture, spanning every kernel line and configuration tested at the
-# default vantage — the spread is real (a different VA width or kernel line is a
-# different window), so it is drawn as a range rather than collapsed to a single
-# number.
+# matrix cannot disagree: one extraction path, two renderings.
 #
-# The bar varies along one axis only. Pooling vantages alongside configurations
-# would put a sparse, cell-specific profile into a figure whose rows are read
-# against each other: tracefs-open runs on a handful of cells, so an arch that
-# never ran it cannot show its effect, and an arch that did reaches lower for a
-# reason unrelated to its architecture. Every cell runs default, so every row is
-# measured the same way. Per-vantage figures are the matrix's job.
+# One bar per architecture, all of them on a single kernel line and each on its
+# own upstream defconfig, measured at the default vantage. Holding both fixed is
+# the point. A cell differs from its neighbour along four axes at once -- the
+# architecture, the kernel line, the configuration and the vantage -- so a
+# figure that pools them attributes to the architecture whatever the other three
+# did, and the width or the split moves the window further than the
+# architecture does. Those axes have their own sections in the published
+# document.
+#
+# Nothing here counts cells. The matrix is a convenience sample whose shape
+# follows whatever was most recently investigated, so a total, a mean or a
+# distribution over it would measure that attention rather than the subject.
+# One machine per architecture, plotted on its own, is a claim the sample
+# cannot distort.
 cmd_chart() {
-  cmd_table | awk -F'|' '
+  # Which kernel line the published chart shows. More than one currently spans
+  # every architecture, so this is an editorial choice and not something to
+  # derive: selecting automatically would mean ordering release strings, which
+  # is what the rest of the tool declines to do. Set CHART_BASELINE to publish
+  # against a different line; an absent one is an error rather than an empty
+  # chart.
+  _chart_baseline=${CHART_BASELINE:-7.0.0}
+  # Architectures whose upstream default leaves the kernel image unrandomised,
+  # so the cell randomises only because build-kernel asks for RELOCATABLE and
+  # RANDOMIZE_BASE. Verified against the kernel tree rather than inferred from
+  # the overlay being applied, an overlay that sets an option already on being
+  # indistinguishable from one that turns it on: riscv and mips carry no Kconfig
+  # default and name the option in no defconfig, and the powerpc option is
+  # absent from every fragment merged into the 85xx configuration. The
+  # architectures plotted alongside them reach it from their own default --
+  # arm64 and loongarch through the defconfig file, x86 and s390 through a
+  # Kconfig default. build-kernel is the authority for what is applied; this
+  # list says what the applying was needed for, and the two are kept in step.
+  _chart_default_off=${CHART_DEFAULT_OFF-"mips mipsel mips64el ppc32 riscv64"}
+  cmd_table | awk -F'|' -v BASELINE="$_chart_baseline" -v DEFOFF="$_chart_default_off" '
+    BEGIN { L = 190; R = 872; AX = 168; TOP = 168; RH = 31; n = 0; noff = 0
+            nd = split(DEFOFF, d, " "); for (i = 1; i <= nd; i++) defoff[d[i]] = 1 }
     function bits(s) {                 # "exact"->0, "N bits"->N, else -1
       gsub(/^ +| +$/, "", s)
       if (s == "exact") return 0
       if (s ~ /^[0-9]+ bits$/) { sub(/ bits$/, "", s); return s + 0 }
       return -1
     }
-    function line(r,  q) { split(r, q, "."); return q[1] "." q[2] }
     NF > 6 {
-      a = $2; rel = $3; scen = $5; k = $6; v = bits($7)
-      gsub(/^ +| +$/, "", a); gsub(/^ +| +$/, "", rel)
+      a = $2; rel = $3; src = $4; scen = $5; k = $6; v = bits($7)
+      gsub(/^ +| +$/, "", a); gsub(/^ +| +$/, "", rel); gsub(/^ +| +$/, "", src)
       gsub(/^ +| +$/, "", scen); gsub(/^ +| +$/, "", k)
-      if (k != "on" && k != "off") next   # header and |---| separator rows
+      # cmd_table prints the speculative-narrowing table after the matrix, and its
+      # sixth column is a residual rather than the KASLR state. Anything that is
+      # not the state belongs to that second table, or to a header.
+      if (k != "on" && k != "off") next
+      if (src != "mainline" || scen != "default") next
+      if (rel != BASELINE) next
+      # The release match above already excludes a configuration variant, whose
+      # release carries a bracketed suffix; the test is repeated here so that a
+      # baseline set to one of those variants is refused rather than charted,
+      # which would put two configurations of a single architecture beside one
+      # configuration of every other. The second test keeps the first row per
+      # architecture where a release somehow appears twice.
+      if (rel ~ /\(/ || a in seen) next
       seen[a] = 1
-      if (!(a SUBSEP rel in kseen)) { kseen[a SUBSEP rel] = 1; kcount[a]++ }
-      if (k != "on" || v < 0 || scen != "default") next
-      if (rel ~ /\(/) next   # a config variant is not a kernel line of its own
-      on[a] = 1
-      split(rel, q, "."); key = sprintf("%04d%04d", q[1] + 0, q[2] + 0)
-      if (!(a in okey) || key < okey[a]) { okey[a] = key; oval[a] = v; orel[a] = line(rel) }
-      if (!(a in nkey) || key > nkey[a]) { nkey[a] = key; nval[a] = v; nrel[a] = line(rel) }
+      if (k == "on" && v >= 0) { arch[n] = a; val[n] = v; n++ }
+      else { off[noff] = a; noff++ }
     }
     END {
-      for (a in seen)
-        if (a in on)
-          printf "%d|%s|%d|%d|%s|%s|%d\n", (oval[a] > nval[a] ? oval[a] : nval[a]), \
-                 a, oval[a], nval[a], orel[a], nrel[a], kcount[a]
-        else printf "-1|%s|-1|-1|||%d\n", a, kcount[a]
-    }' | LC_ALL=C sort -t'|' -k1,1nr -k2,2 | awk -F'|' '
-    BEGIN { L = 300; R = 800; AX = 112; TOP = 112; RH = 34; MAXB = 40; n = 0 }
-    { arch[n] = $2; oval[n] = $3 + 0; nval[n] = $4 + 0
-      orel[n] = $5; nrel[n] = $6; nk[n] = $7 + 0; n++ }
-    function X(b) { return L + (R - L) * b / MAXB }
-    # The bar spans the two measurements, never the axis origin: each end is a
-    # residual that was actually observed, and the length between them is how
-    # far the window moved across the kernel lines tested. Anchoring at zero
-    # would read as "somewhere between 0 and N" when the answer is N, and zero
-    # is not a default-vantage outcome -- it is what opening perf_event_paranoid
-    # buys, on a profile this chart does not plot.
-    function span(a, b, y, col,   x0, x1) {
-      x0 = X(a < b ? a : b); x1 = X(a < b ? b : a)
-      if (x1 < x0 + 11) { x0 -= 5.5; x1 = x0 + 11 }
-      printf "  <line x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\" stroke=\"%s\" stroke-width=\"11\" stroke-linecap=\"round\" opacity=\"0.85\"/>\n", x0, y, x1, y, col
-      return x1
-    }
-    function dot(v, y, col) {
-      printf "  <circle cx=\"%.1f\" cy=\"%d\" r=\"6.5\" fill=\"%s\" stroke=\"#ffffff\" stroke-width=\"1.5\"/>\n", X(v), y, col
-    }
-    END {
-      non = 0
-      for (i = 0; i < n; i++) if (oval[i] >= 0) non++
-      H = TOP + RH * non + 158
+      if (n == 0 && noff == 0) {
+        printf "chart: no mainline rows at the default vantage for release %s\n", BASELINE > "/dev/stderr"
+        exit 1
+      }
+      for (i = 0; i < n; i++)            # selection sort, widest window first
+        for (j = i + 1; j < n; j++)
+          if (val[j] > val[i] || (val[j] == val[i] && arch[j] < arch[i])) {
+            t = val[i]; val[i] = val[j]; val[j] = t
+            s = arch[i]; arch[i] = arch[j]; arch[j] = s
+          }
+      for (i = 0; i < noff; i++)
+        for (j = i + 1; j < noff; j++)
+          if (off[j] < off[i]) { s = off[i]; off[i] = off[j]; off[j] = s }
+      MAXB = 5
+      for (i = 0; i < n; i++) if (val[i] > MAXB) MAXB = val[i]
+      bandY = TOP + RH * n + 34
+      ny = bandY + (noff ? 30 : 4)
+      H = ny + 220
       printf "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"960\" height=\"%d\"", H
       printf " viewBox=\"0 0 960 %d\" font-family=\"sans-serif\">\n", H
       print "  <style>"
@@ -1536,49 +1557,52 @@ cmd_chart() {
       print "      .guide { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }"
       print "  </style>"
       printf "  <rect width=\"960\" height=\"%d\" fill=\"#ffffff\"/>\n", H
-      print "  <text class=\"title\" x=\"24\" y=\"34\">Residual KASLR entropy in the virtual image base</text>"
-      print "  <text class=\"sub\" x=\"24\" y=\"57\">Guaranteed window, virtual image base, at the default vantage. Each architecture shows its newest and</text>"
-      print "  <text class=\"sub\" x=\"24\" y=\"75\">oldest kernel line tested; a grey dot right of the green one means the newer kernel left less. Lower is weaker KASLR.</text>"
+      print "  <text class=\"title\" x=\"24\" y=\"34\">How much kernel address entropy survives, by architecture</text>"
+      print "  <text class=\"sub\" x=\"24\" y=\"57\">One kernel line, each architecture built from its own upstream defconfig, one machine per architecture, read by an</text>"
+      print "  <text class=\"sub\" x=\"24\" y=\"75\">unprivileged user at the default vantage. Each bar is what remains of the kernel image base, in bits, given only what</text>"
+      print "  <text class=\"sub\" x=\"24\" y=\"93\">inference can prove without resting on unsound evidence.</text>"
       for (t = 0; t <= MAXB; t += 5) {
-        printf "  <line class=\"guide\" x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\"/>\n", X(t), TOP-16, X(t), TOP+RH*non-12
-        printf "  <text class=\"axis\" x=\"%.1f\" y=\"%d\" text-anchor=\"middle\">%d</text>\n", X(t), TOP-22, t
+        printf "  <line class=\"guide\" x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\"/>\n", X(t), TOP-18, X(t), TOP+RH*n-14
+        printf "  <text class=\"axis\" x=\"%.1f\" y=\"%d\" text-anchor=\"middle\">%d</text>\n", X(t), TOP-26, t
       }
-      printf "  <text class=\"axis\" x=\"%d\" y=\"%d\" text-anchor=\"end\">bits</text>\n", AX, TOP-22
+      printf "  <text class=\"axis\" x=\"%d\" y=\"%d\" text-anchor=\"end\">bits remaining</text>\n", L-12, TOP-26
       for (i = 0; i < n; i++) {
-        if (oval[i] < 0) { off = off (off ? ", " : "") sprintf("%s (%d)", arch[i], nk[i]); noff++; continue }
-        y = TOP + row * RH; row++
+        y = TOP + RH * i
         printf "  <text class=\"arch\" x=\"%d\" y=\"%d\" text-anchor=\"end\">%s</text>\n", AX, y+4, arch[i]
-        span(oval[i], nval[i], y, "#2e7d32")
-        dot(oval[i], y, "#b0bec5")
-        dot(nval[i], y, "#2e7d32")
-        lo_i = (oval[i] < nval[i] ? oval[i] : nval[i])
-        hi_i = (oval[i] < nval[i] ? nval[i] : oval[i])
-        lo_r = (oval[i] < nval[i] ? orel[i] : nrel[i])
-        hi_r = (oval[i] < nval[i] ? nrel[i] : orel[i])
-        if (oval[i] == nval[i]) {
-          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d bits on %s and %s</text>\n", \
-                 X(nval[i]) + 14, y + 4, nval[i], orel[i], nrel[i]
-        } else {
-          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\" text-anchor=\"end\">%d bits on %s</text>\n", \
-                 X(lo_i) - 14, y + 4, lo_i, lo_r
-          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d bits on %s</text>\n", \
-                 X(hi_i) + 14, y + 4, hi_i, hi_r
-        }
+        w = X(val[i]) - L; if (w < 2) w = 2
+        printf "  <rect x=\"%d\" y=\"%d\" width=\"%.1f\" height=\"18\" fill=\"#2e7d32\" opacity=\"0.85\" rx=\"2\"/>\n", L, y-9, w
+        printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d</text>\n", L + w + 10, y+4, val[i]
       }
-      ly = TOP + RH * non + 18
-      printf "  <line x1=\"24\" y1=\"%d\" x2=\"936\" y2=\"%d\" stroke=\"#eceff1\" stroke-width=\"1\"/>\n", ly-14, ly-14
-      if (noff)
-        printf "  <text class=\"note\" x=\"24\" y=\"%d\">Not plotted: KASLR was off on every kernel booted (count in brackets): %s</text>\n", ly-22, off
-      printf "  <circle cx=\"32\" cy=\"%d\" r=\"5.5\" fill=\"#b0bec5\" stroke=\"#ffffff\" stroke-width=\"1.5\"/>\n", ly+4
-      printf "  <text class=\"note\" x=\"46\" y=\"%d\">oldest kernel line tested</text>\n", ly+8
-      printf "  <circle cx=\"232\" cy=\"%d\" r=\"5.5\" fill=\"#2e7d32\" stroke=\"#ffffff\" stroke-width=\"1.5\"/>\n", ly+4
-      printf "  <text class=\"note\" x=\"246\" y=\"%d\">newest kernel line tested</text>\n", ly+8
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">KASLR reached these architectures at different times, so the grey end is the oldest line tested rather than a baseline they share. The default</text>\n", ly+30
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">vantage is an unprivileged reader with nothing opened, the one profile every cell runs; opening a sysctl narrows the window further, and</text>\n", ly+47
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">lowering perf_event_paranoid recovers the base exactly wherever CONFIG_PERF_EVENTS is built in. Those figures are in the matrix.</text>\n", ly+64
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">Microarchitectural side channels (prefetch, entrybleed) narrow only the likely window, never the guaranteed one plotted here.</text>\n", ly+81
+      printf "  <line x1=\"24\" y1=\"%d\" x2=\"936\" y2=\"%d\" stroke=\"#eceff1\" stroke-width=\"1\"/>\n", bandY-16, bandY-16
+      offlist = ""
+      for (i = 0; i < noff; i++) offlist = offlist (offlist ? ", " : "") off[i]
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">Every bar is a single machine rather than an average: one kernel line and one configuration for each architecture, so the bars compare</text>\n", ny
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">architectures instead of summarising a fleet. A defconfig is each architecture&#8217;s own upstream default, which is what a stock build gives;</text>\n", ny+17
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">it is not one configuration imposed across all of them, and the default does not agree with itself across architectures:</text>\n", ny+34
+      a1 = ""; a2 = ""
+      for (i = 0; i < n; i++)
+        if (arch[i] in defoff) a2 = a2 (a2 ? ", " : "") arch[i]
+        else a1 = a1 (a1 ? ", " : "") arch[i]
+      gy = ny + 55
+      if (a1) {
+        printf "  <text class=\"note\" x=\"48\" y=\"%d\">%s randomise the kernel image from their own defconfig.</text>\n", gy, a1
+        gy += 17
+      }
+      if (a2) {
+        printf "  <text class=\"note\" x=\"48\" y=\"%d\">%s randomise only because the build enables RELOCATABLE and RANDOMIZE_BASE, which their defaults leave off.</text>\n", gy, a2
+        gy += 17
+      }
+      if (offlist)
+        printf "  <text class=\"note\" x=\"48\" y=\"%d\">%s cannot randomise the kernel image at all on this line, and are not plotted.</text>\n", gy, offlist
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">A long bar is not evidence of a strong kernel. It records that nothing reachable at this vantage narrowed the starting window: where the</text>\n", ny+115
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">kallsyms and perf routes are both closed the figure is the untouched prior rather than a measured defence. These bound what sound</text>\n", ny+132
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">inference proves, not what an attacker holding another route could reach. Per-vantage and per-configuration figures are the matrix&#8217;s job.</text>\n", ny+149
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">A figure that the evidence does move is a property of the boot that produced it, the ceiling being read off an address that the draw itself</text>\n", ny+175
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">placed, so such a bar is one boot&#8217;s result rather than a constant of the architecture.</text>\n", ny+192
       print "</svg>"
-    }'
+    }
+    function X(b) { return L + (R - L) * b / MAXB }
+  '
 }
 
 # ---- dispatch ----

@@ -137,14 +137,19 @@ if [ -f "$SVG" ]; then
   md_table_select "$MTX" 'arch,scenario,KASLR' arch | sort -u >"$TMP/mtx"
   require_rows "results matrix" "$TMP/mtx" || :
   tbl=$(cat "$TMP/mtx")
-  # An architecture appears in the chart one of two ways: as a row label, or
-  # named in the off-list note where KASLR was off on every kernel tested and
-  # there is no window to draw. Both count as present; an architecture in
-  # neither is still a silent drop, which is what this checks for.
+  # An architecture appears in the chart one of two ways: as a bar label, or
+  # named in the note listing those the kernel image cannot be randomised on,
+  # which carry no bar because there is no window to draw. Both count as
+  # present; an architecture in neither is still a silent drop, which is what
+  # this checks for. The note is matched on "not plotted", the phrase that
+  # marks it, rather than on its wording: the other notes also name
+  # architectures, and counting those would let a genuine drop pass by being
+  # mentioned anywhere at all.
   plot=$( { grep -oE 'text-anchor="end">[a-z0-9_]+</text>' "$SVG" |
               sed 's/.*>\(.*\)<.*/\1/'
-            grep -oE '[a-z0-9_]+ \([0-9]+\)' "$SVG" | sed 's/ .*//'
-          } | grep -v '^bits$' | sort -u)
+            grep -oE '>[a-z0-9_, ]+ cannot randomise[^<]*not plotted\.' "$SVG" |
+              sed 's/^>//; s/ cannot randomise.*//; s/, / /g' | tr ' ' '\n'
+          } | grep -vE '^(bits)?$' | sort -u)
   for a in $tbl; do
     printf '%s\n' "$plot" | grep -qx "$a" || {
       printf '%s  matrix architecture missing from the chart%s: %s\n' "$RED" "$RESET" "$a"

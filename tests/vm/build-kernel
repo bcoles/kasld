@@ -373,9 +373,12 @@ build_one() {
   # which is the property this cell exists to exercise.
   aarch64-mainline-4.19)
     "$src/scripts/config" --file "$bdir/.config" -e RANDOMIZE_BASE ;;
-  # Function tracing, for the cell that exercises the ftrace address tables.
-  # available_filter_functions_addrs is built only under DYNAMIC_FTRACE, which
-  # no stock defconfig in this matrix enables, so the tables exist nowhere else.
+  # Function tracing, for the arm64 cell that exercises the ftrace address
+  # tables. available_filter_functions_addrs is built only under DYNAMIC_FTRACE,
+  # which the arm64 defconfig turns off explicitly. Not every architecture does:
+  # the s390 defconfig enables function tracing and publishes the same table
+  # without any help from here, so this overlay gives arm64 a cell it would
+  # otherwise lack rather than creating the only one in the matrix.
   # FUNCTION_TRACER sits inside the FTRACE menu, so asking for it alone is
   # dropped without a word; set both and DYNAMIC_FTRACE follows by select.
   *-ftrace)

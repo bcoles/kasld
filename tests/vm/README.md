@@ -47,7 +47,7 @@ tests/vm/run aarch64-alpine-6.12      # one cell
 tests/vm/run aarch64-alpine-6.12 hardened
 tests/vm/run all hardened             # every cell in one profile
 tests/vm/run table                    # results matrix + speculative-narrowing table
-tests/vm/run chart                    # results matrix as an SVG range chart (stdout)
+tests/vm/run chart                    # one kernel line as an SVG bar chart (stdout)
 tests/vm/run spec-table               # only the speculative-narrowing table
 tests/vm/run spec-table --with-timing # ...also listing timing/side-channel rows
 tests/vm/run aarch64-alpine-6.12 capture # build a truth-bearing fixture from a live boot
@@ -87,10 +87,18 @@ likely best-guess window beats the guaranteed one and what signal drove it — t
 published tables in [docs/reproducibility.md](../../docs/reproducibility.md) are
 generated this way.
 
-`tests/vm/run chart` renders the same rows as an SVG range chart, one row per
-architecture, written to stdout — the committed copy is
+`tests/vm/run chart` renders one kernel line of those rows as an SVG bar chart,
+one bar per architecture, written to stdout — the committed copy is
 `docs/diagrams/residual-entropy-by-arch.svg`. It reads `cmd_table`'s output rather than
 the boot logs, so the chart and the matrix cannot disagree.
+
+The chart plots a single kernel line at the default vantage, each architecture on
+its own upstream defconfig, so that the bars differ by architecture alone; the
+matrix remains the place where the kernel line, the configuration and the vantage
+vary. `CHART_BASELINE` selects the line, and a value absent from the matrix is an
+error rather than an empty chart. More than one line currently spans every
+architecture, so the choice is editorial: deriving it would mean ordering release
+strings, which is not something this harness does.
 
 The speculative-narrowing table excludes microarchitectural side-channel
 narrowings (`method:timing` — cache/speculation oracles such as `prefetch` and
@@ -285,4 +293,7 @@ The mainline cells are built on request, never part of the default gap set.
   `RISCV32_BIOS`.
 - Useful overrides: `QEMU_DIR` (qemu not on PATH), `ALPINE_VER`, `BUILD_DIR`,
   `TIMEOUT`, `LOONGARCH_BIOS`, `RISCV32_BIOS`, and `LINUX_VERSION` (for
-  `build-kernel`).
+  `build-kernel`). `chart` takes two more: `CHART_BASELINE` for the kernel line
+  to plot, and `CHART_DEFAULT_OFF` for the architectures whose upstream default
+  leaves the kernel image unrandomised, which the footer names apart from those
+  randomising as shipped.

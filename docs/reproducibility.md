@@ -52,6 +52,7 @@ continuous; the VM check is slower and run periodically.
   - [Architecture characterization](#architecture-characterization)
   - [Results matrix: image base](#results-matrix-image-base)
   - [Memory-KASLR region bases](#memory-kaslr-region-bases)
+  - [Vantage sensitivity](#vantage-sensitivity)
   - [Kernel-configuration sensitivity](#kernel-configuration-sensitivity)
   - [Speculative narrowing (the likely window)](#speculative-narrowing-the-likely-window)
 - [3. Offline, over a captured corpus](#3-offline-over-a-captured-corpus)
@@ -245,40 +246,110 @@ and **never depends on a timing or microarchitectural side channel** — that is
 what makes the *soundness verdict* reproducible run to run and machine to
 machine: every cell contains the truth on every boot, on any host.
 
-The shape of the result, one row per architecture. `tests/vm/run chart` renders
-it from the same rows as the table below, so the two cannot disagree:
+The shape of the result, one bar per architecture. `tests/vm/run chart` renders
+it from the same rows as the table below, so the two cannot disagree. Where the
+table varies every axis, the chart holds all but one still: a single kernel
+line, each architecture on its own upstream defconfig, every figure read at the
+default vantage. What is left differing between the bars is the architecture:
 
-![Residual KASLR entropy in the virtual image base: one horizontal span per architecture between the guaranteed residual at the default vantage on its oldest and newest kernel line tested, a grey dot at the older figure and a green one at the newer, each end labelled with its own release — s390x 17 bits on 5.15 to 39 on 7.0, loongarch64 11 on 6.6 to 16 on 7.0, riscv64 0 on 6.6 to 16 on 7.0, mips64el 8 on 5.15 to 14 on 7.0, mips and mipsel 8 on 5.15 to 13 on 7.0, x86_64 4 on 4.19 to 9 on 7.0, i686 8 bits on both. On aarch64 and ppc32 the grey dot falls to the right of the green one, the newer kernel leaving less standing: 31 bits on 7.0 against 32 on 4.19, and 11 on 7.0 against 13 on 5.15. Five architectures are not plotted, KASLR being off on every kernel booted for them](diagrams/residual-entropy-by-arch.svg)
+![How much kernel address entropy survives, by architecture - one horizontal bar per architecture giving the sound residual in the kernel image base on a single kernel line, each architecture built from its own upstream defconfig and read by an unprivileged user at the default vantage: aarch64 31 bits, s390x 29, loongarch64 16, mips64el and ppc32 14, mips and mipsel 13, riscv64 and x86_64 9, i686 8. Five further architectures - armeb, armv7, powerpc64, ppc64le and riscv32 - do not randomise the kernel image in this configuration and are listed beneath the bars rather than plotted, there being nothing to measure](diagrams/residual-entropy-by-arch.svg)
 
-Each architecture carries one span, between the residual on its oldest kernel
-line tested and on its newest, rather than a single number: a different kernel
-line is a different window, not noise. A grey dot marks the older figure and a
-green one the newer, so a grey dot to the right says the newer kernel left less
-standing. Each figure is an upper bound on what survived on that cell, so the
-higher end is the weaker result.
+Each bar is one machine, not an average. No figure in it is a total, a mean or
+a distribution across cells: the matrix is a convenience sample whose shape
+follows whatever was investigated most recently, so counting over it would
+measure that attention rather than the subject. One architecture, one kernel,
+one configuration, one number.
+
+A defconfig is each architecture's own upstream default, which is what a stock
+build produces, not a single configuration imposed across all of them — and on
+this kernel line the default does not agree with itself. The figure names the
+three groups; they divide evenly, five each, and they reach their state by
+different routes. `aarch64` and `loongarch64` carry `CONFIG_RANDOMIZE_BASE=y` in
+the defconfig file itself, while `s390x` and the two x86 architectures reach it
+from a Kconfig `default y` and name it in no defconfig. Neither route is
+available to `mips`, `mipsel`, `mips64el`, `ppc32` or `riscv64`: the option has
+no default on those architectures and appears in none of their configurations,
+including every fragment merged into the 85xx configuration `ppc32` is built
+from, so the plotted cells randomise only because `tests/vm/build-kernel` asks
+for `RELOCATABLE` and `RANDOMIZE_BASE`. They are plotted because the cell exists
+to exercise the randomised layout, but a stock build of them randomises nothing.
+
+The five that cannot randomise at all are excluded by the architecture rather
+than by a choice: mainline arm32 has no kernel-image KASLR, `RANDOMIZE_BASE`
+depends on `PPC_85xx && FLATMEM` and so is unreachable on 64-bit PowerPC, and it
+depends on `MMU && 64BIT`, which rules out `riscv32`. They are named beneath the
+bars rather than drawn at zero, a bar of no length being a different claim from
+no randomisation.
+
+**A long bar is not evidence of a strong kernel**, and on this kernel line most
+of them are not evidence of anything the analysis did. Nine of the ten plotted
+figures are the starting window unmoved, `ppc32` being the only one the evidence
+touches at all. `aarch64` is the clearest case of the nine — its
+virtual-address width resolves exactly and its direct map pins to a single
+candidate, yet the image base ends where it began, because the kallsyms and perf
+routes are both closed to an unprivileged reader.
+
+That is a statement about the vantage, not about the architectures. The default
+profile is an unprivileged reader with nothing opened, against a stock upstream
+defconfig, which is the least the tool is ever given; the same cells give up the
+base exactly once `perf_event_paranoid` is lowered, and the matrix below carries
+those figures. Read the bars as a bound on what sound inference proves from that
+standing start, never as a bound on what an attacker holding another route could
+reach.
+
+One consequence is that the bars are reproducible for the wrong reason. A figure
+that is a prior is a constant, so it repeats exactly; a figure the evidence
+actually moves need not. Across three boots of every plotted cell, nine returned
+bit-identical residuals and `ppc32` did not, spanning 12 to 14 bits over four
+observations. Its lower bound and its prior hold still between boots and only
+the ceiling moves, that ceiling being read off an observed address which the
+draw itself placed: land low and it cuts hard, land high and it barely cuts. The
+published `ppc32` bar is therefore one boot's result. The architectures that
+share its self-seeding mechanism — `mips`, `mipsel` and `mips64el`, which seed
+from `random_get_entropy()` rather than a device-tree value — do not vary, so
+the cause is not the seeding but the fact that `ppc32` is the one cell where
+anything is narrowed at all.
+
+Configuration moves these figures further than the kernel line does, which is
+why the chart fixes both rather than pooling them; that axis is measured
+separately under [Kernel-configuration
+sensitivity](#kernel-configuration-sensitivity), and the per-vantage figures are
+the matrix's own job.
 
 These figures are **not** directly comparable with the per-architecture entropy
 in [Default text base and KASLR alignment](kaslr.md#default-text-base-and-kaslr-alignment).
 That chart counts the placements a kernel drew from, given a known
 configuration; this one measures the window KASLD can prove *without* knowing
-it. So a residual may legitimately exceed the architectural figure — aarch64
-reports 31 bits against an architectural 30, loongarch64 16 against 12, riscv64
-16 against 9 — and the excess is uncertainty about the build, not entropy the
-kernel holds. The window has to span every layout and placement formula the architecture
-admits until evidence rules one out. On aarch64 the minimum offset differs
-between the pre-v5.4, v6.6 and v6.12 formulas. On loongarch64
-`CONFIG_RANDOMIZE_BASE_MAX_OFFSET` is a build choice an unprivileged reader
-cannot see. And on riscv64 the window must still reach down to the legacy
-linear-map base, because nothing observable distinguishes that layout from the
-modern one.
+it. So a residual may legitimately exceed the architectural figure — in the
+chart above aarch64 reports 31 bits against an architectural 30, and
+loongarch64 16 against 12 — and the excess is uncertainty about the build, not
+entropy the kernel holds. The window has to span every layout and placement
+formula the architecture admits until evidence rules one out. On aarch64 the
+minimum offset differs between the pre-v5.4, v6.6 and v6.12 formulas. On
+loongarch64 `CONFIG_RANDOMIZE_BASE_MAX_OFFSET` is a build choice an
+unprivileged reader cannot see. riscv64 shows the same effect off the default
+vantage rather than on it: the chart's 9 bits matches its architectural figure,
+but a kernel booted `no4lvl` leaves 16, the window still having to reach down to
+the legacy linear-map base because nothing observable distinguishes that layout
+from the modern one.
 
 Reading a cell. `source` is the kernel: `alpine` (a distro kernel) or `mainline`
 (a vanilla kernel.org build via `tests/vm/build-kernel`). `virt residual` and
 `phys residual` say how much KASLR entropy KASLD could *not* strip from each
 axis; the vocabulary (`exact` / `<n> bits` / `—` / `coupled`) is defined in
-[Architecture characterization](#architecture-characterization) above. `phys
-residual` carries an independent count only on the *decoupled* arches; elsewhere
-it reads `coupled`, and the virtual result already determines it.
+[Architecture characterization](#architecture-characterization) above.
+
+Every residual in this document is the **sound** one: the guaranteed window,
+which admits only evidence at or above the sound floor. That is a narrower
+claim than "what an attacker would face", and deliberately so. The
+microarchitectural side channels ship and run in these boots — `prefetch` and
+`avx_maskload` succeed on the x86_64 cells — but they rest on timing, which
+sits below that floor, so they shape the likely window and can never move the
+figure tabulated here. A cell can therefore report several bits of sound
+residual while its likely window names the base exactly. Where that matters the
+`-j` output carries both. `phys residual` carries an independent count only on
+the *decoupled* arches; elsewhere it reads `coupled`, and the virtual result
+already determines it.
 
 `CONFIG_PHYSICAL_ALIGN` is a build choice, not a property of the architecture.
 Alpine sets it to 16 MiB on x86 where the mainline builds take the 2 MiB
@@ -320,7 +391,7 @@ The summary names the two scenarios that carry the result: `default` is the
 ordinary unprivileged vantage, and `perf-open` is the one that moves the answer
 on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 `bpf-open`, `hardened`, and the x86 paging modes — restate their cell's
-`default` in all but 42 rows, and the fold beneath carries every one of them.
+`default` in all but 35 rows, and the fold beneath carries every one of them.
 
 | arch | release | source | KASLR | default (virt / phys) | perf-open (virt / phys) |
 |------|---------|--------|-------|-----------------------|-------------------------|
@@ -363,8 +434,8 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | powerpc64 | 6.6.144 | mainline | off | — / — | — / — |
 | powerpc64 | 7.0.0 | mainline | off | — / — | — / — |
 | ppc32 | 5.15.211 | mainline | on | 14 bits / coupled | exact / coupled |
-| ppc32 | 6.6.144 | mainline | on | 11 bits / coupled | exact / coupled |
-| ppc32 | 7.0.0 | mainline | on | 12 bits / coupled | exact / coupled |
+| ppc32 | 6.6.144 | mainline | on | 14 bits / coupled | exact / coupled |
+| ppc32 | 7.0.0 | mainline | on | 14 bits / coupled | exact / coupled |
 | ppc64le | 6.12.81-0-lts | alpine | off | — / — | — / — |
 | ppc64le | 5.15.211 | mainline | off | — / — | — / — |
 | ppc64le | 6.6.144 | mainline | off | — / — | — / — |
@@ -665,14 +736,14 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | ppc32 | 5.15.211 | mainline | bpf-open | on | 14 bits | coupled |
 | ppc32 | 5.15.211 | mainline | hardened | on | 12 bits | coupled |
 | ppc32 | 5.15.211 | mainline | tracefs-open | on | 11 bits | coupled |
-| ppc32 | 6.6.144 | mainline | default | on | 11 bits | coupled |
+| ppc32 | 6.6.144 | mainline | default | on | 14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | kptr-hidden | on | 14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | perf-open | on | exact | coupled |
 | ppc32 | 6.6.144 | mainline | dmesg-open | on | 14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | bpf-open | on | 14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | hardened | on | 14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | tracefs-open | on | 11 bits | coupled |
-| ppc32 | 7.0.0 | mainline | default | on | 12 bits | coupled |
+| ppc32 | 7.0.0 | mainline | default | on | 14 bits | coupled |
 | ppc32 | 7.0.0 | mainline | kptr-hidden | on | 14 bits | coupled |
 | ppc32 | 7.0.0 | mainline | perf-open | on | exact | coupled |
 | ppc32 | 7.0.0 | mainline | dmesg-open | on | 14 bits | coupled |
@@ -907,6 +978,59 @@ makes the reported residual an upper bound, never unsound. On coupled
 architectures the direct map is a static projection of kernel text and carries no
 independent base to randomize.
 
+### Vantage sensitivity
+
+The matrix carries one column per vantage — the restriction profile the analysis
+runs under, the unprivileged uid being the same in all of them. Reading across a
+row rather than down a column answers a different question: not how much
+survives, but which gate is holding it.
+
+One gate dominates. `perf-open` reaches `exact` on every KASLR-on row below, on
+every architecture, kernel line and configuration tested, without exception.
+Where `CONFIG_PERF_EVENTS` is built in, lowering `perf_event_paranoid` hands over
+the image base outright, and nothing else on the axis is comparable to it. A
+kernel that leaves perf open to unprivileged callers has no image-base entropy to
+defend, whatever its architecture would otherwise supply.
+
+The mitigation reached for first is the one that does least. `kptr_restrict`
+leaves 40 of the 42 KASLR-on cells bit-identical, and the two that move are both
+`loongarch64`, one gaining a bit and one losing one — movement in both
+directions at once, which is not the signature of a mitigation taking effect. The routes that matter either parse the kernel's own boot log or
+recover an address from a pointer hash, and neither is what `%pK` suppresses.
+Hiding pointers does not hide the base.
+
+With perf shut, what remains is interface-specific and unevenly spread. Opening
+`tracefs` alone narrows 22 of the 42 KASLR-on cells, across nine architectures,
+by anything from one bit to twenty-seven. The widest and the narrowest, with a
+few in between:
+
+| cell | default | tracefs-open | given up |
+|------|---------|--------------|----------|
+| `s390x` 4-level paging | 39 bits | 12 bits | 27 bits |
+| `aarch64` with function tracing | 31 bits | 7 bits | 24 bits |
+| `s390x` | 29 bits | 12 bits | 17 bits |
+| `mips64el` | 14 bits | 8 bits | 6 bits |
+| `riscv64` | 9 bits | 4 bits | 5 bits |
+| `x86_64` | 9 bits | 5 bits | 4 bits |
+| `i686` | 8 bits | 4 bits | 4 bits |
+| `x86_64` (older line) | 5 bits | 4 bits | 1 bit |
+
+Two files account for it, and neither is a `%pK` consumer.
+`available_filter_functions_addrs` publishes a byte-exact table of text
+addresses, and exists only where `DYNAMIC_FTRACE` is built in: the `s390`
+defconfig enables function tracing and carries it as shipped, while the `arm64`
+defconfig turns tracing off explicitly, which is why the `aarch64` figure above
+comes from a cell built to have it. `printk_formats` needs no tracing
+configuration at all and is what narrows the rest, `i686` among them; across the
+matrix it contributes on 46 cells against the address table's 12, and no third
+tracefs file contributes anywhere. Neither is named in any of the sysctls above,
+and which of the two a kernel carries follows from a tracing option rather than
+from a hardening decision.
+
+Every cell runs all seven of these profiles, so any row in the matrix above can
+be read straight across; the `no5lvl`, `no4lvl` and `la57` columns are
+paging-mode variants and appear only on the architectures that offer them.
+
 ### Kernel-configuration sensitivity
 
 The matrix covers this axis in part. A kernel's paging mode and virtual-address
@@ -945,20 +1069,31 @@ Membership turns over as leaks are patched upstream and as the kernel matrix
 moves, so the command is the answer; a list transcribed into this document would
 describe kernels that are no longer in the run.
 
-The shape, however, is stable, and it is the expected outcome once the profiles
-and rules are correct: few rows, and only from a narrow band of signal. Where a
-perf or kallsyms signal exists it is a *sound* pin, so it resolves the
-**guaranteed** window under `perf-open` (to `exact`), never the likely one — a
-sound signal has nothing left to narrow. And the memory-map heuristics that bound
-RAM from world-readable facts (`/proc/zoneinfo` spans, the device-tree `memory`
-node, dmesg zone lines) never tighten past the placement-tracking guaranteed
-ceiling on any arch here, so they add no `likely`-only row either. Most parsed
-signals thus land in the guaranteed matrix or contribute nothing; a signal shows
-up here only when it is reproducible AND sub-floor, which is a narrow band to
-occupy. The BPF verifier-log table is the counter-example worth noting: it used
-to be listed here, and no longer is, because its match now resolves the
-guaranteed window itself under `bpf-open` — a signal that graduates out of
-`likely` is the outcome to want.
+The shape is stable in one respect: where a perf or kallsyms signal exists it is
+a *sound* pin, so it resolves the **guaranteed** window under `perf-open` (to
+`exact`) and never the likely one — a sound signal has nothing left to narrow.
+
+The memory-map heuristics that bound RAM from world-readable facts are the
+opposite case, and they dominate the listing rather than staying out of it. The
+device-tree `memory` node alone supplies most of the rows the command prints,
+because a physical bound projected into the virtual layout has to assume a
+layout to project into, and that assumption is a configuration guess: sub-floor
+by construction, so its result can only ever be a `likely` one. On `aarch64` it
+assumes the 48-bit kernel half that most builds have, which is why a 52-bit
+build is where it goes wrong — the guaranteed window spans from
+`0xffff000008000000` and holds the truth, while the likely window starts at
+`0xffff800008000000` and does not. Those cells report `**NO**` in the last
+column, at every vantage where the signal is reachable.
+
+That is the column doing its job rather than a defect: the likely window is a
+best guess and is not gated to contain the truth, which is precisely why the
+soundness claim rests on the guaranteed matrix above and never on this table. It
+is also the reason the count here is not small.
+
+The BPF verifier-log table is the counter-example worth noting: it used to be
+listed here, and no longer is, because its match now resolves the guaranteed
+window itself under `bpf-open` — a signal that graduates out of `likely` is the
+outcome to want.
 
 Absolute recovery is monotonic in how much the profile relaxes: `perf-open`
 recovers the most, `hardened` the least, with `default`/`kptr-hidden`/`dmesg-open`
