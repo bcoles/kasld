@@ -993,11 +993,12 @@ kernel that leaves perf open to unprivileged callers has no image-base entropy t
 defend, whatever its architecture would otherwise supply.
 
 The mitigation reached for first is the one that does least. `kptr_restrict`
-leaves 40 of the 42 KASLR-on cells bit-identical, and the two that move are both
-`loongarch64`, one gaining a bit and one losing one — movement in both
-directions at once, which is not the signature of a mitigation taking effect. The routes that matter either parse the kernel's own boot log or
-recover an address from a pointer hash, and neither is what `%pK` suppresses.
-Hiding pointers does not hide the base.
+leaves 40 of the 42 KASLR-on cells bit-identical, and the two that move are
+both `loongarch64`, one gaining a bit and one losing one — movement in both
+directions at once, which is not the signature of a mitigation taking
+effect. The routes that matter either parse the kernel's own boot log or
+recover an address from a pointer hash, and neither is what `%pK`
+suppresses. Hiding pointers does not hide the base.
 
 With perf shut, what remains is interface-specific and unevenly spread. Opening
 `tracefs` alone narrows 22 of the 42 KASLR-on cells, across nine architectures,
@@ -1074,21 +1075,27 @@ a *sound* pin, so it resolves the **guaranteed** window under `perf-open` (to
 `exact`) and never the likely one — a sound signal has nothing left to narrow.
 
 The memory-map heuristics that bound RAM from world-readable facts are the
-opposite case, and they dominate the listing rather than staying out of it. The
-device-tree `memory` node alone supplies most of the rows the command prints,
-because a physical bound projected into the virtual layout has to assume a
-layout to project into, and that assumption is a configuration guess: sub-floor
-by construction, so its result can only ever be a `likely` one. On `aarch64` it
-assumes the 48-bit kernel half that most builds have, which is why a 52-bit
-build is where it goes wrong — the guaranteed window spans from
-`0xffff000008000000` and holds the truth, while the likely window starts at
-`0xffff800008000000` and does not. Those cells report `**NO**` in the last
-column, at every vantage where the signal is reachable.
+opposite case, and they dominate the listing rather than staying out of it:
+the device-tree `memory` node alone is named by most of the rows the command
+prints.
 
-That is the column doing its job rather than a defect: the likely window is a
-best guess and is not gated to contain the truth, which is precisely why the
-soundness claim rests on the guaranteed matrix above and never on this table. It
-is also the reason the count here is not small.
+`aarch64` shows what that costs. A 48-bit kernel has two possible linear-map
+bases, one for the layout adopted in v5.4 and one for the layout before it,
+and an unprivileged reader sees nothing that tells them apart: the width
+resolves exactly while `PAGE_OFFSET` stays at two candidates. The guaranteed
+window respects that ambiguity and spans both image bands, from
+`0xffff000008000000`. The likely window breaks the tie in favour of the
+modern layout, which lifts the floor to `0xffff800008000000` — correct for
+every kernel since v5.4, and wrong for one before it, where the image sits
+below the linear map rather than above it. The single pre-flip cell in the
+matrix is the single cell reporting `**NO**`, at every vantage where the
+signal is reachable, while the cells sharing its width and its guaranteed
+floor contain their truth.
+
+That is the column doing its job rather than a defect: the likely window is
+a best guess and is not gated to contain the truth, which is why the
+soundness claim rests on the guaranteed matrix above and never on this
+table.
 
 The BPF verifier-log table is the counter-example worth noting: it used to be
 listed here, and no longer is, because its match now resolves the guaranteed
