@@ -21,8 +21,9 @@ to the smallest set of placements the available evidence supports.
 
 The inference engine fuses evidence from dozens of independent techniques
 with the architecture's known invariants, narrowing the kernel's placement
-to a residual window — reported as the surviving slot count and bits of
-entropy: an upper bound on the protection KASLR retains from this vantage,
+to a residual window — reported as the number of surviving *slots* (the
+placements KASLR could have chosen) and the bits of entropy they represent:
+an upper bound on the protection KASLR retains from this vantage,
 not a guarantee the base is beyond an attacker's reach (see
 [docs/limitations.md](docs/limitations.md)).
 
@@ -108,6 +109,14 @@ Evidence  (1 finding, 2 components)
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
+
+The `Certainty` column separates two different claims about the same
+quantity. A **guaranteed** row is proven: the true value lies inside that
+window. A **likely** row is the single best estimate the evidence supports —
+always a subset of the guaranteed window, and it may be wrong, because it
+draws on signals below the soundness floor such as timing side channels. A
+result worth acting on directly is a `guaranteed` row narrowed to one
+candidate; a `likely` value is a lead to confirm, not a fact to rely on.
 
 `-v` adds the full verbose readout (banner, system-config block,
 per-component logs, KASLR analysis, memory-layout maps). `-j` emits

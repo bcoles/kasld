@@ -918,12 +918,12 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | x86_64 | 7.0.0 | mainline | no5lvl | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | la57 | on | 9 bits | 9 bits |
 
-Each row is one boot. Where the architecture randomises the image base, that
-base is drawn afresh on every boot and the residual depends on where it lands:
-a base the evidence brackets tightly leaves fewer surviving bits than one in an
-open span. Repeated boots of the same cell and profile have been observed to
-differ by one bit on `loongarch64` and up to three on `ppc32`; the cells
-measured elsewhere did not vary.
+Each row is one boot, and the residual is not a constant of the cell. Where the
+architecture redraws the image base every boot, a figure the evidence actually
+moves follows where the base landed — the mechanism, and which cells it touches,
+are set out under the chart above. On this kernel line it reaches `ppc32` and
+the `loongarch64` 6.x cells; a figure that is the starting window unmoved
+repeats exactly, because a prior is a constant.
 
 Two consequences follow for reading the table. A small difference between two
 profile rows of the same cell may be the draw rather than the profile, since the
