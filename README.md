@@ -36,7 +36,7 @@ Supports:
 
 * x86 (i386+, amd64)
 * ARM (armv6, armv7, armv8, aarch64)
-* MIPS (mipsbe, mipsel, mips64el)
+* MIPS (mipsbe, mipsel, mips64, mips64el)
 * PowerPC (ppc, ppcle, ppc64, ppc64le)
 * RISC-V (riscv32, riscv64)
 * LoongArch (loongarch64)

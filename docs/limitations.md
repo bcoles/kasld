@@ -1,11 +1,11 @@
 # Limitations — interpreting a KASLD result
 
-KASLD is **sound but not complete**. It aims to do everything an unprivileged
-local process can: every viable leak component, across every supported
-architecture, whether or not KASLR is active. But that breadth is finite, while
-the ways to defeat KASLR are open-ended — so what KASLD recovers is a lower bound
-on what an attacker can, and what it *fails* to recover says little about a
-target's real security.
+KASLD is **sound but not complete**. It aims to do everything a given vantage
+allows: every viable leak component, across every supported architecture,
+whether or not KASLR is active. But that breadth is finite, while the ways to
+defeat KASLR are open-ended — so what KASLD recovers is a lower bound on what an
+attacker can, and what it *fails* to recover says little about a target's real
+security.
 
 ## Table of Contents
 
@@ -124,9 +124,11 @@ None of the following implies KASLR is secure on the system.
 
 **Threat-model boundaries — KASLD is deliberately narrower than a real adversary.**
 
-- Vantage: KASLD assumes an unprivileged local process with modest permissions.
-  A target may expose a leak only via a capability, a group membership, a user
-  namespace, or a sysctl combination the run did not hold.
+- Vantage: KASLD assumes few privileges by default and uses whatever the
+  vantage grants — up to and including root, where a privileged-only source
+  such as `/proc/kcore` pins a base an unprivileged run can only bound. A
+  target may still expose a leak only via a capability, a group membership, a
+  user namespace, or a sysctl combination the run did not hold.
 - Non-destructive and time-bounded: KASLD will not crash the system, brute-force
   destructively, or dwell indefinitely — all of which a real attacker tolerates
   (crash-and-retry, long dwell, repeated attempts that amortize residual

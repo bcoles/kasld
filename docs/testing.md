@@ -53,7 +53,7 @@ KASLD_NATIVE=1 tests/replay tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
 ```sh
 make check          # runs `make test` then prints "OK: host test suite passed."
-make test           # build + run all test drivers (~46), then the lint guards
+make test           # build + run all test drivers (49), then the lint guards
 make lint           # just the static guards (no test-binary build)
 ```
 

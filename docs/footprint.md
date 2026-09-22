@@ -1,9 +1,9 @@
 # Footprint — what running KASLD looks like
 
-KASLD is **loud by design**. A single run fans out to ~100 short-lived child
-processes that collectively touch nearly every KASLR-relevant sensitive
-interface on the host, in seconds. It makes no attempt to hide: it runs every
-applicable component by default and has no stealth mode.
+KASLD is **loud by design**. A single run fans out to over a hundred
+short-lived child processes that collectively touch nearly every
+KASLR-relevant sensitive interface on the host, in seconds. It makes no attempt
+to hide: it runs every applicable component by default and has no stealth mode.
 
 This document describes that footprint from both sides of the monitored host —
 for the detection engineer who wants to recognise it, and for the operator who
@@ -34,7 +34,7 @@ detection baseline for a low-and-slow adversary.
 The distinctive shape is a **process-tree burst plus a dense sensitive-syscall
 cluster**, not any single primitive:
 
-- **Process fan-out.** One parent spawns ~100 component binaries (the run
+- **Process fan-out.** One parent spawns ~120 component binaries (the run
   banner prints `Running N of M components (K experimental skipped; …)`),
   each a separate `execve` of a helper out of a `components/` or
   `libexec/kasld/` directory, each reading a targeted source and exiting —
