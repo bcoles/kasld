@@ -1,5 +1,80 @@
 # Changelog
 
+## [0.4.1] — 2026-09-22
+
+The kernel's virtual address width was already resolved where the direct map or
+the vmemmap gave it away. This release widens where that answer can be read
+from and what is done with it: four architectures gained rules that invert the
+running width out of `VmallocTotal`, a user-space mapping probe or a readable
+kernel configuration, and riscv64 and s390 now use the resolved width to bound
+the image itself, which they did not before. Two weaker routes are retired —
+one pinned the width outright, the other probed something it could not observe.
+The arm64 half of the work is about layout era rather than address width: the
+pre-flip vmalloc shapes an older kernel produces were not modelled, and a cell
+whose layout stays ambiguous was bounded as though it were not.
+
+### Results
+
+Output differs from `0.4.0` in the following ways. Where a window changed, the
+earlier one was wider or rested on an assumption.
+
+- **The residual is measured against the window the machine alone fixes**, not
+  against the set the engine started from. The old denominator spanned every
+  configuration the architecture admits — on x86_64, one of 512 placements on
+  a machine with RAM for 477 — and left the physical base and two memory
+  regions with no denominator at all. Reported residuals change where the
+  ratio crosses a rounding boundary, most visibly on s390x, where a cell moved
+  from 12 bits to 7 with the guaranteed window unchanged.
+- **s390 no longer floors the image base at the KASLR-off address.** A kernel
+  that randomises can land far below `CONFIG_KERNEL_IMAGE_BASE`. The window is
+  now floored at the identity-mapped link address, and the paging level comes
+  from a readable configuration rather than a probe that could not observe it.
+- **riscv64 and arm64 bound the image from the resolved width.** riscv64 floors
+  at `KERNEL_LINK_ADDR` once the width proves the layout, and no longer reads a
+  direct-map estimate as that proof. arm64 models both pre-flip vmalloc shapes
+  and four further layouts: the pre-flip image starts `TEXT_OFFSET` above
+  `KIMAGE_VADDR`, and a 52-bit width proves the flipped layout only on 4K and
+  16K pages.
+- Every interval states both edges, and a baseline is published only where it
+  can serve as a denominator.
+
+### Techniques
+
+Two components added and two retired, leaving 120; nine inference rules added
+and five retired (95 → 99). Most of the new rules invert the running address
+width from `VmallocTotal` or a readable configuration, then bound the image
+with it; the inversion is held below the sound floor where it is not injective.
+
+- `cmdline_vmalloc` and `dmesg_mem_sizes` — the vmalloc region size from the
+  kernel command line, and memory geometry from the boot log.
+- `mmap_s390_va_bits` and `riscv64_fdt_kaslr_seed` retired: the first could not
+  observe what it claimed to, and the second read a visible device-tree seed as
+  though the kernel had used it. A visible seed is now treated as a KASLR-off
+  signal, which is what it evidences.
+
+### Interface
+
+- **The JSON document has a published schema**, `docs/kasld.schema.json`, and
+  the format carries a `schema_version`.
+- A capture this build does not model is refused rather than parsed against the
+  wrong architecture, and a capture's architecture comes from the capture
+  rather than the analysing host.
+- A component that never started is reported as such, not as one that ran and
+  found nothing.
+- The address-space map is drawn to scale; JSON and the readout publish the
+  page size and `struct page` size; `ksymoff` takes page geometry from the line
+  it is given rather than a table of machines.
+- `extra/check-results` tests MMIO addresses against the System RAM extents
+  rather than their outer span. Device windows sit in the gaps between RAM
+  ranges, so the check could not fire on any machine with a PCI hole; on one
+  host it moved 78 results from unvalidated to checked.
+
+### Architectures
+
+- Architecture headers declare which configurations each window constant holds
+  for, which layouts invert a huge page to a page size, and which layouts the
+  mips64 and x86_64 text floors exclude.
+
 ## [0.4.0] — 2026-09-06
 
 Every value KASLD reports now says how far it can be trusted. A **guaranteed**
@@ -465,6 +540,7 @@ what the kernel was actually doing:
 - `tsx-rtm` — whether the CPU offers TSX/RTM, and so whether a timing approach
   was worth attempting.
 
+[0.4.1]: https://github.com/bcoles/kasld/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/bcoles/kasld/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/bcoles/kasld/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/bcoles/kasld/compare/v0.1.1...v0.2.0
