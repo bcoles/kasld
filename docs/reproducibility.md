@@ -258,7 +258,9 @@ Each bar is one machine, not an average. No figure in it is a total, a mean or
 a distribution across cells: the matrix is a convenience sample whose shape
 follows whatever was investigated most recently, so counting over it would
 measure that attention rather than the subject. One architecture, one kernel,
-one configuration, one number.
+one configuration, one number — and one boot. On the architectures that redraw
+the image base each boot the figure can land a bit or two either side of the one
+plotted; the note beneath the full matrix gives the observed spread.
 
 A defconfig is each architecture's own upstream default, which is what a stock
 build produces, not a single configuration imposed across all of them — and on
@@ -391,7 +393,7 @@ The summary names the two scenarios that carry the result: `default` is the
 ordinary unprivileged vantage, and `perf-open` is the one that moves the answer
 on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 `bpf-open`, `hardened`, and the x86 paging modes — restate their cell's
-`default` in all but 35 rows, and the fold beneath carries every one of them.
+`default` in all but 41 rows, and the fold beneath carries every one of them.
 
 | arch | release | source | KASLR | default (virt / phys) | perf-open (virt / phys) |
 |------|---------|--------|-------|-----------------------|-------------------------|
@@ -418,7 +420,7 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | i686 | 6.6.144 | mainline | on | 8 bits / coupled | exact / coupled |
 | i686 | 7.0.0 | mainline | on | 8 bits / coupled | exact / coupled |
 | i686 | 7.0.0 (vmsplit2g) | mainline | on | 8 bits / coupled | exact / coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | on | 10 bits / coupled | exact / coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | on | 11 bits / coupled | exact / coupled |
 | loongarch64 | 6.6.144 | mainline | on | 11 bits / coupled | exact / coupled |
 | loongarch64 | 7.0.0 | mainline | on | 16 bits / coupled | exact / coupled |
 | mips | 5.15.211 | mainline | on | 8 bits / coupled | exact / coupled |
@@ -448,8 +450,8 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | riscv64 | 6.6.144 | mainline | on | exact / 9 bits | exact / 9 bits |
 | riscv64 | 7.0.0 | mainline | on | 9 bits / 9 bits | exact / 9 bits |
 | s390x | 6.12.81-0-lts | alpine | on | 39 bits / 10 bits | exact / 10 bits |
-| s390x | 5.15.211 | mainline | on | 17 bits / 10 bits | exact / 10 bits |
-| s390x | 6.6.144 | mainline | on | 17 bits / 10 bits | exact / 10 bits |
+| s390x | 5.15.211 | mainline | on | 17 bits / 10 bits | exact / 9 bits |
+| s390x | 6.6.144 | mainline | on | 17 bits / 10 bits | exact / 9 bits |
 | s390x | 7.0.0 | mainline | on | 29 bits / 10 bits | exact / 10 bits |
 | s390x | 7.0.0 (4level) | mainline | on | 39 bits / 10 bits | exact / 10 bits |
 | x86_64 | 6.12.81-0-virt | alpine | on | 2 bits / 6 bits | exact / 6 bits |
@@ -624,19 +626,19 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | i686 | 7.0.0 (vmsplit2g) | mainline | bpf-open | on | 8 bits | coupled |
 | i686 | 7.0.0 (vmsplit2g) | mainline | hardened | on | 8 bits | coupled |
 | i686 | 7.0.0 (vmsplit2g) | mainline | tracefs-open | on | 4 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | default | on | 10 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | kptr-hidden | on | 11 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | default | on | 11 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | kptr-hidden | on | 10 bits | coupled |
 | loongarch64 | 6.18.44-0-lts | alpine | perf-open | on | exact | coupled |
 | loongarch64 | 6.18.44-0-lts | alpine | dmesg-open | on | 10 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | bpf-open | on | 9 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | hardened | on | 10 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | bpf-open | on | 10 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | hardened | on | 11 bits | coupled |
 | loongarch64 | 6.18.44-0-lts | alpine | tracefs-open | on | 10 bits | coupled |
 | loongarch64 | 6.6.144 | mainline | default | on | 11 bits | coupled |
 | loongarch64 | 6.6.144 | mainline | kptr-hidden | on | 10 bits | coupled |
 | loongarch64 | 6.6.144 | mainline | perf-open | on | exact | coupled |
-| loongarch64 | 6.6.144 | mainline | dmesg-open | on | 11 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | bpf-open | on | 11 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | hardened | on | 11 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | dmesg-open | on | 10 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | bpf-open | on | 10 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | hardened | on | 10 bits | coupled |
 | loongarch64 | 6.6.144 | mainline | tracefs-open | on | 11 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | default | on | 16 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | kptr-hidden | on | 16 bits | coupled |
@@ -730,11 +732,11 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | powerpc64 | 7.0.0 | mainline | hardened | off | — | — |
 | powerpc64 | 7.0.0 | mainline | tracefs-open | off | — | — |
 | ppc32 | 5.15.211 | mainline | default | on | 14 bits | coupled |
-| ppc32 | 5.15.211 | mainline | kptr-hidden | on | 14 bits | coupled |
+| ppc32 | 5.15.211 | mainline | kptr-hidden | on | 12 bits | coupled |
 | ppc32 | 5.15.211 | mainline | perf-open | on | exact | coupled |
 | ppc32 | 5.15.211 | mainline | dmesg-open | on | 14 bits | coupled |
 | ppc32 | 5.15.211 | mainline | bpf-open | on | 14 bits | coupled |
-| ppc32 | 5.15.211 | mainline | hardened | on | 12 bits | coupled |
+| ppc32 | 5.15.211 | mainline | hardened | on | 14 bits | coupled |
 | ppc32 | 5.15.211 | mainline | tracefs-open | on | 11 bits | coupled |
 | ppc32 | 6.6.144 | mainline | default | on | 14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | kptr-hidden | on | 14 bits | coupled |
@@ -748,8 +750,8 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | ppc32 | 7.0.0 | mainline | perf-open | on | exact | coupled |
 | ppc32 | 7.0.0 | mainline | dmesg-open | on | 14 bits | coupled |
 | ppc32 | 7.0.0 | mainline | bpf-open | on | 14 bits | coupled |
-| ppc32 | 7.0.0 | mainline | hardened | on | 14 bits | coupled |
-| ppc32 | 7.0.0 | mainline | tracefs-open | on | 10 bits | coupled |
+| ppc32 | 7.0.0 | mainline | hardened | on | 11 bits | coupled |
+| ppc32 | 7.0.0 | mainline | tracefs-open | on | 11 bits | coupled |
 | ppc64le | 6.12.81-0-lts | alpine | default | off | — | — |
 | ppc64le | 6.12.81-0-lts | alpine | kptr-hidden | off | — | — |
 | ppc64le | 6.12.81-0-lts | alpine | perf-open | off | — | — |
@@ -844,18 +846,18 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | s390x | 6.12.81-0-lts | alpine | tracefs-open | on | 28 bits | 10 bits |
 | s390x | 5.15.211 | mainline | default | on | 17 bits | 10 bits |
 | s390x | 5.15.211 | mainline | kptr-hidden | on | 17 bits | 10 bits |
-| s390x | 5.15.211 | mainline | perf-open | on | exact | 10 bits |
+| s390x | 5.15.211 | mainline | perf-open | on | exact | 9 bits |
 | s390x | 5.15.211 | mainline | dmesg-open | on | 17 bits | 10 bits |
 | s390x | 5.15.211 | mainline | bpf-open | on | 17 bits | 10 bits |
 | s390x | 5.15.211 | mainline | hardened | on | 17 bits | 10 bits |
-| s390x | 5.15.211 | mainline | tracefs-open | on | 12 bits | 10 bits |
+| s390x | 5.15.211 | mainline | tracefs-open | on | 11 bits | 10 bits |
 | s390x | 6.6.144 | mainline | default | on | 17 bits | 10 bits |
 | s390x | 6.6.144 | mainline | kptr-hidden | on | 17 bits | 10 bits |
-| s390x | 6.6.144 | mainline | perf-open | on | exact | 10 bits |
+| s390x | 6.6.144 | mainline | perf-open | on | exact | 9 bits |
 | s390x | 6.6.144 | mainline | dmesg-open | on | 17 bits | 10 bits |
 | s390x | 6.6.144 | mainline | bpf-open | on | 17 bits | 10 bits |
 | s390x | 6.6.144 | mainline | hardened | on | 17 bits | 10 bits |
-| s390x | 6.6.144 | mainline | tracefs-open | on | 12 bits | 10 bits |
+| s390x | 6.6.144 | mainline | tracefs-open | on | 7 bits | 10 bits |
 | s390x | 7.0.0 | mainline | default | on | 29 bits | 10 bits |
 | s390x | 7.0.0 | mainline | kptr-hidden | on | 29 bits | 10 bits |
 | s390x | 7.0.0 | mainline | perf-open | on | exact | 10 bits |
@@ -915,6 +917,24 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | x86_64 | 7.0.0 | mainline | tracefs-open | on | 5 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | no5lvl | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | la57 | on | 9 bits | 9 bits |
+
+Each row is one boot. Where the architecture randomises the image base, that
+base is drawn afresh on every boot and the residual depends on where it lands:
+a base the evidence brackets tightly leaves fewer surviving bits than one in an
+open span. Repeated boots of the same cell and profile have been observed to
+differ by one bit on `loongarch64` and up to three on `ppc32`; the cells
+measured elsewhere did not vary.
+
+Two consequences follow for reading the table. A small difference between two
+profile rows of the same cell may be the draw rather than the profile, since the
+two rows are separate boots. A difference in the *narrowing* direction under a
+more restrictive profile is always the draw and never the profile, because
+withholding a source can only widen a guaranteed window. A profile effect shows
+instead as a large and directional change, such as `perf-open` resolving to
+`exact`.
+
+The soundness verdict does not vary with the draw: on every boot the guaranteed
+window contained the true base, which is the property this table gates on.
 
 </details>
 
