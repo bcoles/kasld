@@ -33,7 +33,7 @@
 // (REGION_MMIO), which mmio_floor_phys_ceiling uses to ceiling
 // Q_PHYS_IMAGE_BASE (the image must sit in DRAM below the lowest MMIO above
 // it); one inside System RAM is DRAM the driver exposed — a framebuffer
-// carve-out, say — and is emitted as a reserved DRAM band instead. Decoupled
+// carve-out, say — and is emitted as REGION_DRAM_CARVEOUT instead. Decoupled
 // arches only; loose, and additive mainly when /proc/iomem is masked, which is
 // also when the classification falls back to the MMIO label.
 //
@@ -79,10 +79,12 @@ KASLD_META("method:parsed\n"
  * SoC is routinely a DRAM carve-out or a CMA allocation rather than MMIO, and
  * a UART's mapbase can be reported on a board whose serial is memory-backed.
  * /proc/iomem settles it: an address the kernel places inside System RAM is
- * DRAM the driver exposed, so it is emitted as a reserved DRAM band instead.
- * The distinction matters downstream — REGION_MMIO feeds the MMIO ceiling and
- * carries "the image was never allowed here", while a reserved DRAM band is a
- * DRAM landmark that only forbids the band itself.
+ * DRAM the driver exposed, emitted as REGION_DRAM_CARVEOUT. The distinction
+ * matters downstream — REGION_MMIO carries "the image was never allowed here",
+ * where a carve-out is a DRAM landmark and nothing more. A framebuffer
+ * allocated after free_initmem() can sit in the image's freed __init pages, so
+ * treating it as a region the image cannot occupy would carve the true base
+ * out of the window.
  *
  * A masked or absent /proc/iomem classifies as unknown and the MMIO label
  * stands: calling true MMIO "DRAM" would feed a device window to the DRAM
@@ -96,7 +98,7 @@ static int emit_mmio(unsigned long start, unsigned long len, const char *name) {
     return 0;
   enum kasld_region region =
       kasld_iomem_classify(start) == KASLD_IOMEM_SYSTEM_RAM
-          ? REGION_RESERVED_MEM
+          ? REGION_DRAM_CARVEOUT
           : REGION_MMIO;
   if (len && !kasld_add_ovf(start, len - 1, &hi))
     kasld_result_range(KASLD_TYPE_PHYS, region, start, hi, name, CONF_PARSED);

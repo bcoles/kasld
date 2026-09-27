@@ -103,7 +103,7 @@ static int on_match(const char *line, void *ctx) {
    * cannot drive. Reserved regions are sparse — the gaps between them are NOT
    * known-empty — so this is a range, never a covering extent. */
   if (end > start)
-    kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, start, end, NULL,
+    kasld_result_range(KASLD_TYPE_PHYS, REGION_DRAM_CARVEOUT, start, end, NULL,
                        CONF_PARSED);
 
   return 1; /* continue — multiple regions */

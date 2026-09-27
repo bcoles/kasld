@@ -87,15 +87,23 @@ KASLD_META("method:parsed\n"
  * NOT the kernel's underlying memtype (UIO_MEM_PHYS vs UIO_MEM_LOGICAL/
  * UIO_MEM_DMA_COHERENT/...), so resolution goes via /proc/iomem.
  *
+ * A map the kernel places inside System RAM is DRAM the driver exposed, which
+ * REGION_DRAM_CARVEOUT names exactly: a DRAM landmark, and no claim that the
+ * kernel image avoided the address. REGION_RESERVED_MEM would be the stronger
+ * claim that the region was allocated over free memblock after the image was
+ * placed, which a driver buffer does not satisfy -- a late one can sit in the
+ * __init pages free_initmem() returned to the allocator, inside the very span
+ * an image-base exclusion subtracts.
+ *
  * REGION_MMIO is the default whenever the map cannot positively place the
  * address in System RAM (it is absent, or masked to 0-0 without
  * CAP_SYS_ADMIN). Misclassifying a DRAM-backed UIO map as MMIO only affects
  * the renderer's text-window filter, while misclassifying true MMIO as DRAM
- * (via REGION_RESERVED_MEM, which is_phys_dram_region() accepts) would
- * pollute dram_bound / dram_ceiling inference. */
+ * (which is_phys_dram_region() accepts) would pollute dram_bound /
+ * dram_ceiling inference. */
 static enum kasld_region classify_uio_addr(unsigned long addr) {
   return kasld_iomem_classify(addr) == KASLD_IOMEM_SYSTEM_RAM
-             ? REGION_RESERVED_MEM
+             ? REGION_DRAM_CARVEOUT
              : REGION_MMIO;
 }
 

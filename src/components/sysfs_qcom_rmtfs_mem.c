@@ -131,12 +131,12 @@ int main(void) {
     if (size && end > addr && (unsigned long)end == end) {
       kasld_found("sysfs_qcom_rmtfs_mem %s: phys = 0x%016llx - 0x%016llx",
                   label, addr, end);
-      kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
+      kasld_result_range(KASLD_TYPE_PHYS, REGION_DRAM_CARVEOUT,
                          (unsigned long)addr, (unsigned long)end, label,
                          CONF_PARSED);
     } else {
       kasld_found("sysfs_qcom_rmtfs_mem %s: phys = 0x%016llx", label, addr);
-      kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
+      kasld_result_sample(KASLD_TYPE_PHYS, REGION_DRAM_CARVEOUT,
                           (unsigned long)addr, label, CONF_PARSED);
     }
     count++;

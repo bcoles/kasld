@@ -547,6 +547,23 @@ Key rules for cross-region derivation:
   extent contains it, and is invalidated. Regions forbidden for the other
   reason — a reservation carved out of RAM, such as crashkernel or SWIOTLB — sit
   inside RAM by construction and are deliberately not tested.
+- **`phys_reservation_exclude`** — carves the band whose image would overlap a
+  region the kernel image provably cannot occupy. "Provably" rests on one of
+  two arguments, which `phys_kernel_forbidden_reason()` keeps apart because
+  they make opposite predictions about System RAM: a region that is never RAM
+  (MMIO, PCI, persistent memory, ACPI), or one reserved out of free memblock
+  *after* the image was placed (crashkernel, SWIOTLB). DRAM set aside at an
+  address the device-tree blob or a driver chose satisfies neither — a
+  `/reserved-memory` node's `reg` is merged silently by `memblock_reserve()`
+  when it overlaps the image, and a buffer allocated after `free_initmem()` can
+  sit in the `__init` pages returned to the page allocator, inside the very
+  span the exclusion subtracts. Those carry `dram_carveout`, which bounds DRAM
+  and claims nothing about where the image is not. What keeps the reserved
+  class is what the allocator refuses: crashkernel reaches
+  `memblock_phys_alloc_range()` even for `crashkernel=size@offset`, SWIOTLB is
+  a plain memblock allocation, and CMA's `cma_fixed_reserve()` returns `-EBUSY`
+  on an already-reserved range. The reporting channel does not decide it — one
+  dmesg line can carry a fixed reservation and an allocated one.
 - **`page_offset_from_landmark`** / **`page_offset_from_config`** — pin
   `Q_PAGE_OFFSET` from a `pageoffset` landmark or `CONFIG_PAGE_OFFSET`; this is
   how a runtime vmsplit propagates on coupled architectures.

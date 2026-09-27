@@ -2151,6 +2151,25 @@ static void test_phys_reservation_exclude(void) {
            quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, NULL, 0,
                           KASLR_PHYS_ALIGN));
 
+  /* Negative: a DRAM carve-out emits no exclude. The address is DRAM, but it
+   * was placed at a fixed address by the blob or handed out by a driver, so
+   * nothing establishes the image avoided it -- a device-tree /reserved-memory
+   * `reg` overlapping the image is merged silently by memblock_reserve(), and
+   * a late allocation can sit in the __init pages free_initmem() released,
+   * inside the very span this exclusion subtracts. Emitting a band here is
+   * what carves the true base out of the guaranteed window. */
+  static struct engine ec;
+  engine_init(&ec);
+  struct observation isc = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  evidence_add(&ec.ev, &isc);
+  struct observation carve = crash;
+  carve.region = REGION_DRAM_CARVEOUT;
+  evidence_add(&ec.ev, &carve);
+  engine_run(&ec, rules, 1);
+  TH_CHECK(!find_phys_exclude(&ec));
+  /* Still a DRAM landmark, so it must remain usable to the DRAM bounds. */
+  TH_CHECK(is_phys_dram_region(REGION_DRAM_CARVEOUT));
+
   /* Negative: a NON-forbidden region (plain RAM) emits no exclude — the image
    * CAN live in RAM. */
   static struct engine e2;

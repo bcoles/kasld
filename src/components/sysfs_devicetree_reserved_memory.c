@@ -196,12 +196,22 @@ int main(void) {
                  base_addr, size);
 
       /* Emit the full [base, base+size-1] extent, not just the base point, so
-       * phys_reservation_exclude carves this in-RAM reservation as a forbidden
-       * hole for the physical image base (reserved-memory pools are memblock
-       * carve-outs from DRAM, disjoint from the loaded image). The DT node name
-       * identifies the reservation (e.g. "linux,cma", "optee@a0000000"). */
+       * the band bounds DRAM from both edges. The DT node name identifies the
+       * reservation (e.g. "linux,cma", "optee@a0000000").
+       *
+       * REGION_DRAM_CARVEOUT, not REGION_RESERVED_MEM: a node carrying a `reg`
+       * names a FIXED address the blob chose, and was never allocated over
+       * free memblock. __reserved_mem_reserve_reg() hands it to
+       * memblock_reserve(), which merges silently when it overlaps the loaded
+       * image and reports nothing; the `no-map` form is refused outright when
+       * the range is already reserved, yet the node keeps publishing its reg
+       * either way. So the address bounds DRAM and establishes nothing about
+       * where the image is not -- reading it as a region the image cannot
+       * occupy carves the true base out of the guaranteed window. Only the
+       * dynamically sized nodes satisfy the allocated-after-placement
+       * argument, and the kernel writes back no `reg` for those. */
       if (res_hi >= base_addr)
-        kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, base_addr,
+        kasld_result_range(KASLD_TYPE_PHYS, REGION_DRAM_CARVEOUT, base_addr,
                            res_hi, ent->d_name, CONF_PARSED);
 
       count++;

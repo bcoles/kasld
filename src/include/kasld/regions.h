@@ -52,6 +52,7 @@ static inline int is_phys_dram_region(enum kasld_region r) {
   case REGION_INITRD:
   case REGION_CMDLINE:
   case REGION_RESERVED_MEM:
+  case REGION_DRAM_CARVEOUT:
   case REGION_SWIOTLB:
   case REGION_VMCOREINFO:
   case REGION_CRASHKERNEL:
@@ -124,9 +125,28 @@ enum kasld_forbidden_reason {
    * ram_map_nonram_conflict. */
   FORBIDDEN_NEVER_RAM,
   /* Reserved from FREE RAM after the image is already placed: crashkernel,
-   * SWIOTLB, and reserved-memory pools come from memblock_phys_alloc_range
-   * over free memblock (the image's pages are already reserved), so they
-   * cannot overlap it.
+   * SWIOTLB, and the memblock reserved-memory pools come from
+   * memblock_phys_alloc_range over free memblock (the image's pages are
+   * already reserved), so they cannot overlap it.
+   *
+   * "Allocated over free memblock" is the whole of the argument, and it is a
+   * property of HOW the region came to be, not of when or of who reported it.
+   * Two things fail it. A reservation at a FIXED address -- a device-tree
+   * /reserved-memory node carrying a `reg`, a firmware carve-out, an IOMMU
+   * window -- was not allocated at all: something names an address,
+   * memblock_reserve() merges it silently if it overlaps the image, and
+   * nothing reports the collision. And an allocation made LATE, after
+   * free_initmem() has returned the image's __init pages to the page
+   * allocator, can land inside the image's original footprint, which is the
+   * span the exclusion subtracts. Neither belongs here; both are
+   * REGION_DRAM_CARVEOUT.
+   *
+   * What survives the test does so because the allocator itself refuses an
+   * overlap: crashkernel reaches memblock_phys_alloc_range() even for
+   * crashkernel=size@offset, SWIOTLB is a plain memblock allocation, and CMA's
+   * cma_fixed_reserve() returns -EBUSY on memblock_is_region_reserved(). The
+   * question to ask of a new producer is which of those two it is, and the
+   * reporting channel does not answer it -- one dmesg line can carry both.
    *
    * These addresses are EXPECTED to be inside System RAM. A RAM-membership
    * test says nothing about them and must not be applied. */
@@ -137,8 +157,12 @@ enum kasld_forbidden_reason {
  *
  * Deliberately FORBIDDEN_NO: RAM / DMA / DMA32 / NUMA (the image CAN live
  * there); the kernel-image / EFI-loader-image regions (that IS the image);
- * VMCOREINFO (kernel data, may overlap the image); and INITRD / CMDLINE /
- * *_MEMMAP (each carved by its own dedicated exclude rule). */
+ * VMCOREINFO (kernel data, may overlap the image); INITRD / CMDLINE /
+ * *_MEMMAP (each carved by its own dedicated exclude rule); and
+ * DRAM_CARVEOUT -- DRAM set aside at an address the blob or a driver chose,
+ * where nothing establishes the image avoided it. The last is a landmark
+ * saying "DRAM reaches here" and nothing more; reading it as a reservation
+ * the image cannot occupy is what carves the true base out of the window. */
 static inline enum kasld_forbidden_reason
 phys_kernel_forbidden_reason(enum kasld_region r) {
   switch (r) {

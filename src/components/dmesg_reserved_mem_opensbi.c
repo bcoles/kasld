@@ -108,7 +108,7 @@ int main(void) {
     return 0;
   }
 
-  kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, phys_addr, NULL,
+  kasld_result_sample(KASLD_TYPE_PHYS, REGION_DRAM_CARVEOUT, phys_addr, NULL,
                       CONF_PARSED);
 
   /* On older firmware, mmode_resv0 started at DRAM_BASE and the kernel

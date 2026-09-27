@@ -118,14 +118,17 @@ static void test_reserved_mem_per_region(void) {
               "OF: reserved mem: 0x0000000088000000..0x000000008bffffff (65536 "
               "KiB) map b@88000000\n");
   run_capture(resmem_main);
-  TH_CHECK(
-      strstr(cap,
-             "reserved_mem pos=base conf=parsed lo=0x80000000 hi=0x801fffff") !=
-      NULL);
-  TH_CHECK(
-      strstr(cap,
-             "reserved_mem pos=base conf=parsed lo=0x88000000 hi=0x8bffffff") !=
-      NULL);
+  /* dram_carveout: these lines come straight from the device-tree
+   * reserved-memory infrastructure, which prints a node with a fixed `reg`
+   * (a@80000000 here) exactly as it prints a dynamically sized one. A fixed
+   * reg is a plain memblock_reserve() that merges silently where it overlaps
+   * the loaded image, so the address bounds DRAM and establishes nothing
+   * about where the image is not. */
+  TH_CHECK(strstr(cap, "dram_carveout pos=base conf=parsed lo=0x80000000 "
+                       "hi=0x801fffff") != NULL);
+  TH_CHECK(strstr(cap, "dram_carveout pos=base conf=parsed lo=0x88000000 "
+                       "hi=0x8bffffff") != NULL);
+  TH_CHECK(strstr(cap, "reserved_mem") == NULL);
 }
 
 /* --- dmesg_swiotlb: the pool is a single contiguous reservation -> one range.
@@ -170,12 +173,17 @@ static void test_cma_size_to_range(void) {
       "MiB\n"
       "cma: Reserved 256 MiB at 0x00000000f0000000 on node -1\n");
   run_capture(cma_main);
-  /* 96 MiB:  0x7a000000 + 0x6000000  - 1 = 0x7fffffff */
-  TH_CHECK(
-      strstr(cap,
-             "reserved_mem pos=base conf=parsed lo=0x7a000000 hi=0x7fffffff") !=
-      NULL);
-  /* 256 MiB: 0xf0000000 + 0x10000000 - 1 = 0xffffffff */
+  /* The two message families carry different claims, so they carry different
+   * regions. "Reserved memory: created ... pool" is the /reserved-memory
+   * handler, which also runs for a fixed-`reg` node whose memblock_reserve()
+   * merges silently on overlap -> dram_carveout.
+   * 96 MiB:  0x7a000000 + 0x6000000  - 1 = 0x7fffffff */
+  TH_CHECK(strstr(cap, "dram_carveout pos=base conf=parsed lo=0x7a000000 "
+                       "hi=0x7fffffff") != NULL);
+  /* "cma: Reserved" is cma_declare_contiguous_nid(), whose fixed-base form
+   * fails with -EBUSY when the range is already reserved -- so a line that
+   * printed proves no overlap with the image -> reserved_mem.
+   * 256 MiB: 0xf0000000 + 0x10000000 - 1 = 0xffffffff */
   TH_CHECK(
       strstr(cap,
              "reserved_mem pos=base conf=parsed lo=0xf0000000 hi=0xffffffff") !=
@@ -188,8 +196,10 @@ static void test_cma_size_absent_fallback(void) {
   stage_dmesg(
       "Reserved memory: created restricted DMA pool at 0x0000000060000000\n");
   run_capture(cma_main);
+  /* The /reserved-memory family, so dram_carveout here too — the region
+   * follows the message, not whether a size was parseable. */
   TH_CHECK(
-      strstr(cap, "reserved_mem pos=interior conf=parsed sample=0x60000000") !=
+      strstr(cap, "dram_carveout pos=interior conf=parsed sample=0x60000000") !=
       NULL);
   /* no size => no [lo,hi] band may be invented */
   TH_CHECK(strstr(cap, "lo=0x60000000 hi=") == NULL);

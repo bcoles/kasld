@@ -232,7 +232,7 @@ static void test_cbmem_address(void) {
              "0x100000000\n");
   stage_text("/sys/bus/coreboot/devices/cbmem-00000abc/size", "0x10000\n");
   run_capture(cbmem_main);
-  TH_CHECK(strstr(cap, "reserved_mem:cbmem-00000abc pos=base conf=parsed "
+  TH_CHECK(strstr(cap, "dram_carveout:cbmem-00000abc pos=base conf=parsed "
                        "lo=0x100000000 hi=0x10000ffff") != NULL);
 }
 
@@ -258,10 +258,10 @@ static void test_qcom_rmtfs(void) {
   stage_text("/sys/class/rmtfs/qcom_rmtfs_mem0/size", "0x200000\n");
   stage_text("/sys/class/rmtfs/qcom_rmtfs_mem1/phys_addr", "0x200000000\n");
   run_capture(qcom_main);
-  TH_CHECK(strstr(cap, "reserved_mem:qcom_rmtfs_mem0 pos=base conf=parsed "
+  TH_CHECK(strstr(cap, "dram_carveout:qcom_rmtfs_mem0 pos=base conf=parsed "
                        "lo=0x100000000 hi=0x1001fffff") != NULL);
   /* no size sibling -> base-only sample (degrades to the prior behavior) */
-  TH_CHECK(strstr(cap, "reserved_mem:qcom_rmtfs_mem1 pos=interior conf=parsed "
+  TH_CHECK(strstr(cap, "dram_carveout:qcom_rmtfs_mem1 pos=interior conf=parsed "
                        "sample=0x200000000") != NULL);
 }
 
@@ -371,8 +371,12 @@ static void test_uio_map(void) {
                             "  90000000-9000ffff : uio-mem\n"
                             "c0000000-c0ffffff : PCI Bus 0000:00\n");
   run_capture(uio_main);
-  TH_CHECK(strstr(cap, "P reserved_mem:uio0/map0") != NULL);
+  /* dram_carveout, not reserved_mem: the map is DRAM, but a driver buffer was
+   * not allocated over free memblock after the image was placed, so it carries
+   * no claim about where the image is not. */
+  TH_CHECK(strstr(cap, "P dram_carveout:uio0/map0") != NULL);
   TH_CHECK(strstr(cap, "P mmio:uio0/map0") == NULL);
+  TH_CHECK(strstr(cap, "P reserved_mem:uio0/map0") == NULL);
 
   stage_text("/sys/class/uio/uio0/maps/map0/addr", "0xc0800000\n");
   run_capture(uio_main);
@@ -495,7 +499,12 @@ static void test_devicetree_reserved_memory(void) {
   uint32_t reg[] = {0, 0x80000000u, 0, 0x40000u}; /* base 0x80000000, 256 KiB */
   stage_cells(RMB "/reserved-memory/mmode_resv0@80000000/reg", reg, 4);
   run_capture(rm_main);
-  TH_CHECK(strstr(cap, "P reserved_mem:mmode_resv0@80000000") != NULL);
+  /* dram_carveout, not reserved_mem: a node carrying a `reg` names a fixed
+   * address the blob chose. memblock_reserve() merges it silently where it
+   * overlaps the loaded image, so it bounds DRAM and says nothing about where
+   * the image is not. */
+  TH_CHECK(strstr(cap, "P dram_carveout:mmode_resv0@80000000") != NULL);
+  TH_CHECK(strstr(cap, "P reserved_mem:mmode_resv0@80000000") == NULL);
   /* full extent, not just the base point */
   TH_CHECK(strstr(cap, "lo=0x80000000 hi=0x8003ffff") != NULL);
 #undef RMB

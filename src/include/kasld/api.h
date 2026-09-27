@@ -1809,6 +1809,7 @@ enum kasld_confidence {
   X(REGION_CMDLINE, "cmdline", "dram", K_OPEN)                                   \
   X(REGION_CMDLINE_MEMMAP, "cmdline_memmap", "dram", K_OPEN)                     \
   X(REGION_RESERVED_MEM, "reserved_mem", "dram", K_OPEN)                         \
+  X(REGION_DRAM_CARVEOUT, "dram_carveout", "dram", K_OPEN)                       \
   X(REGION_SWIOTLB, "swiotlb", "dram", K_OPEN)                                   \
   X(REGION_VMCOREINFO, "vmcoreinfo", "dram", K_OPEN)                             \
   X(REGION_CRASHKERNEL, "crashkernel", "dram", K_OPEN)                           \

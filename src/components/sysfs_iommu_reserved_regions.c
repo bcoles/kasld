@@ -200,11 +200,11 @@ int main(void) {
        * a RAM map, so the gaps between them are NOT known-empty: range, not
        * extent. */
       if (end_addr > start)
-        kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
+        kasld_result_range(KASLD_TYPE_PHYS, REGION_DRAM_CARVEOUT,
                            (unsigned long)start, (unsigned long)end_addr,
                            ent->d_name, CONF_PARSED);
       else
-        kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
+        kasld_result_sample(KASLD_TYPE_PHYS, REGION_DRAM_CARVEOUT,
                             (unsigned long)start, ent->d_name, CONF_PARSED);
     }
     fclose(f);
