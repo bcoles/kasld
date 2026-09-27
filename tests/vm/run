@@ -282,7 +282,12 @@ fetch_kernel() {
 norm() { v=$(printf '%s' "$1" | sed 's/^0x//' | tr 'A-F' 'a-f'); [ -n "$v" ] || return 0; printf '%016s' "$v" | tr ' ' 0; }
 hexle() { [ "$1" = "$2" ] && return 0; [ "$(printf '%s\n%s\n' "$1" "$2" | LC_ALL=C sort | head -1)" = "$1" ]; }
 
-# Physical soundness for a boot log, echoed as one word: Y / N / NA.
+# Physical soundness for a boot log, echoed as one word:
+#   Y   truth inside the window and outside every carved sub-range
+#   Y*  as Y, but the carved list was truncated, so membership is unsettled
+#   N   truth outside the window bounds
+#   X   truth inside the bounds but inside a carved sub-range
+#   NA  coupled arch, or no truth / no window to compare
 # Truth = the lowest "Kernel code" address in the root-captured /proc/iomem dump
 # (raw "START-END : Kernel code" format). Window = the -j phys_kaslr_text_min/max.
 # Only meaningful on DECOUPLED arches: where text tracks the direct map (coupled)
@@ -298,7 +303,37 @@ phys_verdict() {
   _pmax=$(grep -am1 -oE '"phys_kaslr_text_max": *"0x[0-9a-fA-F]+"' "$_plog" | grep -oE '0x[0-9a-fA-F]+')
   _pt=$(norm "$_pt"); _plo=$(norm "$_pmin"); _phi=$(norm "$_pmax")
   if [ -z "$_pt" ] || [ -z "$_plo" ] || [ -z "$_phi" ]; then echo NA; return; fi
-  if hexle "$_plo" "$_pt" && hexle "$_pt" "$_phi"; then echo Y; else echo N; fi
+  if ! hexle "$_plo" "$_pt" || ! hexle "$_pt" "$_phi"; then echo N; return; fi
+  # Inside the headline window is not the same as inside the candidate SET. A
+  # C_EXCLUDE carves an interior hole: the counts drop but range_min/range_max
+  # do not move, so a truth sitting in a carved hole passes every bound test
+  # while having been ruled out. Test the holes too, or this whole class of
+  # over-narrowing is invisible here.
+  _holes=$(awk '
+    /"excluded": \[/          { inb = 1; next }
+    inb && /^[[:space:]]*\]/  { exit }
+    inb {
+      n = 0
+      while (match($0, /0x[0-9a-fA-F]+/)) {
+        v[++n] = substr($0, RSTART, RLENGTH)
+        $0 = substr($0, RSTART + RLENGTH)
+      }
+      if (n >= 2) print v[1], v[2]
+    }
+  ' "$_plog")
+  echo "$_holes" | while read -r _hlo _hhi; do
+    [ -n "$_hlo" ] || continue
+    if hexle "$(norm "$_hlo")" "$_pt" && hexle "$_pt" "$(norm "$_hhi")"; then
+      exit 9
+    fi
+  done || { echo X; return; }
+  # The report keeps at most KASLD_REPORT_MAX_EXCLUDED holes; past that the list
+  # is a sample and membership cannot be settled from it. Say so rather than
+  # reporting a pass the evidence does not support.
+  _etot=$(grep -am1 -oE '"excluded_total": *[0-9]+' "$_plog" | grep -oE '[0-9]+')
+  _elist=$(echo "$_holes" | grep -c '[0-9]')
+  if [ -n "$_etot" ] && [ "$_etot" -gt "$_elist" ]; then echo 'Y*'; return; fi
+  echo Y
 }
 
 # region_verdict <log>: gates the RANDOMIZE_MEMORY region bases (direct map,
@@ -511,6 +546,12 @@ verdict() {
   fi
   if [ "$_pv" = N ]; then
     echo "FAIL  phys base OUTSIDE resolved window — soundness violation (virt truth=$_truth ∈ [$_min,$_max])"
+    return 1
+  fi
+  # Inside the window's bounds but inside a carved sub-range: the base was ruled
+  # out of the candidate set while every bound test still passes.
+  if [ "$_pv" = X ]; then
+    echo "FAIL  phys base EXCLUDED by a carved sub-range of the resolved window — soundness violation (virt truth=$_truth ∈ [$_min,$_max])"
     return 1
   fi
   _rv=$(region_verdict "$_log")

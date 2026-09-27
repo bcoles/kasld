@@ -19,7 +19,8 @@
 #   type:   P (physical), V (virtual), S (scalar-fact), R (disposition)
 #   region: closed enum (kernel_text, kernel_data, kernel_bss,
 #           kernel_image, module, module_band, ram, dma, dma32,
-#           initrd, cmdline, cmdline_memmap, reserved_mem, swiotlb,
+#           initrd, cmdline, cmdline_memmap, reserved_mem, dram_carveout,
+#           swiotlb,
 #           vmcoreinfo, crashkernel, pmem, acpi_table, acpi_nvs,
 #           efi_memmap, numa_node, mmio, pci_mmio, directmap,
 #           virt_page_offset, vmalloc, vmemmap).
@@ -157,9 +158,43 @@ numeric() {
 # in the engine's resolution that no single leaked result reveals -- including
 # resolution over the live-only leaks (perf, prefetch, side channels) that an
 # offline replay cannot exercise.
-# Usage: validate_inferred LABEL TRUTH16 RENDERED_LINE
+# Usage: validate_inferred LABEL TRUTH16 RENDERED_LINE [READOUT_LABEL]
+# excluded_hit READOUT_LABEL TRUTH16 → echoes one word:
+#   clear      truth lies in no carved sub-range
+#   hit:LO-HI  truth lies inside that carved sub-range
+#   partial    the readout truncated its list, so membership is unsettled
+#
+# A window's bounds are not its candidate SET. A C_EXCLUDE carves an interior
+# hole: the slot counts drop but the rendered lo/hi do not move, so a base
+# ruled out of the set still passes every bound test. Without this the whole
+# over-narrowing class is invisible here -- which is the direction that
+# matters, since a window that has silently dropped the true base is exactly
+# what this script exists to catch.
+#
+# Reads the `-v` readout block that lists them:
+#     Physical image base excludes 2 ranges:
+#         0x40000000 - 0x4162ffff
+excluded_hit() {
+  _xlabel="$1"; _xtruth="$2"
+  _xblock=$(printf '%s\n' "$raw_input" | sed -n "/$_xlabel excludes /,/^[[:space:]]*\$/p")
+  [ -n "$_xblock" ] || { echo clear; return; }
+  case $_xblock in
+    *'(first few)'*) echo partial; return ;;
+  esac
+  printf '%s\n' "$_xblock" | while IFS= read -r _xr; do
+    _xlo=$(printf '%s' "$_xr" | grep -oE '0x[0-9a-fA-F]+' | sed -n '1p')
+    _xhi=$(printf '%s' "$_xr" | grep -oE '0x[0-9a-fA-F]+' | sed -n '2p')
+    if [ -z "$_xlo" ] || [ -z "$_xhi" ]; then continue; fi
+    _xlo=$(hex16 "$_xlo"); _xhi=$(hex16 "$_xhi")
+    if hex_in_range "$_xtruth" "$_xlo" "$_xhi"; then
+      printf 'hit:%s-%s\n' "$_xlo" "$_xhi"
+      return 0
+    fi
+  done | { read -r _xout || _xout=clear; echo "$_xout"; }
+}
+
 validate_inferred() {
-  _label="$1"; _truth="$2"; _line="$3"
+  _label="$1"; _truth="$2"; _line="$3"; _readout="${4:-}"
   # No window to check: the base was leaked or pinned outright, so nothing was
   # rendered to validate. Reported as a skip like every other inapplicable
   # check, and with an explicit status -- a bare `return` here carries the
@@ -202,11 +237,21 @@ validate_inferred() {
     return
   fi
   _rlo=$(hex16 "$_rlo"); _rhi=$(hex16 "$_rhi")
-  if hex_in_range "$_truth" "$_rlo" "$_rhi"; then
-    pass "$_label — real base 0x$_truth within inferred [0x$_rlo - 0x$_rhi]"
-  else
+  if ! hex_in_range "$_truth" "$_rlo" "$_rhi"; then
     fail "$_label — real base 0x$_truth NOT in inferred [0x$_rlo - 0x$_rhi]"
+    return
   fi
+  # Within the bounds; now the set. `_readout` names the block the readout
+  # prints its carved sub-ranges under, empty where the caller has none.
+  case $(excluded_hit "$_readout" "$_truth") in
+    clear)
+      pass "$_label — real base 0x$_truth within inferred [0x$_rlo - 0x$_rhi]" ;;
+    partial)
+      skip "$_label — real base 0x$_truth within [0x$_rlo - 0x$_rhi]; carved list truncated, set membership unsettled" ;;
+    hit:*)
+      _h=$(excluded_hit "$_readout" "$_truth")
+      fail "$_label — real base 0x$_truth EXCLUDED by carved sub-range 0x${_h#hit:} of [0x$_rlo - 0x$_rhi]" ;;
+  esac
 }
 
 # -------------------------------------------------------------------------
@@ -905,7 +950,8 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
 
     # ---- Physical: DRAM-resident regions -------------------------------
     "P ram"|"P dma"|"P dma32"|"P initrd"|"P cmdline"|"P cmdline_memmap"|\
-    "P reserved_mem"|"P swiotlb"|"P vmcoreinfo"|"P crashkernel"|"P pmem"|\
+    "P reserved_mem"|"P dram_carveout"|"P swiotlb"|"P vmcoreinfo"|\
+    "P crashkernel"|"P pmem"|\
     "P acpi_table"|"P acpi_nvs"|"P numa_node"|"P efi_memmap")
       if [ -z "$truth_ram_lo" ]; then
         skip "$desc — no /proc/iomem System RAM"
@@ -1001,8 +1047,10 @@ done
 # -------------------------------------------------------------------------
 virt_win=$(printf '%s\n' "$raw_input" | grep 'Virtual Image Base' | grep 'guaranteed' | head -1)
 phys_win=$(printf '%s\n' "$raw_input" | grep 'Physical Image Base' | grep 'guaranteed' | head -1)
-validate_inferred "Resolved virt image-base window" "$truth_text" "$virt_win"
-validate_inferred "Resolved phys image-base window" "$truth_ptext_lo" "$phys_win"
+validate_inferred "Resolved virt image-base window" "$truth_text" "$virt_win" \
+  "Virtual image base"
+validate_inferred "Resolved phys image-base window" "$truth_ptext_lo" "$phys_win" \
+  "Physical image base"
 
 # -------------------------------------------------------------------------
 # RAM-map coverage. A `pos=extent` line is one member of a COMPLETE single-source
