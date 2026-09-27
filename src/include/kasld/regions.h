@@ -97,37 +97,72 @@ static inline int is_mmio_region(enum kasld_region r) {
   return r == REGION_MMIO || r == REGION_PCI_MMIO;
 }
 
-/* Physical regions the kernel image provably cannot occupy, so a leaked extent
- * of one forbids the physical base from the band whose image would overlap it
- * (sound to C_EXCLUDE). Two disjointness sources, both checked against the
- * kernel source:
- *   - never System RAM: MMIO/PCI windows, persistent memory, ACPI tables/NVS
- *     are not E820_TYPE_RAM, and the compressed-boot KASLR places the image
- *     ONLY in RAM (arch/x86/boot/compressed/kaslr.c process_e820_entries:
- *     `if (entry->type != E820_TYPE_RAM) continue`), fitting it wholly in one
- *     region (`if (region.size < image_size) ...`);
- *   - reserved from FREE RAM after the image is already placed: crashkernel,
- *     SWIOTLB, and reserved-memory pools come from memblock_phys_alloc_range
- *     over free memblock (the image's pages are already reserved), so they
- *     cannot overlap it.
- * Deliberately NOT here: RAM / DMA / DMA32 / NUMA (the image CAN live there);
- * the kernel-image / EFI-loader-image regions (that IS the image); VMCOREINFO
- * (kernel data, may overlap the image); and INITRD / CMDLINE / *_MEMMAP (each
- * carved by its own dedicated exclude rule). */
-static inline int is_phys_kernel_forbidden_region(enum kasld_region r) {
+/* Why the kernel image provably cannot occupy a physical region.
+ *
+ * One axis rather than a set of booleans, because the two reasons below are
+ * alternatives and they are NOT interchangeable downstream: they make opposite
+ * predictions about whether the region's address is System RAM. A rule that
+ * treated the pair as one flag would either never be able to check a
+ * never-RAM claim against a RAM map, or would check a reserved-from-RAM claim
+ * against it and invalidate every correct observation. A region added later
+ * has to name its reason, and a typo in the value does not compile.
+ *
+ * Both reasons are verified against the kernel source and both license the
+ * same C_EXCLUDE: a leaked extent forbids the physical base from the band
+ * whose image would overlap it. */
+enum kasld_forbidden_reason {
+  /* Not forbidden — the image can be here. */
+  FORBIDDEN_NO = 0,
+  /* Never System RAM: MMIO/PCI windows, persistent memory, ACPI tables/NVS
+   * are not E820_TYPE_RAM, and the compressed-boot KASLR places the image
+   * ONLY in RAM (arch/x86/boot/compressed/kaslr.c process_e820_entries:
+   * `if (entry->type != E820_TYPE_RAM) continue`), fitting it wholly in one
+   * region (`if (region.size < image_size) ...`).
+   *
+   * Because the claim IS "this address is not System RAM", a RAM map that
+   * says otherwise contradicts the observation outright — see
+   * ram_map_nonram_conflict. */
+  FORBIDDEN_NEVER_RAM,
+  /* Reserved from FREE RAM after the image is already placed: crashkernel,
+   * SWIOTLB, and reserved-memory pools come from memblock_phys_alloc_range
+   * over free memblock (the image's pages are already reserved), so they
+   * cannot overlap it.
+   *
+   * These addresses are EXPECTED to be inside System RAM. A RAM-membership
+   * test says nothing about them and must not be applied. */
+  FORBIDDEN_RESERVED_FROM_RAM,
+};
+
+/* The reason a leaked extent of this region forbids the physical base.
+ *
+ * Deliberately FORBIDDEN_NO: RAM / DMA / DMA32 / NUMA (the image CAN live
+ * there); the kernel-image / EFI-loader-image regions (that IS the image);
+ * VMCOREINFO (kernel data, may overlap the image); and INITRD / CMDLINE /
+ * *_MEMMAP (each carved by its own dedicated exclude rule). */
+static inline enum kasld_forbidden_reason
+phys_kernel_forbidden_reason(enum kasld_region r) {
   switch (r) {
   case REGION_MMIO:
   case REGION_PCI_MMIO:
-  case REGION_RESERVED_MEM:
-  case REGION_CRASHKERNEL:
-  case REGION_SWIOTLB:
   case REGION_PMEM:
   case REGION_ACPI_TABLE:
   case REGION_ACPI_NVS:
-    return 1;
+    return FORBIDDEN_NEVER_RAM;
+  case REGION_RESERVED_MEM:
+  case REGION_CRASHKERNEL:
+  case REGION_SWIOTLB:
+    return FORBIDDEN_RESERVED_FROM_RAM;
   default:
-    return 0;
+    return FORBIDDEN_NO;
   }
+}
+
+/* Physical regions the kernel image provably cannot occupy, for either
+ * reason, so a leaked extent forbids the base from the overlapping band
+ * (sound to C_EXCLUDE). Derived from the axis above — the reason is what a
+ * caller that needs to distinguish the two asks for. */
+static inline int is_phys_kernel_forbidden_region(enum kasld_region r) {
+  return phys_kernel_forbidden_reason(r) != FORBIDDEN_NO;
 }
 
 /* Physical regions that locate the kernel image (a leaked address here pins

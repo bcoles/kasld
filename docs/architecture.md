@@ -477,8 +477,11 @@ cannot start there). A covering is therefore:
 - **Routed out-of-band.** The orchestrator sends `pos=extent` records to a
   dedicated `coverings[]` store on the evidence set, **bypassing the merge**, and
   tags each with its single emitting `origin`. The map rules
-  (`ram_map_phys_exclude`, `firmware_memmap_holes`) read `coverings[]` grouped by
-  origin; no other rule sees them.
+  (`ram_map_phys_exclude`, `firmware_memmap_holes`, `ram_map_nonram_conflict`)
+  read `coverings[]`; the first two group by origin, because a gap is a property
+  of one map and mixing two sources' gaps is unsound. `ram_map_nonram_conflict`
+  tests membership rather than gaps, so any one extent suffices and no grouping
+  applies. No other rule sees them.
 
 The wire marker `pos=extent` is the whole contract — there is no per-component
 allowlist. Because a *partial* map would carve false gaps, only whole-map sources
@@ -538,6 +541,12 @@ Key rules for cross-region derivation:
   out of `Q_PHYS_IMAGE_BASE`.
 - **`firmware_memmap_holes`** — emits a `V_INVALID` verdict against `PHYS`
   kernel-image candidates that fall outside any System RAM range.
+- **`ram_map_nonram_conflict`** — the mirror of the above: a `PHYS` observation
+  whose region asserts the address is *not* System RAM (an MMIO or PCI window,
+  persistent memory, an ACPI region) is contradicted outright when a System RAM
+  extent contains it, and is invalidated. Regions forbidden for the other
+  reason — a reservation carved out of RAM, such as crashkernel or SWIOTLB — sit
+  inside RAM by construction and are deliberately not tested.
 - **`page_offset_from_landmark`** / **`page_offset_from_config`** — pin
   `Q_PAGE_OFFSET` from a `pageoffset` landmark or `CONFIG_PAGE_OFFSET`; this is
   how a runtime vmsplit propagates on coupled architectures.

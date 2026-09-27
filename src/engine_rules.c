@@ -158,6 +158,7 @@ static const verdict_fn k_vrules[] = {
     rule_coupling_validate,
     rule_text_cluster_filter,
     rule_firmware_memmap_holes,
+    rule_ram_map_nonram_conflict,
     rule_x86_64_vmalloc_vmemmap_invariant,
     rule_arm64_coupling_validate,
     rule_riscv64_coupling_validate,

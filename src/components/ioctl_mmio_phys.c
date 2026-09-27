@@ -28,11 +28,14 @@
 //   Status:           unfixed (information exposure by design)
 //   Access check:     none beyond device-node permissions (no CAP / kptr gate)
 //
-// Engine fit: emitted as REGION_MMIO PHYS windows (range when a length is
-// known, else a base), which mmio_floor_phys_ceiling uses to ceiling
+// Engine fit: emitted as PHYS windows (range when a length is known, else a
+// base). An address /proc/iomem places outside System RAM is a device window
+// (REGION_MMIO), which mmio_floor_phys_ceiling uses to ceiling
 // Q_PHYS_IMAGE_BASE (the image must sit in DRAM below the lowest MMIO above
-// it). Decoupled arches only; loose, and additive mainly when /proc/iomem is
-// masked.
+// it); one inside System RAM is DRAM the driver exposed — a framebuffer
+// carve-out, say — and is emitted as a reserved DRAM band instead. Decoupled
+// arches only; loose, and additive mainly when /proc/iomem is masked, which is
+// also when the classification falls back to the MMIO label.
 //
 // Mitigations:
 //   CONFIG_FB=n / CONFIG_SERIAL_CORE=n remove the respective source; tightening
@@ -43,6 +46,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/iomem.h"
 
 #include <fcntl.h>
 #include <linux/fb.h>
@@ -66,18 +70,38 @@ KASLD_META("method:parsed\n"
            "discloses:physical\n"
            "source:live\n");
 
-/* Emit one MMIO window as a PHYS landmark: a range when a length is known, else
- * a base (lo edge). Both set HAS_LO, which mmio_floor_phys_ceiling consumes.
- * Returns 1 if emitted, 0 for a zero (absent) base. */
+/* Emit one window as a PHYS landmark: a range when a length is known, else a
+ * base (lo edge). Both set HAS_LO, which mmio_floor_phys_ceiling consumes.
+ * Returns 1 if emitted, 0 for a zero (absent) base.
+ *
+ * Not every address these ioctls hand back is a device register window.
+ * fb_fix_screeninfo.smem_start is whatever backs the framebuffer, which on a
+ * SoC is routinely a DRAM carve-out or a CMA allocation rather than MMIO, and
+ * a UART's mapbase can be reported on a board whose serial is memory-backed.
+ * /proc/iomem settles it: an address the kernel places inside System RAM is
+ * DRAM the driver exposed, so it is emitted as a reserved DRAM band instead.
+ * The distinction matters downstream — REGION_MMIO feeds the MMIO ceiling and
+ * carries "the image was never allowed here", while a reserved DRAM band is a
+ * DRAM landmark that only forbids the band itself.
+ *
+ * A masked or absent /proc/iomem classifies as unknown and the MMIO label
+ * stands: calling true MMIO "DRAM" would feed a device window to the DRAM
+ * bounds, which is the damaging direction. That fallback is the unprivileged
+ * norm, not an edge case — r_show() zeroes every range for a reader without
+ * CAP_SYS_ADMIN and no sysctl relaxes it — so the reclassification reaches
+ * only a privileged run, such as the one that captures a bundle. */
 static int emit_mmio(unsigned long start, unsigned long len, const char *name) {
   unsigned long hi;
   if (!start)
     return 0;
+  enum kasld_region region =
+      kasld_iomem_classify(start) == KASLD_IOMEM_SYSTEM_RAM
+          ? REGION_RESERVED_MEM
+          : REGION_MMIO;
   if (len && !kasld_add_ovf(start, len - 1, &hi))
-    kasld_result_range(KASLD_TYPE_PHYS, REGION_MMIO, start, hi, name,
-                       CONF_PARSED);
+    kasld_result_range(KASLD_TYPE_PHYS, region, start, hi, name, CONF_PARSED);
   else
-    kasld_result_base(KASLD_TYPE_PHYS, REGION_MMIO, start, name, CONF_PARSED);
+    kasld_result_base(KASLD_TYPE_PHYS, region, start, name, CONF_PARSED);
   return 1;
 }
 

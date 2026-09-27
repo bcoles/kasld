@@ -40,7 +40,8 @@ RULES="$ROOT/src/rules"
 # Rules reviewed as covering consumers. Adding one here is a statement that its
 # use of a whole-map extent has been read and is correct.
 ALLOW="ram_map_phys_exclude
-firmware_memmap_holes"
+firmware_memmap_holes
+ram_map_nonram_conflict"
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')

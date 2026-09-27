@@ -8441,6 +8441,113 @@ static void test_firmware_memmap_holes(void) {
 #endif
 }
 
+/* ram_map_nonram_conflict: a region whose claim IS "not System RAM" is dropped
+ * when a RAM map places it inside System RAM.
+ *
+ * Arch-general, unlike firmware_memmap_holes: coverings come from the x86 E820
+ * views, device-tree /memory nodes and hotplug blocks alike, so the rule runs
+ * everywhere and the test does too. Addresses stay inside 32 bits so the
+ * literals are valid on every target width. */
+static void test_ram_map_nonram_conflict(void) {
+  struct engine e;
+  engine_init(&e);
+  /* A two-extent System RAM map with a device hole at [0xc0000000, 0xdfffffff]
+   * between them — the shape of every x86 machine's PCI hole. */
+  add_ram_covering(&e.ev, 0x1000000ul, 0xbffffffful, "firmware_memmap");
+  add_ram_covering(&e.ev, 0xe0000000ul, 0xfffffffful, "firmware_memmap");
+
+  /* In the hole: a real device window, kept. */
+  struct observation hole = mk_obs(KASLD_TYPE_PHYS, REGION_PCI_MMIO,
+                                   0xc8000000ul, LO_SET, POS_BASE, CONF_PARSED);
+  hole.hi = 0xc8fffffful;
+  hole.set_mask |= HI_SET;
+  uint32_t hole_id = evidence_add(&e.ev, &hole);
+
+  /* Inside a RAM extent: contradicted, dropped. Without this the band
+   * [lo - image_size + 1, hi] would be excluded from real RAM. */
+  struct observation inram = mk_obs(KASLD_TYPE_PHYS, REGION_MMIO, 0x40000000ul,
+                                    LO_SET, POS_BASE, CONF_PARSED);
+  inram.hi = 0x40fffffful;
+  inram.set_mask |= HI_SET;
+  uint32_t inram_id = evidence_add(&e.ev, &inram);
+
+  /* Inside a RAM extent, but forbidden for the OTHER reason: a reservation
+   * carved out of RAM belongs there, and must survive. This is the assertion
+   * the reason axis exists for. */
+  struct observation resv = mk_obs(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
+                                   0x50000000ul, LO_SET, POS_BASE, CONF_PARSED);
+  resv.hi = 0x50fffffful;
+  resv.set_mask |= HI_SET;
+  uint32_t resv_id = evidence_add(&e.ev, &resv);
+
+  const verdict_fn vrules[] = {rule_ram_map_nonram_conflict};
+  engine_run_full(&e, NULL, 0, vrules, 1);
+
+  for (int i = 0; i < e.ev.n_obs; i++) {
+    if (e.ev.obs[i].id == hole_id)
+      TH_CHECK(e.ev.obs[i].valid == 1); /* in a map gap: a real window */
+    if (e.ev.obs[i].id == inram_id)
+      TH_CHECK(e.ev.obs[i].valid == 0); /* contradicted by the map */
+    if (e.ev.obs[i].id == resv_id)
+      TH_CHECK(e.ev.obs[i].valid == 1); /* reserved FROM ram: expected there */
+  }
+}
+
+/* Inert without a map. The contradiction needs a RAM extent to test against,
+ * and an observation must never be dropped for want of evidence. */
+static void test_ram_map_nonram_conflict_no_map(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_obs(KASLD_TYPE_PHYS, REGION_MMIO, 0x40000000ul,
+                                LO_SET, POS_BASE, CONF_PARSED);
+  o.hi = 0x40fffffful;
+  o.set_mask |= HI_SET;
+  uint32_t id = evidence_add(&e.ev, &o);
+
+  const verdict_fn vrules[] = {rule_ram_map_nonram_conflict};
+  engine_run_full(&e, NULL, 0, vrules, 1);
+
+  for (int i = 0; i < e.ev.n_obs; i++)
+    if (e.ev.obs[i].id == id)
+      TH_CHECK(e.ev.obs[i].valid == 1);
+}
+
+/* A map beneath the run's floor is out of scope for the guaranteed window, and
+ * a verdict has nowhere to carry a confidence to — so the gate has to be on the
+ * input. Both directions, or the test would pass against a rule that had simply
+ * stopped working. */
+static void test_ram_map_nonram_conflict_below_floor_is_gated(void) {
+  const verdict_fn vrules[] = {rule_ram_map_nonram_conflict};
+
+  static struct engine e;
+  engine_init(&e);
+  add_ram_covering_conf(&e.ev, 0x1000000ul, 0xbffffffful, "sysfs_memory_blocks",
+                        CONF_HEURISTIC);
+  struct observation o = mk_obs(KASLD_TYPE_PHYS, REGION_MMIO, 0x40000000ul,
+                                LO_SET, POS_BASE, CONF_PARSED);
+  o.hi = 0x40fffffful;
+  o.set_mask |= HI_SET;
+  uint32_t id = evidence_add(&e.ev, &o);
+  engine_run_full_floored(&e, CONF_INFERRED, NULL, 0, vrules, 1);
+  for (int i = 0; i < e.ev.n_obs; i++)
+    if (e.ev.obs[i].id == id)
+      TH_CHECK(e.ev.obs[i].valid == 1); /* below-floor map: no ruling */
+
+  static struct engine e2;
+  engine_init(&e2);
+  add_ram_covering_conf(&e2.ev, 0x1000000ul, 0xbffffffful,
+                        "sysfs_memory_blocks", CONF_HEURISTIC);
+  struct observation o2 = mk_obs(KASLD_TYPE_PHYS, REGION_MMIO, 0x40000000ul,
+                                 LO_SET, POS_BASE, CONF_PARSED);
+  o2.hi = 0x40fffffful;
+  o2.set_mask |= HI_SET;
+  uint32_t id2 = evidence_add(&e2.ev, &o2);
+  engine_run_full(&e2, NULL, 0, vrules, 1);
+  for (int i = 0; i < e2.ev.n_obs; i++)
+    if (e2.ev.obs[i].id == id2)
+      TH_CHECK(e2.ev.obs[i].valid == 0); /* unfloored: the ruling lands */
+}
+
 /* randomize_memory_page_offset Path 2: cross-origin directmap - RAM base. */
 __attribute__((unused)) static void
 test_randomize_memory_page_offset_path2(void) {
@@ -10313,6 +10420,9 @@ int main(void) {
   RUN(test_kernel_image_phys_bound_lower_conf);
   RUN(test_highmem_32bit_bound);
   RUN(test_firmware_memmap_holes);
+  RUN(test_ram_map_nonram_conflict);
+  RUN(test_ram_map_nonram_conflict_no_map);
+  RUN(test_ram_map_nonram_conflict_below_floor_is_gated);
 
   BEGIN_CATEGORY("virt_page_offset rules");
   RUN(test_page_offset_pin);

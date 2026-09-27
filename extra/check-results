@@ -957,8 +957,8 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
     # ---- Physical: MMIO ------------------------------------------------
     "P mmio"|"P pci_mmio")
       # No direct ground truth: /proc/iomem entries for PCI BARs need name
-      # matching against `name` field. We can at least confirm the address
-      # is NOT within System RAM (MMIO and RAM are disjoint by design).
+      # matching against `name` field. The address can still be confirmed NOT
+      # within System RAM (MMIO and RAM are disjoint by design).
       if [ -z "$truth_ram_lo" ]; then
         skip "$desc — no /proc/iomem ground truth"
         continue
@@ -968,11 +968,15 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       # every one of them as "inside RAM" and this check can never fire on a
       # machine with a PCI hole — which is every x86 machine.
       if addr_in_ram_extent "$addr"; then
-        # An MMIO address inside System RAM is suspicious — but UIO maps
-        # can legitimately expose reserved DRAM via sysfs_uio_map, which
-        # the new classifier should now tag as reserved_mem instead. Skip
-        # rather than fail to avoid flagging genuine driver-exposed DRAM.
-        skip "$desc — within a System RAM extent (UIO-mapped DRAM exposed as MMIO?)"
+        # A hard failure, not a skip. Every producer of an mmio / pci_mmio
+        # address classifies it before labelling it: the device-tree walk skips
+        # a reg inside DRAM, the UIO and framebuffer/serial ioctl paths resolve
+        # the address through /proc/iomem and emit reserved_mem for one inside
+        # System RAM, and the PCI reader takes only BARs the kernel flags as
+        # live memory windows. Driver-exposed DRAM therefore does not reach
+        # here, so an address that does is a real misclassification — and one
+        # the engine turns into a forbidden band carved out of real RAM.
+        fail "$desc — within a System RAM extent; mmio and RAM are disjoint"
       else
         pass "$desc — outside System RAM (consistent with MMIO)"
       fi

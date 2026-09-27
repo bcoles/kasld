@@ -6,9 +6,13 @@
 //
 //   /sys/bus/pci/devices/DDDD:BB:DD.F/resource
 //
-// Each line contains: start end flags (hex, space-separated).
-// Lines with non-zero start/end represent allocated BARs whose
-// addresses are physical MMIO or I/O port ranges.
+// Each line contains: start end flags (hex, space-separated). The flags are
+// struct resource::flags verbatim, and they are what says whether the line
+// names a live memory window: resource_show() prints dev->resource[] for a
+// plain BAR whether or not the kernel ever accepted the address, so a BAR that
+// pci_claim_resource() refused (an address conflict with System RAM, say)
+// is still published here carrying IORESOURCE_UNSET. Only lines flagged
+// IORESOURCE_MEM and neither UNSET nor DISABLED are taken.
 //
 // Knowing where PCI MMIO regions are placed constrains where physical
 // DRAM can reside (they occupy disjoint regions). On x86 systems, the
@@ -62,13 +66,21 @@ KASLD_EXPLAIN(
     "/sys/bus/pci/devices/*/resource. These world-readable (0444) files "
     "expose MMIO physical address ranges assigned to PCI devices. On "
     "systems where MMIO is near DRAM, this constrains the physical "
-    "memory layout. Requires CONFIG_PCI.");
+    "memory layout. Only live memory windows are taken: the file also "
+    "publishes BARs the kernel refused to claim, which name no window. "
+    "Requires CONFIG_PCI.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "discloses:physical\n"
            "source:files\n"
            "config:CONFIG_PCI\n");
+
+/* struct resource::flags bits, from include/linux/ioport.h. The values are
+ * kernel ABI: sysfs prints them raw, so they are stable across versions. */
+#define IORESOURCE_MEM 0x00000200
+#define IORESOURCE_DISABLED 0x10000000
+#define IORESOURCE_UNSET 0x20000000
 
 int main(void) {
   const char *base = "/sys/bus/pci/devices";
@@ -110,9 +122,20 @@ int main(void) {
       if (!start || !end)
         continue;
 
-      /* Skip I/O port BARs: flag bit 8 set (0x100 = IORESOURCE_IO).
-       * Only memory-mapped BARs matter here. */
-      if (flags & 0x100)
+      /* The kernel's own verdict on the line, from struct resource::flags.
+       * resource_show() prints dev->resource[] verbatim for a plain BAR, so a
+       * BAR the kernel never accepted is still published at its raw address —
+       * and an address the kernel refused is not a device window the image can
+       * be excluded against. Take only live memory windows:
+       *   IORESOURCE_MEM      this is a memory window, not an I/O port range;
+       *   IORESOURCE_UNSET    no address assigned, or pci_claim_resource()
+       *                       refused it (typically an address conflict with
+       *                       System RAM) — the value stays in resource[] and
+       *                       stays visible here, but names no live window;
+       *   IORESOURCE_DISABLED the window is not decoded. */
+      if (!(flags & IORESOURCE_MEM))
+        continue;
+      if (flags & (IORESOURCE_UNSET | IORESOURCE_DISABLED))
         continue;
 
       bar_count++;

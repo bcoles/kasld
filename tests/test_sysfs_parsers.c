@@ -357,8 +357,27 @@ static void test_uio_map(void) {
   stage_text("/sys/class/uio/uio0/maps/map0/addr", "0x90000000\n");
   stage_text("/sys/class/uio/uio0/maps/map0/name", "uio-mem\n");
   run_capture(uio_main);
+  /* No /proc/iomem staged: the map cannot place the address, and the MMIO
+   * label stands. Calling true MMIO "DRAM" would feed a device window to the
+   * DRAM bounds, so an unreadable map must not reclassify. */
   TH_CHECK(strstr(cap, "P mmio:uio0/map0") != NULL);
   TH_CHECK(strstr(cap, "sample=0x90000000") != NULL);
+
+  /* With the map readable, the outermost containing range decides. A UIO map
+   * the kernel places inside System RAM is DRAM the driver exposed, not a
+   * device window; one in a device range stays MMIO. Entries nest, so the
+   * "System RAM" parent must win over the child listed under it. */
+  stage_text("/proc/iomem", "00000000-bfffffff : System RAM\n"
+                            "  90000000-9000ffff : uio-mem\n"
+                            "c0000000-c0ffffff : PCI Bus 0000:00\n");
+  run_capture(uio_main);
+  TH_CHECK(strstr(cap, "P reserved_mem:uio0/map0") != NULL);
+  TH_CHECK(strstr(cap, "P mmio:uio0/map0") == NULL);
+
+  stage_text("/sys/class/uio/uio0/maps/map0/addr", "0xc0800000\n");
+  run_capture(uio_main);
+  TH_CHECK(strstr(cap, "P mmio:uio0/map0") != NULL);
+  TH_CHECK(strstr(cap, "sample=0xc0800000") != NULL);
 }
 
 /* --- iSCSI transport handle (CVE-2021-27363): the "handle" attribute is a
@@ -503,7 +522,9 @@ static void test_tracefs_printk_formats(void) {
 /* --- PCI BARs: /sys/bus/pci/devices/<BDF>/resource — "start end flags" per
  * line. Each memory BAR is emitted as its own PCI_MMIO range named by BDF; the
  * BARs are scattered, so they must stay per-BAR ranges (never one [min,max]
- * span). I/O-port BARs (flag bit 0x100) and unallocated (0/0) BARs are skipped.
+ * span). Only live memory windows count: a line must carry IORESOURCE_MEM
+ * (0x200) and neither IORESOURCE_UNSET (0x20000000) nor IORESOURCE_DISABLED
+ * (0x10000000). I/O-port BARs and unallocated (0/0) BARs are skipped.
  */
 static void test_pci_resource_per_bar(void) {
   /* dev A: one 8 MiB memory BAR + an unallocated BAR (0 0 0, skipped) */
@@ -526,6 +547,30 @@ static void test_pci_resource_per_bar(void) {
   TH_CHECK(strstr(cap, "0xc000") == NULL);
 }
 
+/* A BAR the kernel never accepted is still published at its raw address:
+ * resource_show() prints dev->resource[] verbatim for a plain BAR, and
+ * pci_claim_resource() leaves start/end intact when it refuses one, setting
+ * only IORESOURCE_UNSET. The refusal is typically an address conflict with
+ * System RAM, so taking such a line would carve a forbidden band out of real
+ * RAM. The flags are the kernel's own verdict, so they decide. */
+static void test_pci_resource_skips_dead_windows(void) {
+  stage_text("/sys/bus/pci/devices/0000:00:03.0/resource",
+             /* live memory BAR: taken */
+             "0x00000000fd000000 0x00000000fd0fffff 0x0000000000040200\n"
+             /* unclaimed BAR overlapping System RAM: IORESOURCE_UNSET */
+             "0x0000000040000000 0x00000000400fffff 0x0000000020040200\n"
+             /* decoded off: IORESOURCE_DISABLED */
+             "0x00000000fd200000 0x00000000fd2fffff 0x0000000010040200\n"
+             /* neither MEM nor IO (a bus-number style resource): no window */
+             "0x0000000000000001 0x00000000000000ff 0x0000000000000000\n");
+  run_capture(pci_main);
+  TH_CHECK(strstr(cap,
+                  "pci_mmio:0000:00:03.0 pos=base conf=parsed lo=0xfd000000 "
+                  "hi=0xfd0fffff") != NULL);
+  TH_CHECK(strstr(cap, "0x40000000") == NULL); /* unclaimed, in RAM */
+  TH_CHECK(strstr(cap, "0xfd200000") == NULL); /* disabled */
+}
+
 int main(void) {
   th_sysroot_init("sysfs_parsers");
 
@@ -544,6 +589,7 @@ int main(void) {
   RUN(test_devicetree_mmio);
   RUN(test_devicetree_reserved_memory);
   RUN(test_pci_resource_per_bar);
+  RUN(test_pci_resource_skips_dead_windows);
   RUN(test_tracefs_printk_formats);
   return TEST_DONE();
 }

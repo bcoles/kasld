@@ -432,6 +432,7 @@ R(x86_64_page_offset_floor_from_va_bits);
 V(coupling_validate);
 V(text_cluster_filter);
 V(firmware_memmap_holes);
+V(ram_map_nonram_conflict);
 V(x86_64_vmalloc_vmemmap_invariant);
 V(arm64_coupling_validate);
 V(riscv64_coupling_validate);

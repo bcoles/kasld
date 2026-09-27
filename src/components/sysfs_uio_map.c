@@ -58,6 +58,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/iomem.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -84,48 +85,18 @@ KASLD_META("method:parsed\n"
  * the driver has exposed for userspace (DMA-coherent buffers, reserved
  * memory, hugepages, ...). The sysfs interface exposes the address but
  * NOT the kernel's underlying memtype (UIO_MEM_PHYS vs UIO_MEM_LOGICAL/
- * UIO_MEM_DMA_COHERENT/...), so resolution goes via /proc/iomem: the
- * outermost containing range says authoritatively whether the
- * address is in "System RAM" or somewhere else (PCI Bus, ACPI Reserved,
- * ...). Iomem entries nest — sub-ranges are listed after their parent —
- * so the first containing match is the outermost.
+ * UIO_MEM_DMA_COHERENT/...), so resolution goes via /proc/iomem.
  *
- * /proc/iomem requires CAP_SYS_ADMIN for unmasked addresses; without it
- * every range reads as 0-0 and no match is found. Falling back to
- * REGION_MMIO in that case is the safe default: misclassifying a
- * DRAM-backed UIO map as MMIO only affects the renderer's text-window
- * filter, while misclassifying true MMIO as DRAM (via
- * REGION_RESERVED_MEM, which is_phys_dram_region() accepts) would
+ * REGION_MMIO is the default whenever the map cannot positively place the
+ * address in System RAM (it is absent, or masked to 0-0 without
+ * CAP_SYS_ADMIN). Misclassifying a DRAM-backed UIO map as MMIO only affects
+ * the renderer's text-window filter, while misclassifying true MMIO as DRAM
+ * (via REGION_RESERVED_MEM, which is_phys_dram_region() accepts) would
  * pollute dram_bound / dram_ceiling inference. */
 static enum kasld_region classify_uio_addr(unsigned long addr) {
-  FILE *f = kasld_fopen("/proc/iomem", "r");
-  if (!f)
-    return REGION_MMIO;
-
-  char line[256];
-  enum kasld_region region = REGION_MMIO;
-  while (fgets(line, sizeof(line), f)) {
-    const char *p = line;
-    while (*p == ' ' || *p == '\t')
-      p++;
-    unsigned long start, end;
-    char name[128];
-    const char *e;
-    if (!kasld_addr_parse(p, 16, &start, &e) || *e != '-' ||
-        !kasld_addr_parse(e + 1, 16, &end, &e))
-      continue;
-    if (sscanf(e, " : %127[^\n]", name) != 1)
-      continue;
-    if (addr < start || addr > end)
-      continue;
-    /* First containing match wins — that's the outermost range due to
-     * iomem's parent-before-child ordering. */
-    if (strstr(name, "System RAM"))
-      region = REGION_RESERVED_MEM;
-    break;
-  }
-  fclose(f);
-  return region;
+  return kasld_iomem_classify(addr) == KASLD_IOMEM_SYSTEM_RAM
+             ? REGION_RESERVED_MEM
+             : REGION_MMIO;
 }
 
 int main(void) {
