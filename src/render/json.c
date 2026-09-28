@@ -1068,6 +1068,7 @@ void render_json(const struct summary *s) {
       json_print_escaped(cl->name);
       printf(",\n");
       printf("      \"exit_code\": %d,\n", cl->exit_code);
+      printf("      \"elapsed_ms\": %lld,\n", cl->elapsed_ms);
       printf("      \"outcome\": \"%s\"", outcome_name(cl->outcome));
       /* Disposition: the fine-grained reason a component produced no result,
        * refining the coarse outcome. Present only when the component reported

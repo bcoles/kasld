@@ -455,6 +455,7 @@
         "properties": {
           "name": { "type": "string" },
           "exit_code": { "type": "integer" },
+          "elapsed_ms": { "type": "integer", "minimum": 0 },
           "outcome": {
             "enum": [
               "success",

@@ -514,6 +514,14 @@ struct component_log {
   char name[256];
   int exit_code;
   enum component_outcome outcome;
+  /* Wall milliseconds the component ran for, over the same span the per-
+   * component timeout bounds. 0 for a slot that never ran.
+   *
+   * WALL time, so in a parallel phase it includes whatever the component spent
+   * waiting rather than working: two components contending on one kernel path
+   * each report the whole wait, and a figure is not a cost attributable to the
+   * component alone. A sequential run (`-w 0`) is what isolates that. */
+  long long elapsed_ms;
   /* Why the component did not produce a result. Recorded in default output too,
    * so a gated leak's disposition shows without re-running under --verbose. */
   struct component_disposition disposition;

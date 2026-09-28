@@ -1136,9 +1136,12 @@ static int run_component(const struct component *c) {
   setpgid(pid, pid);
   close(pipefd[1]);
 
-  /* Compute deadline */
-  struct timespec deadline;
-  clock_gettime(CLOCK_MONOTONIC, &deadline);
+  /* Start, and the deadline derived from it. One clock read serves both: the
+   * deadline bounds the run and the start measures it, and reading twice would
+   * let the two disagree about when the component began. */
+  struct timespec started;
+  clock_gettime(CLOCK_MONOTONIC, &started);
+  struct timespec deadline = started;
   deadline.tv_sec += component_timeout;
 
   /* Non-blocking read with poll() timeout */
@@ -1237,6 +1240,21 @@ static int run_component(const struct component *c) {
   if (clog) {
     clog->outcome = kasld_classify_outcome(status, timed_out, had_tagged);
     clog->exit_code = rc;
+    /* Wall time the component held, measured around the same span the timeout
+     * bounds. What it buys is attribution: the cost of a run is otherwise a
+     * single number, so a component that spends most of it — or that sits just
+     * under its own budget and is one slower machine away from being killed —
+     * is invisible until someone instruments a run by hand.
+     *
+     * Seeded from the start so a clock that cannot be read yields 0 rather than
+     * a difference against an uninitialised value, and computed at 64 bits
+     * throughout so a timeout raised far past the default cannot overflow the
+     * product where `long` is 32 bits. */
+    struct timespec done = started;
+    clock_gettime(CLOCK_MONOTONIC, &done);
+    long long ms = (long long)(done.tv_sec - started.tv_sec) * 1000LL +
+                   (long long)(done.tv_nsec - started.tv_nsec) / 1000000LL;
+    clog->elapsed_ms = ms > 0 ? ms : 0;
   }
 
   if (timed_out)

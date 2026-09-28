@@ -648,6 +648,7 @@ The `components` array holds one record per component.
 |---|---|
 | `name` | the component's name |
 | `exit_code` | the exit status it returned |
+| `elapsed_ms` | wall milliseconds it ran for, over the span the per-component timeout bounds — what shows where a run spends its time, and which techniques sit close enough to their budget that a slower machine would cut them short. Wall, not cost: a component run in a parallel phase reports time it spent waiting as well as working, so `-w 0` is what attributes a figure to the component alone |
 | `outcome` | what the orchestrator made of that status |
 | `disposition` | optional — why a component produced no tagged result: `category`, one of `mitigation` / `absent` / `disabled` / `inconclusive`, plus, for a mitigation, the `gate` it confirmed and an optional `message` |
 | `meta` | the parsed `KASLD_META`, including the `cve` / `patch` / `config` / `sysctl` keys |
