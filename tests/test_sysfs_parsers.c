@@ -289,7 +289,11 @@ static void test_devicetree_elfcorehdr(void) {
   stage("/sys/firmware/devicetree/base/chosen/linux,elfcorehdr", blob,
         sizeof(blob));
   run_capture(dt_main);
-  TH_CHECK(strstr(cap, "P crashkernel:elfcorehdr") != NULL);
+  /* dram_carveout, not crashkernel: fdt_reserve_elfcorehdr() skips the
+   * reservation on overlap while /chosen keeps publishing the property, so
+   * seeing it does not prove the kernel reserved the range. */
+  TH_CHECK(strstr(cap, "P dram_carveout:elfcorehdr") != NULL);
+  TH_CHECK(strstr(cap, "P crashkernel:elfcorehdr") == NULL);
   /* big-endian decode: address 0x100000000, hi = addr + size - 1 */
   TH_CHECK(strstr(cap, "lo=0x100000000 hi=0x10000ffff") != NULL);
 }
@@ -343,12 +347,25 @@ static void test_efi_runtime_map(void) {
 #endif
 }
 
-/* --- libnvdimm nd_region: resource is "%#llx" text ---------------------- */
+/* --- libnvdimm nd_region: resource is "%#llx" text, size is decimal. The
+ * pair bounds the region at both edges; size alone carries no capability gate
+ * but is useless without the base. ---------------------------------------- */
 static void test_nd_region(void) {
   stage_text("/sys/bus/nd/devices/ndregion0/resource", "0x4000000000\n");
+  stage_text("/sys/bus/nd/devices/ndregion0/size", "137438953472\n"); /* 128G */
   run_capture(nd_main);
+  /* 128 GiB: 0x4000000000 + 0x2000000000 - 1 = 0x5fffffffff */
   TH_CHECK(strstr(cap, "P pmem:ndregion0") != NULL);
-  TH_CHECK(strstr(cap, "sample=0x4000000000") != NULL);
+  TH_CHECK(strstr(cap, "lo=0x4000000000 hi=0x5fffffffff") != NULL);
+}
+
+/* With no readable size, the base alone is reported rather than an invented
+ * extent. */
+static void test_nd_region_size_absent_fallback(void) {
+  stage_text("/sys/bus/nd/devices/ndregion1/resource", "0x4000000000\n");
+  run_capture(nd_main);
+  TH_CHECK(strstr(cap, "P pmem:ndregion1 pos=interior conf=parsed "
+                       "sample=0x4000000000") != NULL);
 }
 
 /* --- UIO map: maps/mapN/addr is "%pa" text ("0x%llx"); region defaults to
@@ -593,6 +610,7 @@ int main(void) {
   RUN(test_devicetree_elfcorehdr);
   RUN(test_efi_runtime_map);
   RUN(test_nd_region);
+  RUN(test_nd_region_size_absent_fallback);
   RUN(test_uio_map);
   RUN(test_iscsi_transport_handle);
   RUN(test_devicetree_mmio);

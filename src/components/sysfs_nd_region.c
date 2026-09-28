@@ -10,15 +10,19 @@
 //   /sys/bus/nd/devices/ndregionN/
 //
 // Each nd_region's "resource" attribute exposes the physical start address
-// of that PMem region:
+// of that PMem region, and "size" its length:
 //
-//   /sys/bus/nd/devices/ndregionN/resource   (0444 — world-readable)
+//   /sys/bus/nd/devices/ndregionN/resource   (0400 — root only)
+//   /sys/bus/nd/devices/ndregionN/size       (0444 — world-readable)
 //
-// Format: "%#llx\n"  (e.g. "0x2080000000\n")
+// Format: resource "%#llx\n" (e.g. "0x2080000000\n"), size "%llu\n" decimal.
 //
-// The attribute is created with DEVICE_ATTR_RO (mode 0444):
-//
-//   static DEVICE_ATTR_RO(resource);
+// "resource" is root-gated, and has been since it became
+// DEVICE_ATTR(resource, 0400, ...) — later spelled DEVICE_ATTR_ADMIN_RO. It
+// was world-readable when introduced, so this reads as an unprivileged leak
+// only on a kernel from that earlier era; everywhere else it needs root, and
+// the open simply fails. "size" carries no such gate, so the length is
+// available whenever the base is.
 //
 // The value is nd_region->ndr_start, the physical byte offset of the first
 // byte of this interleave set. On Intel Optane systems this is typically a
@@ -40,7 +44,8 @@
 //   Address type:     physical (persistent memory / DRAM-like)
 //   Method:           parsed (sysfs text attribute)
 //   Status:           unfixed (information exposure by design)
-//   Access check:     none (world-readable via DEVICE_ATTR_RO, 0444)
+//   Access check:     CAP_SYS_ADMIN for "resource" (DEVICE_ATTR_ADMIN_RO,
+//                     0400); none for "size" (0444), which is useless alone
 //   Source:
 //   https://elixir.bootlin.com/linux/v6.12/source/drivers/nvdimm/region_devs.c
 //
@@ -68,6 +73,7 @@
 #include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,12 +81,14 @@
 
 KASLD_EXPLAIN(
     "Reads physical start addresses of NVDIMM/PMem regions from the libnvdimm "
-    "sysfs interface (/sys/bus/nd/devices/ndregionN/resource). Each region's "
-    "world-readable 'resource' attribute (0444, DEVICE_ATTR_RO) exposes "
-    "nd_region->ndr_start - the physical byte address of the first byte of "
-    "that interleave set. Only present on systems with NVDIMM or Persistent "
-    "Memory hardware (Intel Optane DCPMM, JEDEC NVDIMM-P) and the nd_region "
-    "driver bound.");
+    "sysfs interface (/sys/bus/nd/devices/ndregionN/resource). The 'resource' "
+    "attribute exposes nd_region->ndr_start - the physical byte address of the "
+    "first byte of that interleave set - and the world-readable 'size' gives "
+    "its length, so the pair bounds the region at both edges. 'resource' is "
+    "root-gated (0400) on current kernels, having been published 0444 for a "
+    "period after its introduction, so this reads unprivileged only there. "
+    "Only present on systems with NVDIMM or Persistent Memory hardware "
+    "(Intel Optane DCPMM, JEDEC NVDIMM-P) and the nd_region driver bound.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -150,9 +158,37 @@ int main(void) {
     if (!kasld_addr_parse(buf, 0, &addr, NULL) || addr == 0)
       continue;
 
-    kasld_info("%s resource: 0x%016lx", ent->d_name, addr);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, addr, ent->d_name,
-                        CONF_PARSED);
+    /* "size" is region_size(nd_region) in decimal, and carries no capability
+     * gate of its own, so wherever the base could be read the length can be
+     * too. Emitting the extent rather than the base alone lets the engine
+     * carve the whole forbidden band: persistent memory is not System RAM
+     * when the image is placed, so the image cannot overlap it. A missing or
+     * unparsable size falls back to the base as a bare sample rather than
+     * inventing an extent. */
+    unsigned long size = 0;
+    snprintf(path, sizeof(path), "%s/%s/size", nd_base, ent->d_name);
+    FILE *sf = kasld_fopen(path, "r");
+    if (sf) {
+      char sbuf[64];
+      if (fgets(sbuf, sizeof(sbuf), sf)) {
+        unsigned long v;
+        /* Decimal, and it must not run past the top of the address space. */
+        if (kasld_addr_parse(sbuf, 10, &v, NULL) && v > 0 &&
+            v - 1 <= ULONG_MAX - addr)
+          size = v;
+      }
+      fclose(sf);
+    }
+
+    if (size) {
+      kasld_info("%s resource: 0x%016lx size: %lu", ent->d_name, addr, size);
+      kasld_result_sized(KASLD_TYPE_PHYS, REGION_PMEM, addr, size, ent->d_name,
+                         CONF_PARSED);
+    } else {
+      kasld_info("%s resource: 0x%016lx (size unavailable)", ent->d_name, addr);
+      kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, addr, ent->d_name,
+                          CONF_PARSED);
+    }
 
     count++;
   }

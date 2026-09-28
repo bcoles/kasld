@@ -150,12 +150,21 @@ int main(void) {
     if (ehdr_addr) {
       kasld_info("linux,elfcorehdr address: 0x%016llx  size: 0x%llx",
                  (unsigned long long)ehdr_addr, (unsigned long long)ehdr_size);
+      /* REGION_DRAM_CARVEOUT, not REGION_CRASHKERNEL. The address is a fixed
+       * one the blob names, and its presence here does NOT prove the kernel
+       * reserved it: fdt_reserve_elfcorehdr() checks
+       * memblock_is_region_reserved() and, on overlap, warns "elfcorehdr is
+       * overlapped" and SKIPS the reservation -- while /chosen keeps
+       * publishing the property either way. So the property bounds DRAM and
+       * establishes nothing about where the image is not. (CMA's equivalent
+       * guard is distinguishable because a printed dmesg line proves the
+       * reservation succeeded; nothing here does.) */
       if (ehdr_size) {
-        kasld_result_sized(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
+        kasld_result_sized(KASLD_TYPE_PHYS, REGION_DRAM_CARVEOUT,
                            (unsigned long)ehdr_addr, (unsigned long)ehdr_size,
                            "elfcorehdr", CONF_PARSED);
       } else {
-        kasld_result_sample(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
+        kasld_result_sample(KASLD_TYPE_PHYS, REGION_DRAM_CARVEOUT,
                             (unsigned long)ehdr_addr, "elfcorehdr",
                             CONF_PARSED);
       }
@@ -180,11 +189,9 @@ int main(void) {
       /* usable-memory-range is the DRAM the crash kernel is capped to
        * (memblock_cap_memory_range) — the RAM the running (crash) kernel image
        * itself OCCUPIES, so it is REGION_RAM, NOT a forbidden reservation. The
-       * crash kernel's physical base lies inside this range; tagging it
-       * REGION_CRASHKERNEL (an is_phys_kernel_forbidden_region) would make
-       * phys_reservation_exclude carve out the true base. (linux,elfcorehdr
-       * above is a genuine memblock_reserve the image won't overlap, so it
-       * stays REGION_CRASHKERNEL.) */
+       * crash kernel's physical base lies inside this range; tagging it as a
+       * region the image cannot occupy would make phys_reservation_exclude
+       * carve out the true base. */
       if (size) {
         kasld_result_sized(KASLD_TYPE_PHYS, REGION_RAM, (unsigned long)base,
                            (unsigned long)size, "usable-memory", CONF_PARSED);
