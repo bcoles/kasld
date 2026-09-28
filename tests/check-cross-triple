@@ -1,0 +1,79 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-cross-triple — `make cross TRIPLE=<triple>` builds that triple and no
+# other, and says so when it cannot.
+#
+# The selector was accepted and ignored: `cross` iterated CROSS_TARGETS
+# unconditionally, so a caller naming one triple got all of them. Nothing in the
+# output distinguished the two, because every triple the host cannot build prints
+# a Skipping line either way and the build itself is a no-op once the tree is
+# current. What it cost was invisible too: not compiling, but a Makefile parse
+# and a set of compiler feature probes per sub-make, once per triple in the list,
+# on every invocation. The VM harness invokes this once per cell per profile.
+#
+# Three properties, since the first alone passes while the others are broken:
+#   - TRIPLE=<triple> visits exactly that triple
+#   - a sweep with no TRIPLE visits the whole list
+#   - a triple named by TRIPLE whose toolchain is absent FAILS, where the same
+#     absence in a sweep is skipped. A sweep covers what the host happens to
+#     have; a named triple is a request, and a request answered for something
+#     that was never built must not exit 0 -- that is how a mistyped name reads
+#     as a clean run.
+#
+# CROSS_TARGETS is overridden with triples no host can have, so nothing is
+# compiled and the check does not depend on which toolchains are installed. The
+# per-triple line the loop prints is what it counts.
+#
+# Usage: tests/check-cross-triple   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
+
+# Triples that cannot resolve to a <triple>-gcc on any host, so the loop reaches
+# its absent-toolchain branch for every one of them and compiles nothing.
+A=kasld-absent-triple-a
+B=kasld-absent-triple-b
+C=kasld-absent-triple-c
+SET="$A $B $C"
+
+# visited <output> — the triples the loop reported on, one per line.
+visited() {
+  printf '%s\n' "$1" | sed -n 's/^=== \(Building for\|Skipping\) \([^ ]*\).*/\2/p'
+}
+
+fail=0
+
+# 1. A sweep visits the whole list, and an absent toolchain is not a failure.
+sweep=$(make -C "$ROOT" cross CROSS_TARGETS="$SET" 2>&1)
+sweep_rc=$?
+sweep_seen=$(visited "$sweep" | tr '\n' ' ')
+if [ "$sweep_rc" -ne 0 ]; then
+  guard_fail "a sweep over absent toolchains exited $sweep_rc; skipping one is not a failure"
+  fail=1
+elif [ "$sweep_seen" != "$A $B $C " ]; then
+  guard_fail "a sweep visited [$sweep_seen], not the whole CROSS_TARGETS list"
+  fail=1
+fi
+
+# 2. TRIPLE narrows to one, and 3. names it as a failure rather than a skip.
+one=$(make -C "$ROOT" cross CROSS_TARGETS="$SET" TRIPLE="$B" 2>&1)
+one_rc=$?
+one_seen=$(visited "$one" | tr '\n' ' ')
+if [ "$one_seen" != "$B " ]; then
+  guard_fail "TRIPLE=$B visited [$one_seen] -- the selector is not honoured"
+  printf 'A caller naming one triple pays for every other one in the list.\n' >&2
+  fail=1
+elif [ "$one_rc" -eq 0 ]; then
+  guard_fail "TRIPLE=$B exited 0 with its toolchain absent -- nothing was built"
+  printf 'A named triple is a request. Exiting 0 without building it makes a\n' >&2
+  printf 'mistyped or abbreviated name indistinguishable from a clean run.\n' >&2
+  fail=1
+fi
+
+[ "$fail" = 0 ] || exit 1
+guard_ok "TRIPLE selects one triple of $(printf '%s\n' "$SET" | wc -w | tr -d ' '); a sweep skips an absent toolchain, a named one fails"

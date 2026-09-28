@@ -113,8 +113,14 @@ KASLD_HARDEN_FLAGS_WANTED := -fstack-protector-strong -D_FORTIFY_SOURCE=2
 # goal is one of those. `$(or $(MAKECMDGOALS),build)` treats a bare `make` as a
 # build. A slow or minimal host then runs `make clean`/`make help` without
 # invoking the compiler at all.
+#
+# cross-arch-flags and cross-extra-flags echo a per-triple flag string and
+# compile nothing, yet the cross loop invokes them once per triple — so the
+# probes were the bulk of what a cross build spent before reaching a compiler.
+# Neither reads a probed variable, so skipping the probes cannot change what they
+# print.
 kasld_compiling := 1
-ifeq ($(filter-out clean help uninstall,$(or $(MAKECMDGOALS),build)),)
+ifeq ($(filter-out clean help uninstall cross-arch-flags cross-extra-flags,$(or $(MAKECMDGOALS),build)),)
   kasld_compiling :=
 endif
 
@@ -1219,6 +1225,7 @@ lint :
 	    $(TEST_DIR)/check-fuzz-harnesses \
 	    $(TEST_DIR)/check-make-deps \
 	    $(TEST_DIR)/check-caller-flags \
+	    $(TEST_DIR)/check-cross-triple \
 	    $(TEST_DIR)/check-component-prune \
 	    $(TEST_DIR)/check-suite-registry \
 	    $(TEST_DIR)/check-render-model-only \
@@ -1667,12 +1674,23 @@ CROSS_TARGETS := \
 	s390x-ibm-linux-musl \
 	loongarch64-unknown-linux-musl
 
-# Skip targets whose toolchain is absent, but FAIL if any present target fails
-# to build (so CI is a real gate). All present targets are attempted first, so
+# Skip targets whose toolchain is absent, but FAIL if any target that was asked
+# for fails to build (so CI is a real gate). All of them are attempted first, so
 # a single run surfaces every breakage rather than stopping at the first.
+#
+# TRIPLE=<triple> builds one target instead of every present toolchain, the same
+# selector `cross-deps` takes. A caller wanting one triple otherwise pays for all
+# of them, and the cost is not the compiling: nothing rebuilds, and the time goes
+# on a Makefile parse and a set of compiler feature probes per sub-make (see the
+# `kasld_compiling` guard), multiplied by the length of this list.
+#
+# An absent toolchain is skipped in a sweep and fails when TRIPLE named it. The
+# two cases are different questions: a sweep covers whatever the host happens to
+# have, while a named triple is a request, and answering a request for a triple
+# that was never built with a success is how a mistyped name reads as a clean run.
 .PHONY: cross
 cross :
-	@rc=0; for triple in $(CROSS_TARGETS); do \
+	@rc=0; for triple in $${TRIPLE:-$(CROSS_TARGETS)}; do \
 		if command -v $${triple}-gcc >/dev/null 2>&1; then \
 			echo "=== Building for $$triple ==="; \
 			xf=$$($(MAKE) --no-print-directory cross-extra-flags TRIPLE=$$triple); \
@@ -1681,6 +1699,10 @@ cross :
 			echo; \
 		else \
 			echo "=== Skipping $$triple (toolchain not found) ==="; \
+			if [ -n "$${TRIPLE:-}" ]; then \
+				rc=1; \
+				echo "!!! FAILED: $$triple was named by TRIPLE and its toolchain is absent"; \
+			fi; \
 		fi; \
 	done; \
 	[ $$rc -eq 0 ] || echo "cross: one or more present targets FAILED"; \
