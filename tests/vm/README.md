@@ -83,7 +83,7 @@ are then checked offline by `make test-fixtures` (see
 
 Each run prints a per-arch verdict and a summary; the exit status is non-zero if
 any arch produced an unsound or incomplete result. After running the scenarios,
-`tests/vm/run table` reads the boot logs and emits a markdown matrix
+`tests/vm/run table` reads the boot ledger and emits a markdown matrix
 (arch × scenario → KASLR / virt residual / phys residual; soundness is a gate,
 not a column), then a speculative-narrowing table showing any cells where the
 likely best-guess window beats the guaranteed one and what signal drove it — the
@@ -93,7 +93,7 @@ generated this way.
 `tests/vm/run chart` renders one kernel line of those rows as an SVG bar chart,
 one bar per architecture, written to stdout — the committed copy is
 `docs/diagrams/residual-entropy-by-arch.svg`. It reads `cmd_table`'s output rather than
-the boot logs, so the chart and the matrix cannot disagree.
+the ledger, so the chart and the matrix cannot disagree.
 
 The chart plots a single kernel line at the default vantage, each architecture on
 its own upstream defconfig, so that the bars differ by architecture alone; the
@@ -307,8 +307,22 @@ The mainline cells are built on request, never part of the default gap set.
   renderer on an architecture the host is not, which is a property of the cell
   rather than of the vantage, so it runs on the `default` profile only. `VM_MAP=1`
   runs it on every profile, `VM_MAP=0` on none.
+- `REPEATS=n` boots each cell n times in a sweep, and the rendered matrix then
+  states the span its boots covered — `11–14 bits` — rather than whichever boot
+  was last. A residual is a sample wherever the evidence moved the window at all:
+  the floor holds still between boots of one cell and the ceiling is read off an
+  address the draw itself placed. The passes are sequential and each covers the
+  whole list, so repeats of one cell are spaced apart rather than back to back.
+- Every boot appends one record to `results.tsv` (`LEDGER`), and `run table`
+  renders from those records rather than from the logs — a log holds one boot and
+  the next boot of that cell overwrites it. Each record carries the sweep that
+  produced it (`SWEEP`), and the table names the span of sweeps it drew on, since
+  a figure that moved between sweeps moved for a reason no column names. The
+  speculative-narrowing table still reads the logs, so it describes each cell's
+  last boot.
 - Useful overrides: `QEMU_DIR` (qemu not on PATH), `ALPINE_VER`, `BUILD_DIR`,
-  `TIMEOUT`, `JOBS`, `VM_MAP`, `LOONGARCH_BIOS`, `RISCV32_BIOS`, and
+  `TIMEOUT`, `JOBS`, `VM_MAP`, `REPEATS`, `LEDGER`, `SWEEP`, `LOONGARCH_BIOS`,
+  `RISCV32_BIOS`, and
   `LINUX_VERSION` (for
   `build-kernel`). `chart` takes two more: `CHART_BASELINE` for the kernel line
   to plot, and `CHART_DEFAULT_OFF` for the architectures whose upstream default

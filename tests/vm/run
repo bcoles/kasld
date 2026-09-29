@@ -30,8 +30,9 @@
 #                                #       nokaslr | no5lvl | no4lvl | la57
 #   tests/vm/run all <mode>      # every arch in a given mode
 #   tests/vm/run table           # render the results matrix (markdown) from the
-#                                # boot logs, followed by the speculative-
-#                                # narrowing table
+#                                # boot LEDGER, followed by the speculative-
+#                                # narrowing table (which reads the boot logs, so
+#                                # it describes the last boot of each cell)
 #   tests/vm/run fetch-modules [cell ...]   # stage a distro cell's own modules
 #                                # from the published build its kernel came from
 #                                # (mainline cells: tests/vm/stage-modules)
@@ -99,6 +100,13 @@
 #   VM_MAP          1 = also run the human-readable `--map` pass on every
 #                   profile, 0 = on none. Default: only on `default`, which
 #                   exercises the layout renderer once per cell.
+#   REPEATS         boots per cell (default 1). A residual is a sample wherever
+#                   the evidence moved the window, so several boots are what let
+#                   the rendered matrix state a span instead of one draw.
+#   LEDGER          where boot records are appended (default: tests/vm/results.tsv)
+#   SWEEP           the id stamped on this invocation's records (default: a UTC
+#                   stamp). Set it to give several invocations one id, so the
+#                   matrix reads them as one sweep.
 #   SPEC_INCLUDE_TIMING  1 = include timing/side-channel (method:timing) rows in
 #                   the speculative-narrowing table; default 0 excludes them
 #                   because their result is hardware- and run-dependent
@@ -117,6 +125,16 @@ ALPINE_VER=${ALPINE_VER:-3.21}
 ALPINE_MIRROR=${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}
 TIMEOUT=${TIMEOUT:-600}
 CACHE=$HERE/.cache
+# Append-only, one line per boot. A boot log holds one boot and the next boot of
+# that cell overwrites it, so the ledger is what remembers a cell booted several
+# times -- and what lets the rendered matrix state a spread rather than whichever
+# boot happened to be last. The logs stay for reading a single boot back.
+LEDGER=${LEDGER:-$HERE/results.tsv}
+# The invocation, stamped once so that every record it writes carries the same
+# one. A matrix pooling records from sweeps taken hours or trees apart is the
+# failure this identifies: not by refusing it, but by making the renderer say
+# which sweeps it drew on.
+SWEEP=${SWEEP:-$(date -u +%Y%m%dT%H%M%SZ 2>/dev/null || echo unknown)}
 
 # Speculative-narrowing table: which consensus-method names are treated as
 # non-reproducible and excluded from the table by default. Microarchitectural
@@ -515,63 +533,143 @@ append_text_truth() {
     "$_at_hi" "$_at_d" >> "$_at_log"
 }
 
-verdict() {
-  _log=$1
-  grep -aq 'KASLD VM DONE' "$_log" || { echo "INCOMPLETE  (boot did not finish; see $_log)"; return 1; }
-  # _text or nothing. _stext is a DIFFERENT symbol, a head gap above the quantity
-  # kasld solves, and substituting it compares the window against the wrong
-  # address -- in the direction that hides a failure, since a window pinned to
-  # _stext then contains the value it is checked against. That is not theory:
-  # armv7-mainline-7.0 reported PASS this way while its window provably excluded
-  # the real base. A cell with no truth is unverified, and says so.
-  _truth=$(awk '/ _text$/{print $1; exit}' "$_log")
-  _min=$(grep -am1 -oE '"virt_image_base_min": *"0x[0-9a-fA-F]+"' "$_log" | grep -oE '0x[0-9a-fA-F]+')
-  _max=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$_log" | grep -oE '0x[0-9a-fA-F]+')
-  _disabled=$(grep -am1 -oE '"disabled": *(true|false)' "$_log" | awk '{print $2}')
-  _t=$(norm "$_truth"); _lo=$(norm "$_min"); _hi=$(norm "$_max")
-  _pv=$(phys_verdict "$_log")
-  # No truth is not the same as no window. A cell whose kernel publishes no
-  # _text, and whose build left no symbol map to derive one from, cannot check
-  # anything -- reporting that as N/A alongside cells that genuinely resolved no
-  # window would let an unverifiable cell read as an unremarkable one. It gets
-  # its own outcome, and the exit status says the run did not verify what it was
-  # asked to.
-  if [ -z "$_t" ]; then
+# ---------------------------------------------------------------------------
+# The record: every fact a boot establishes, extracted from its log exactly once.
+#
+# Two readers wanted these numbers -- the verdict printed after a boot and the
+# rendered matrix -- and each dug them out of the log on its own. They had already
+# drifted: the matrix substituted `_stext` for `_text` where the kernel exports no
+# `_text`, which is a head gap above the quantity kasld solves, so a window pinned
+# to `_stext` contains the very value it is checked against and the cell reads
+# sound. The verdict refuses that substitution. One extractor removes the
+# possibility of a second such disagreement.
+#
+# Facts only. The verdict is a FUNCTION of these fields (record_verdict), never a
+# column, so a stored pass cannot outlive the numbers that justified it.
+#
+# Tab-separated, every field a single token, `-` where a boot established none:
+#   1 sweep      the invocation that produced it, as a UTC stamp
+#   2 repeat     which boot of that (cell, profile) within the sweep
+#   3 cell       4 profile      5 done (yes|no: reached the end of its run)
+#   6 release    7 source (alpine|mainline)     8 kaslr (on|off|unknown)
+#   9 truth      the runtime _text the kernel published, or that was derived
+#  10 vlo 11 vhi 12 vbits       the guaranteed virtual image-base window
+#  13 plo 14 phi 15 pbits       the same on the physical axis
+#  16 coupled    yes where text tracks the direct map, so phys is not independent
+#  17 pverdict   18 rverdict    as phys_verdict / region_verdict report them
+# ---------------------------------------------------------------------------
+REC_FIELDS=18
+
+extract_record() { # log cell profile sweep repeat
+  _er_log=$1 _er_cell=$2 _er_prof=$3 _er_sweep=$4 _er_rep=$5
+
+  _er_done=no
+  grep -aq 'KASLD VM DONE' "$_er_log" && _er_done=yes
+
+  _er_rel=$(grep -am1 'Linux version' "$_er_log" |
+    sed -E 's/.*Linux version ([^ ]+).*/\1/')
+  _er_flavor=$(printf '%s' "$TABLE" | awk -F'|' -v a="$_er_cell" \
+    'NF>1{gsub(/ /,"",$1); if ($1==a) {gsub(/ /,"",$3); print $3; exit}}')
+  _er_src=alpine; [ "$_er_flavor" = local ] && _er_src=mainline
+
+  _er_dis=$(grep -am1 -oE '"disabled": *(true|false)' "$_er_log" | awk '{print $2}')
+  case "$_er_dis" in true) _er_kaslr=off ;; false) _er_kaslr=on ;; *) _er_kaslr=unknown ;; esac
+
+  # _text or nothing. _stext is a DIFFERENT symbol and substituting it compares
+  # the window against the wrong address, in the direction that hides a failure.
+  _er_truth=$(awk '/ _text$/{print $1; exit}' "$_er_log")
+  [ -n "$_er_truth" ] && _er_truth=0x$_er_truth
+
+  _er_vlo=$(grep -am1 -oE '"virt_image_base_min": *"0x[0-9a-fA-F]+"' "$_er_log" | grep -oE '0x[0-9a-fA-F]+')
+  _er_vhi=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$_er_log" | grep -oE '0x[0-9a-fA-F]+')
+  _er_vbits=$(bits_of "$_er_log")
+  _er_plo=$(grep -am1 -oE '"phys_kaslr_text_min": *"0x[0-9a-fA-F]+"' "$_er_log" | grep -oE '0x[0-9a-fA-F]+')
+  _er_phi=$(grep -am1 -oE '"phys_kaslr_text_max": *"0x[0-9a-fA-F]+"' "$_er_log" | grep -oE '0x[0-9a-fA-F]+')
+  _er_pbits=$(phys_bits_of "$_er_log")
+
+  _er_dec=$(grep -am1 -oE '"text_tracks_directmap": *(true|false)' "$_er_log" | awk '{print $2}')
+  case "$_er_dec" in true) _er_coupled=yes ;; false) _er_coupled=no ;; *) _er_coupled=unknown ;; esac
+
+  _er_pv=$(phys_verdict "$_er_log")
+  _er_rv=$(region_verdict "$_er_log")
+
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$_er_sweep" "$_er_rep" "$_er_cell" "$_er_prof" "$_er_done" \
+    "${_er_rel:--}" "$_er_src" "$_er_kaslr" "${_er_truth:--}" \
+    "${_er_vlo:--}" "${_er_vhi:--}" "${_er_vbits:--}" \
+    "${_er_plo:--}" "${_er_phi:--}" "${_er_pbits:--}" \
+    "$_er_coupled" "${_er_pv:--}" "${_er_rv:--}"
+}
+
+# Split one record into R_* for the readers below. A field count that does not
+# match REC_FIELDS is a truncated or foreign line, which is refused rather than
+# read: a short line would otherwise shift every field left of the one missing.
+rec_read() { # record
+  # Split in full, because it is a record: the gate below reads the containment
+  # fields and the awk aggregation reads the rest by column number, so a reader
+  # that dropped what this shell does not name would have to be edited every time
+  # a consumer appeared.
+  R_sweep='' R_repeat='' R_cell='' R_profile='' R_done='' R_release=''
+  R_source='' R_kaslr='' R_truth='' R_vlo='' R_vhi='' R_vbits='' R_plo=''
+  R_phi='' R_pbits='' R_coupled='' R_pverdict='' R_rverdict=''
+  [ "$(printf '%s' "$1" | awk -F'\t' '{print NF}')" = "$REC_FIELDS" ] || return 1
+  # shellcheck disable=SC2034  # the fields this shell does not name are read by
+  # ledger_rows, in awk, by column position
+  IFS="$(printf '\t')" read -r R_sweep R_repeat R_cell R_profile R_done \
+    R_release R_source R_kaslr R_truth R_vlo R_vhi R_vbits R_plo R_phi \
+    R_pbits R_coupled R_pverdict R_rverdict <<EOF
+$1
+EOF
+}
+
+# The verdict for the record in R_*: one word, then a detail. Computed from the
+# facts every time rather than stored beside them, so the two cannot drift.
+# Gates BOTH axes and the RANDOMIZE_MEMORY region bases.
+record_verdict() {
+  [ "$R_done" = yes ] || { echo "INCOMPLETE  boot did not finish"; return 1; }
+  if [ "$R_truth" = - ]; then
     echo "UNVERIFIED  no _text truth (kernel exports none; no symbol map to derive it)"
     return 2
   fi
-  if [ -z "$_lo" ] || [ -z "$_hi" ]; then
-    echo "N/A   truth=${_truth:--} window=[${_min:--},${_max:--}] disabled=${_disabled:-?} phys=$_pv"
+  if [ "$R_vlo" = - ] || [ "$R_vhi" = - ]; then
+    echo "N/A   truth=$R_truth window=[-,-] kaslr=$R_kaslr phys=$R_pverdict"
     return 0
   fi
-  # Check virt first so the phys-FAIL message below can accurately state that
-  # virt is sound (it is only reached once the virt window is verified).
-  if hexle "$_lo" "$_t" && hexle "$_t" "$_hi"; then :; else
-    echo "FAIL  truth=$_truth OUTSIDE [$_min,$_max] — soundness violation (phys=$_pv)"
+  _rv_t=$(norm "$R_truth"); _rv_lo=$(norm "$R_vlo"); _rv_hi=$(norm "$R_vhi")
+  if hexle "$_rv_lo" "$_rv_t" && hexle "$_rv_t" "$_rv_hi"; then :; else
+    echo "FAIL  truth=$R_truth OUTSIDE [$R_vlo,$R_vhi] — soundness violation (phys=$R_pverdict)"
     return 1
   fi
-  if [ "$_pv" = N ]; then
-    echo "FAIL  phys base OUTSIDE resolved window — soundness violation (virt truth=$_truth ∈ [$_min,$_max])"
-    return 1
-  fi
-  # Inside the window's bounds but inside a carved sub-range: the base was ruled
-  # out of the candidate set while every bound test still passes.
-  if [ "$_pv" = X ]; then
-    echo "FAIL  phys base EXCLUDED by a carved sub-range of the resolved window — soundness violation (virt truth=$_truth ∈ [$_min,$_max])"
-    return 1
-  fi
-  _rv=$(region_verdict "$_log")
-  case "$_rv" in
-    N:*)
-      echo "FAIL  region ${_rv#N:} OUTSIDE resolved window — soundness violation (text/phys sound)"
-      return 1 ;;
-    \?:*)
-      echo "FAIL  region ${_rv#?:} truth captured but no resolved window to gate it against"
-      return 1 ;;
+  case "$R_pverdict" in
+  N) echo "FAIL  phys base OUTSIDE resolved window — soundness violation (virt truth=$R_truth ∈ [$R_vlo,$R_vhi])"
+     return 1 ;;
+  X) echo "FAIL  phys base EXCLUDED by a carved sub-range of the resolved window — soundness violation (virt truth=$R_truth ∈ [$R_vlo,$R_vhi])"
+     return 1 ;;
   esac
-  _rec=N; [ "$_lo" = "$_hi" ] && _rec=Y
-  echo "PASS  truth=$_truth ∈ [$_min,$_max] recovered=$_rec phys=$_pv region=$_rv"
+  case "$R_rverdict" in
+  N:*) echo "FAIL  region ${R_rverdict#N:} OUTSIDE resolved window — soundness violation (text/phys sound)"
+       return 1 ;;
+  \?:*) echo "FAIL  region ${R_rverdict#?:} truth captured but no resolved window to gate it against"
+        return 1 ;;
+  esac
+  _rv_rec=N; [ "$_rv_lo" = "$_rv_hi" ] && _rv_rec=Y
+  echo "PASS  truth=$R_truth ∈ [$R_vlo,$R_vhi] recovered=$_rv_rec phys=$R_pverdict region=$R_rverdict"
   return 0
+}
+
+# Record one boot in the ledger and report its verdict. The ledger is append-only
+# and one line per boot, which is what lets a cell be booted several times and the
+# spread of its results be read back: a boot log holds one boot, and the next boot
+# of that cell overwrites it.
+#
+# Facts are extracted once, here, and the verdict computed from them -- so the
+# line printed after a boot and the row rendered from the ledger are the same
+# judgement of the same numbers rather than two readings of one log.
+verdict() { # log cell profile sweep repeat
+  _v_rec=$(extract_record "$1" "$2" "$3" "$4" "$5")
+  printf '%s\n' "$_v_rec" >> "$LEDGER"
+  rec_read "$_v_rec" || { echo "INCOMPLETE  (could not record this boot)"; return 1; }
+  record_verdict
 }
 
 # Remove host/build identity the capture inherits from the machine it ran on:
@@ -958,7 +1056,7 @@ stage_image() {
 
 # Build + boot one arch in one mode. Returns the verdict's status.
 run_one() {
-  name=$1 mode=$2
+  name=$1 mode=$2 repeat=${3:-1}
   row=$(echo "$TABLE" | grep -E "^[[:space:]]*${name}[[:space:]]*\|")
   [ -n "$row" ] || { echo "$name: unknown arch"; return 2; }
   IFS='|' read -r _ aarch flavor prefix qsuf machine console <<EOF
@@ -1170,7 +1268,7 @@ EOF
   fi
 
   printf '  %-11s ' "$name"
-  verdict "$log"
+  verdict "$log" "$name" "$mode" "$SWEEP" "$repeat"
 }
 
 # Virtual-side KASLR residual entropy from a boot log's -j JSON, or empty.
@@ -1356,185 +1454,186 @@ EOF
   fi
 }
 
-# Render the results matrix (markdown) from the boot logs left by previous runs.
-# One row per existing boot-<scenario>.log. Every column describes the GUARANTEED
-# window — the one resolved at the sound floor, which must contain the truth.
-# `residual` is the only result column: how much of the base KASLD could not pin
-# down (i.e. how effectively KASLR was defeated).
+# Select the records the matrix is rendered from: for each (cell, profile), the
+# ones written by the most recent sweep that covered it.
+#
+# Not every record in the ledger. It is append-only across sweeps, so it holds a
+# cell's history, and pooling that history would mix a figure from one tree with a
+# figure from another -- which is how a published matrix came to show one arm64
+# cell at 32 bits under one profile and 31 under another, nine hours and one tree
+# apart, reading as though the profile had done it. Newest-sweep-per-pair keeps a
+# pair internally coherent; the span the rows span is disclosed beneath the table,
+# because the remaining incoherence is between pairs and a reader has to see it.
+#
+# Sweep ids are UTC stamps, so lexical order is chronological.
+ledger_current() {
+  awk -F'\t' -v want="$REC_FIELDS" '
+    NF == want {
+      key = $3 FS $4
+      if ($1 > latest[key]) latest[key] = $1
+      row[NR] = $0; k[NR] = key; sw[NR] = $1
+    }
+    END { for (i = 1; i <= NR; i++) if (i in row && sw[i] == latest[k[i]]) print row[i] }
+  ' "$LEDGER"
+}
+
+# Aggregate the selected records into one line per (cell, profile):
+#   cell  profile  release  source  kaslr  virt-residual  phys-residual  boots
+#
+# A residual is a SAMPLE, not a constant, wherever the evidence moved the window:
+# the floor holds still between boots of one cell and the ceiling is read off an
+# address the draw placed, so several boots of one cell legitimately disagree. The
+# aggregate states the span they cover -- `11-14 bits` -- and a single figure only
+# where every boot agreed, which is itself a result worth being able to read off
+# the table.
+#
+# `exact` covers a byte-exact pin and a window narrower than the KASLR grain
+# alike: both mean the randomized slot is known.
+ledger_rows() { # reads selected records on stdin
+  awk -F'\t' '
+    function eff(lo, hi, bits) {
+      if (lo != "-" && lo == hi) return 0
+      if (bits == "-") return -1          # no figure at all
+      return bits + 0
+    }
+    function note(key, v) {
+      if (v < 0) { uncounted[key] = 1; return }
+      if (!(key in lo_) || v < lo_[key]) lo_[key] = v
+      if (!(key in hi_) || v > hi_[key]) hi_[key] = v
+    }
+    function residual(key) {
+      if (uncounted[key]) return "uncounted"
+      if (!(key in lo_)) return "—"
+      l = lo_[key]; h = hi_[key]
+      if (l == h) return l == 0 ? "exact" : (l == 1 ? "1 bit" : l " bits")
+      return l "–" h " bits"
+    }
+    {
+      cell = $3; prof = $4; key = cell FS prof
+      if (!(key in seen)) { seen[key] = 1; order[++nkeys] = key }
+      boots[key]++
+      release[key] = $6; source[key] = $7
+      # A cell booted with KASLR off in any boot of the sweep is an off cell: the
+      # posture belongs to the kernel rather than to the draw, so the boots cannot
+      # disagree about it, and a residual for one would be a residual of nothing.
+      if ($8 == "off") off[key] = 1
+      if ($16 == "yes") coupled[key] = 1
+      if ($17 != "NA") physreal[key] = 1
+      note(key "\tV", eff($10, $11, $12))
+      note(key "\tP", eff($13, $14, $15))
+    }
+    END {
+      for (i = 1; i <= nkeys; i++) {
+        key = order[i]
+        split(key, f, FS)
+        v = off[key] ? "—" : residual(key "\tV")
+        if (off[key])            p = "—"
+        else if (coupled[key])   p = "coupled"
+        else if (!physreal[key]) p = "—"
+        else                     p = residual(key "\tP")
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", f[1], f[2], release[key],
+          source[key], (off[key] ? "off" : "on"), v, p, boots[key]
+      }
+    }
+  '
+}
+
+# Render the results matrix (markdown) from the ledger. One row per (cell,
+# profile) the current sweep covered. Every column describes the GUARANTEED
+# window -- the one resolved at the sound floor, which must contain the truth.
 cmd_table() {
   nl='
 '
-  bad=    # cells that are NOT verified sound (gate); refusing to emit if any
-  unrunnable=   # cells that cannot produce a result at all; disclosed, not gated
-  body=
+  if [ ! -s "$LEDGER" ]; then
+    # shellcheck disable=SC2016  # backticks are literal, not a subshell
+    printf 'no boot records in %s — run `tests/vm/run all <profile>` first\n' "$LEDGER" >&2
+    return 1
+  fi
+
+  sel=$(ledger_current)
+  if [ -z "$sel" ]; then
+    printf 'no usable records in %s (every line was the wrong width)\n' "$LEDGER" >&2
+    return 1
+  fi
+
+  # SOUNDNESS GATE. Every selected record is judged by the same function that
+  # judged it when it was booted, from the same numbers. A cell that is not
+  # verified sound is a bug, never something to publish, so one failure withholds
+  # the whole table rather than dropping a row out of it.
+  bad=
+  unverified=
+  while IFS= read -r r; do
+    rec_read "$r" || continue
+    v=$(record_verdict) || true
+    case "$v" in
+      PASS*) ;;
+      N/A*) ;;
+      UNVERIFIED*) unverified="${unverified}  $R_cell/$R_profile boot $R_repeat: ${v#UNVERIFIED  }${nl}" ;;
+      *) bad="${bad}  $R_cell/$R_profile boot $R_repeat: $v${nl}" ;;
+    esac
+  done <<EOF
+$sel
+EOF
+  if [ -n "$bad" ]; then
+    printf 'SOUNDNESS GATE FAILED — refusing to emit the matrix. Cells not verified sound:\n%s' "$bad" >&2
+    return 1
+  fi
+  if [ -n "$unverified" ]; then
+    printf 'REFUSING to emit the matrix — these boots verified nothing:\n%s' "$unverified" >&2
+    return 1
+  fi
+
+  agg=$(printf '%s\n' "$sel" | ledger_rows)
+
+  # A cell whose binary cannot execute under its own kernel yields no result by
+  # construction, so it is evidence of nothing. It is listed beneath the matrix
+  # instead, so the omission stays visible.
+  unrunnable=
   for a in $arches; do
-    # A cell whose binary cannot execute under its own kernel yields no result by
-    # construction, so it is evidence of nothing — neither soundness nor a
-    # violation. Withholding the whole matrix over it would withhold it forever.
-    # It is listed beneath the matrix instead, so the omission stays visible.
-    # Any OTHER cell that fails to finish still fails the gate below: a cell that
-    # normally completes and suddenly does not may be hiding a regression.
     if cb=$(cell_binary "$a") && arm_be32_binary "$cb"; then
       case " $unrunnable " in *" ${a%%-*} "*) ;; *) unrunnable="$unrunnable${a%%-*} " ;; esac
-      continue
     fi
-    # Matrix label is the real architecture — the leading dash-component of the
-    # cell name (<arch>-<distro>-<version>). The same arch appears under several
-    # cells (distro/version); the `source` and `release` columns carry that split.
+  done
+
+  body=
+  rows=0
+  for a in $arches; do
+    case " $unrunnable " in *" ${a%%-*} "*) continue ;; esac
     arch_disp=${a%%-*}
+    variant=$(printf '%s' "$a" | cut -d- -f4-)
     for scen in default kptr-hidden perf-open dmesg-open bpf-open hardened tracefs-open nokaslr \
       no5lvl no4lvl la57; do
-      log="$HERE/$a/boot-$scen.log"
-      [ -f "$log" ] || continue   # arch not built (no kernel) — simply omitted
-      rel=$(grep -am1 'Linux version' "$log" | sed -E 's/.*Linux version ([^ ]+).*/\1/')
-      [ -n "$rel" ] || rel='?'
-      # Distinguish variant cells (VA_BITS / VMSPLIT configs) that share an arch
-      # and release: append the 4th dash-field of the cell name to the label, so
-      # aarch64-...-va47 and armv7-...-vmsplit2g do not collapse onto the base row.
-      variant=$(printf '%s' "$a" | cut -d- -f4-)
-      [ -n "$variant" ] && rel="$rel ($variant)"
-      if ! grep -aq 'KASLD VM DONE' "$log"; then
-        bad="${bad}  $a/$scen: boot did not finish${nl}"; continue
-      fi
-      truth=$(awk '/ _text$/{print $1; exit}' "$log")
-      [ -n "$truth" ] || truth=$(awk '/ _stext$/{print $1; exit}' "$log")
-      min=$(grep -am1 -oE '"virt_image_base_min": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
-      max=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
-      disabled=$(grep -am1 -oE '"disabled": *(true|false)' "$log" | awk '{print $2}')
-      bits=$(bits_of "$log"); [ -n "$bits" ] || bits='—'
-      t=$(norm "$truth"); lo=$(norm "$min"); hi=$(norm "$max")
-      if [ -z "$t" ] || [ -z "$lo" ] || [ -z "$hi" ]; then
-        bad="${bad}  $a/$scen: could not extract truth/window${nl}"; continue
-      fi
-      # SOUNDNESS GATE (virtual): the guaranteed window MUST contain the truth. A
-      # cell that fails this is a bug, never something to publish — so it is
-      # collected as a violation and the whole table is withheld (see below).
-      if hexle "$lo" "$t" && hexle "$t" "$hi"; then :; else
-        bad="${bad}  $a/$scen: virt truth $truth OUTSIDE [$min,$max] — soundness violation${nl}"
-        continue
-      fi
-      # SOUNDNESS GATE (physical): on decoupled arches the phys image base must
-      # lie inside its resolved window too. phys_verdict returns NA where the
-      # check does not apply (coupled arch / no phys window / no iomem truth).
-      pv=$(phys_verdict "$log")
-      if [ "$pv" = N ]; then
-        bad="${bad}  $a/$scen: phys base OUTSIDE resolved window — soundness violation${nl}"
-        continue
-      fi
-      # SOUNDNESS GATE (RANDOMIZE_MEMORY regions): each region base whose truth
-      # was read from kcore (page_offset / vmalloc / vmemmap) must lie inside its
-      # resolved window. NA where no region truth was captured (not RANDOMIZE_-
-      # MEMORY, or no kcore). Not rendered as a column — a gate only.
-      rv=$(region_verdict "$log")
-      case "$rv" in
-        N:*) bad="${bad}  $a/$scen: region ${rv#N:} base OUTSIDE resolved window — soundness violation${nl}"; continue ;;
-      esac
-      kas=on; [ "$disabled" = true ] && kas=off
-      # Kernel source: a mainline kernel.org build (TABLE flavor "local") vs an
-      # Alpine distro kernel.
-      flavor=$(printf '%s' "$TABLE" | awk -F'|' -v a="$a" 'NF>1{gsub(/ /,"",$1); if ($1==a) {gsub(/ /,"",$3); print $3; exit}}')
-      src=alpine; [ "$flavor" = local ] && src=mainline
-      # Residual: how much KASLR entropy KASLD could NOT strip from the base.
-      #   exact    : base recovered — KASLR defeated. A byte-exact pin and a
-      #              sub-slot window (below KASLR granularity) are the same
-      #              outcome here: the randomized slot is known.
-      #   <n> bits : KASLR-randomized, n bits of the slot still unknown.
-      #   uncounted: no bit figure was reported at all. A fail-safe that no run
-      #              produces; see the branch below.
-      #   —        : KASLR off — no randomization to defeat.
-      if [ "$kas" = off ]; then
-        residual='—'
-      elif [ "$bits" = '—' ]; then
-        # No figure at all. A fail-safe, not an expected outcome: an address
-        # window states both edges and is counted, so the readout carries a bit
-        # figure for every cell this table scores, and no run has produced this
-        # since. It is kept because the alternative is worse -- falling through
-        # would meet the `exact` test on an empty `$lo`/`$hi` and claim a
-        # recovered base on the strength of a missing number. If a cell ever
-        # shows this, the readout stopped reporting entropy it used to, and the
-        # cause is upstream of the table.
-        residual=uncounted
-      elif [ "$lo" = "$hi" ] || [ "$bits" = 0 ]; then
-        residual=exact
-      elif [ "$bits" = 1 ]; then
-        residual='1 bit'
-      else
-        residual="$bits bits"
-      fi
-      # Physical residual — the same measure for the independently-resolved
-      # physical image base. "—" where phys is not an independent quantity
-      # (coupled arch, phys_verdict=NA) or KASLR is off; otherwise exact / n bits
-      # from the resolved phys window and its entropy.
-      pmin=$(grep -am1 -oE '"phys_kaslr_text_min": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
-      pmax=$(grep -am1 -oE '"phys_kaslr_text_max": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
-      pbits=$(phys_bits_of "$log"); [ -n "$pbits" ] || pbits='—'
-      plo=$(norm "$pmin"); phi=$(norm "$pmax")
-      # `coupled` is a distinct value from `—`, keyed on the coupling flag itself
-      # (not phys_verdict=NA, which also fires on a decoupled arch that captured
-      # no iomem truth): on a coupled arch the physical image base is a fixed
-      # projection of the virtual text base (phys = virt - a known constant), so
-      # there is no independent physical quantity to resolve — recovering the
-      # virtual base already determines it. Emitting `coupled` rather than `—`
-      # lets the reader tell a coupled arch from a KASLR-off row, and from a
-      # decoupled arch (which always shows exact / n bits while KASLR is on).
-      dec=$(grep -am1 -oE '"text_tracks_directmap": *(true|false)' "$log" | awk '{print $2}')
-      if [ "$kas" = off ]; then
-        phys_residual='—'
-      elif [ "$dec" = true ]; then
-        phys_residual=coupled
-      elif [ "$pv" = NA ]; then
-        phys_residual='—'
-      elif [ "$pbits" = '—' ]; then
-        phys_residual=uncounted   # see the virtual axis above: a fail-safe
-      elif { [ -n "$plo" ] && [ "$plo" = "$phi" ]; } || [ "$pbits" = 0 ]; then
-        phys_residual=exact
-      elif [ "$pbits" = 1 ]; then
-        phys_residual='1 bit'
-      else
-        phys_residual="$pbits bits"
-      fi
-      # default is first in the scenario order, so its residuals are recorded
-      # here before bpf-open is reached and can gate the bpf-open row below.
+      line=$(printf '%s\n' "$agg" | awk -F'\t' -v c="$a" -v p="$scen" '$1==c && $2==p {print; exit}')
+      [ -n "$line" ] || continue
       # Which scenarios earn a row. All of them are gate-checked above; this
-      # decides only what the matrix shows.
+      # decides only what the matrix shows. Filter by APPLICABILITY, never by
+      # OUTCOME: whether a profile applies to a cell is a property of the cell,
+      # while whether it changed the number is a RESULT, and suppressing a row for
+      # that hides the negative finding the profile exists to report.
       #
       # nokaslr is a control (KASLR forced off → always "—") and carries no
       # per-arch signal. The paging-mode parameters carry signal on the two
-      # architectures that act on them and are ignored everywhere else, where
-      # the boot is a byte-for-byte repeat of `default` and a row would render
-      # as coverage that does not exist.
-      #
-      # Filter by APPLICABILITY, never by OUTCOME. Whether a profile applies to a
-      # cell is a property of the cell; whether it changed the number is a
-      # RESULT, and suppressing a row for it hides the negative finding the
-      # profile exists to report. It is also unsound here: the residuals being
-      # compared come from two independent boots of a KASLR kernel, and on a cell
-      # whose window edge tracks the image the figure moves between boots on its
-      # own -- so an outcome filter emits and withholds rows from placement
-      # noise. bpf-open used to be filtered that way and is not any more; it is
-      # shown on every cell, like the four other sysctl profiles, several of
-      # which are identical to `default` on all 55 cells and are still shown.
-      show=1
+      # architectures that act on them and are ignored everywhere else, where the
+      # boot is a byte-for-byte repeat of `default`.
       case "$scen" in
-      nokaslr) show=0 ;;
-      no5lvl)
-        case "$arch_disp" in
-        x86_64 | riscv64) ;;
-        *) show=0 ;;
-        esac
-        ;;
-      no4lvl) [ "$arch_disp" = riscv64 ] || show=0 ;;
-      la57) [ "$arch_disp" = x86_64 ] || show=0 ;;
+      nokaslr) continue ;;
+      no5lvl) case "$arch_disp" in x86_64 | riscv64) ;; *) continue ;; esac ;;
+      no4lvl) [ "$arch_disp" = riscv64 ] || continue ;;
+      la57) [ "$arch_disp" = x86_64 ] || continue ;;
       esac
-      [ "$show" = 0 ] || body="${body}| $arch_disp | $rel | $src | $scen | $kas | $residual | $phys_residual |${nl}"
+      rel=$(printf '%s' "$line" | cut -f3)
+      src=$(printf '%s' "$line" | cut -f4)
+      kas=$(printf '%s' "$line" | cut -f5)
+      vres=$(printf '%s' "$line" | cut -f6)
+      pres=$(printf '%s' "$line" | cut -f7)
+      [ -n "$variant" ] && rel="$rel ($variant)"
+      body="${body}| $arch_disp | $rel | $src | $scen | $kas | $vres | $pres |${nl}"
+      rows=$((rows + 1))
     done
   done
 
-  # Soundness is a GATE, not a column: if any cell is not verified sound, refuse
-  # to emit the matrix (and report which cells), so an unsound or unverifiable
-  # result can never be published.
-  if [ -n "$bad" ]; then
-    printf 'SOUNDNESS GATE FAILED — refusing to emit the matrix. Cells not verified sound:\n%s' "$bad" >&2
+  if [ "$rows" = 0 ]; then
+    printf 'no rows to render from %s\n' "$LEDGER" >&2
     return 1
   fi
 
@@ -1542,7 +1641,26 @@ cmd_table() {
   printf '|------|---------|--------|----------|-------|---------------|---------------|\n'
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
-  printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off (nothing randomized to strip). In the `phys residual` column, `coupled` marks an architecture whose physical image base is a fixed projection of the virtual text base (no independent physical axis — recovering the virtual base already determines it); only the decoupled arches (x86-64, arm64, riscv64, s390) carry an independent `exact` / `<n> bits` physical result.\n'
+  printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis, in every boot. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `<lo>–<hi> bits` = the boots of that cell did not agree, and the span they covered; `—` = KASLR off (nothing randomized to strip). In the `phys residual` column, `coupled` marks an architecture whose physical image base is a fixed projection of the virtual text base (no independent physical axis — recovering the virtual base already determines it); only the decoupled arches (x86-64, arm64, riscv64, s390) carry an independent `exact` / `<n> bits` physical result.\n'
+
+  # What the figures rest on: how many boots each cell got, and how far apart the
+  # sweeps they came from were. A range is only as good as the number of draws
+  # behind it, and a matrix assembled over weeks is a different claim from one
+  # assembled in an hour -- neither can be read off the rows themselves.
+  bmin=$(printf '%s\n' "$agg" | cut -f8 | sort -n | head -1)
+  bmax=$(printf '%s\n' "$agg" | cut -f8 | sort -n | tail -1)
+  smin=$(printf '%s\n' "$sel" | cut -f1 | sort | head -1)
+  smax=$(printf '%s\n' "$sel" | cut -f1 | sort | tail -1)
+  if [ "$bmin" = "$bmax" ]; then
+    printf '\nEach cell was booted %s time(s).' "$bmin"
+  else
+    printf '\nCells were booted between %s and %s times.' "$bmin" "$bmax"
+  fi
+  if [ "$smin" = "$smax" ]; then
+    printf ' Every row comes from one sweep, %s.\n' "$smin"
+  else
+    printf ' Rows come from sweeps between %s and %s: a figure that moved between them moved for a reason the profile column does not name.\n' "$smin" "$smax"
+  fi
 
   # An arch that cannot run the payload is disclosed rather than dropped
   # silently, so the matrix cannot be read as having covered it.
@@ -1597,14 +1715,26 @@ cmd_chart() {
   cmd_table | awk -F'|' -v BASELINE="$_chart_baseline" -v DEFOFF="$_chart_default_off" '
     BEGIN { L = 190; R = 872; AX = 168; TOP = 168; RH = 31; n = 0; noff = 0
             nd = split(DEFOFF, d, " "); for (i = 1; i <= nd; i++) defoff[d[i]] = 1 }
-    function bits(s) {                 # "exact"->0, "N bits"->N, else -1
+    # A residual cell as a pair of numbers: the lowest and the highest figure the
+    # boots of that cell produced. "exact" is 0, "N bits" is N twice, and a span
+    # "LO-HI bits" is both ends -- a cell whose boots disagreed, which is drawn as
+    # a bar to the high end with the disputed part of it set apart. -1 for anything
+    # else, which is not plotted.
+    function bits_lo(s) { return bits_end(s, 1) }
+    function bits_hi(s) { return bits_end(s, 2) }
+    function bits_end(s, which,   parts) {
       gsub(/^ +| +$/, "", s)
       if (s == "exact") return 0
-      if (s ~ /^[0-9]+ bits$/) { sub(/ bits$/, "", s); return s + 0 }
+      if (s ~ /^[0-9]+ bits?$/) { sub(/ bits?$/, "", s); return s + 0 }
+      if (s ~ /^[0-9]+–[0-9]+ bits$/) {
+        sub(/ bits$/, "", s); split(s, parts, "–")
+        return parts[which] + 0
+      }
       return -1
     }
     NF > 6 {
-      a = $2; rel = $3; src = $4; scen = $5; k = $6; v = bits($7)
+      a = $2; rel = $3; src = $4; scen = $5; k = $6
+      v = bits_hi($7); vlo = bits_lo($7)
       gsub(/^ +| +$/, "", a); gsub(/^ +| +$/, "", rel); gsub(/^ +| +$/, "", src)
       gsub(/^ +| +$/, "", scen); gsub(/^ +| +$/, "", k)
       # cmd_table prints the speculative-narrowing table after the matrix, and its
@@ -1621,7 +1751,7 @@ cmd_chart() {
       # architecture where a release somehow appears twice.
       if (rel ~ /\(/ || a in seen) next
       seen[a] = 1
-      if (k == "on" && v >= 0) { arch[n] = a; val[n] = v; n++ }
+      if (k == "on" && v >= 0) { arch[n] = a; val[n] = v; low[n] = vlo; n++ }
       else { off[noff] = a; noff++ }
     }
     END {
@@ -1629,10 +1759,15 @@ cmd_chart() {
         printf "chart: no mainline rows at the default vantage for release %s\n", BASELINE > "/dev/stderr"
         exit 1
       }
-      for (i = 0; i < n; i++)            # selection sort, widest window first
+      # Selection sort, widest window first. Every per-bar array moves together:
+      # a bar carries its architecture, the highest figure its boots left and the
+      # lowest, and sorting one array without the others pairs a bar with the
+      # numbers belonging to a different one.
+      for (i = 0; i < n; i++)
         for (j = i + 1; j < n; j++)
           if (val[j] > val[i] || (val[j] == val[i] && arch[j] < arch[i])) {
             t = val[i]; val[i] = val[j]; val[j] = t
+            t = low[i]; low[i] = low[j]; low[j] = t
             s = arch[i]; arch[i] = arch[j]; arch[j] = s
           }
       for (i = 0; i < noff; i++)
@@ -1642,7 +1777,7 @@ cmd_chart() {
       for (i = 0; i < n; i++) if (val[i] > MAXB) MAXB = val[i]
       bandY = TOP + RH * n + 34
       ny = bandY + (noff ? 30 : 4)
-      H = ny + 220
+      H = ny + 237
       printf "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"960\" height=\"%d\"", H
       printf " viewBox=\"0 0 960 %d\" font-family=\"sans-serif\">\n", H
       print "  <style>"
@@ -1668,8 +1803,19 @@ cmd_chart() {
         y = TOP + RH * i
         printf "  <text class=\"arch\" x=\"%d\" y=\"%d\" text-anchor=\"end\">%s</text>\n", AX, y+4, arch[i]
         w = X(val[i]) - L; if (w < 2) w = 2
-        printf "  <rect x=\"%d\" y=\"%d\" width=\"%.1f\" height=\"18\" fill=\"#2e7d32\" opacity=\"0.85\" rx=\"2\"/>\n", L, y-9, w
-        printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d</text>\n", L + w + 10, y+4, val[i]
+        # Where the boots of a cell disagreed, the bar reaches the highest figure
+        # any of them left and the disputed part of it -- between the lowest and
+        # the highest -- is drawn faintly. Solid is what survived every boot;
+        # faint is what survived some. A cell whose boots agreed has no faint part
+        # and is the same bar it always was.
+        wlo = X(low[i]) - L; if (wlo < 2) wlo = 2
+        printf "  <rect x=\"%d\" y=\"%d\" width=\"%.1f\" height=\"18\" fill=\"#2e7d32\" opacity=\"0.85\" rx=\"2\"/>\n", L, y-9, wlo
+        if (val[i] != low[i])
+          printf "  <rect x=\"%.1f\" y=\"%d\" width=\"%.1f\" height=\"18\" fill=\"#2e7d32\" opacity=\"0.30\"/>\n", L + wlo, y-9, w - wlo
+        if (val[i] != low[i])
+          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d&#8211;%d</text>\n", L + w + 10, y+4, low[i], val[i]
+        else
+          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d</text>\n", L + w + 10, y+4, val[i]
       }
       printf "  <line x1=\"24\" y1=\"%d\" x2=\"936\" y2=\"%d\" stroke=\"#eceff1\" stroke-width=\"1\"/>\n", bandY-16, bandY-16
       offlist = ""
@@ -1696,7 +1842,8 @@ cmd_chart() {
       printf "  <text class=\"note\" x=\"24\" y=\"%d\">kallsyms and perf routes are both closed the figure is the untouched prior rather than a measured defence. These bound what sound</text>\n", ny+132
       printf "  <text class=\"note\" x=\"24\" y=\"%d\">inference proves, not what an attacker holding another route could reach. Per-vantage and per-configuration figures are the matrix&#8217;s job.</text>\n", ny+149
       printf "  <text class=\"note\" x=\"24\" y=\"%d\">A figure that the evidence does move is a property of the boot that produced it, the ceiling being read off an address that the draw itself</text>\n", ny+175
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">placed, so such a bar is one boot&#8217;s result rather than a constant of the architecture.</text>\n", ny+192
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">placed, so the boots of one machine can disagree. Where they did, the bar reaches the highest figure any boot left and the disputed part of</text>\n", ny+192
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">it is drawn faintly: solid is what survived every boot, faint what survived some. A bar with no faint part is one its boots agreed on.</text>\n", ny+209
       print "</svg>"
     }
     function X(b) { return L + (R - L) * b / MAXB }
@@ -1779,7 +1926,7 @@ flush_batch() {
   [ -n "$batch" ] || return 0
   for _fb in $batch; do
     mkdir -p "$HERE/$_fb"
-    ( run_cell "$_fb" "$mode" >"$HERE/$_fb/run.out" 2>&1
+    ( run_cell "$_fb" "$mode" "$pass_n" >"$HERE/$_fb/run.out" 2>&1
       echo $? >"$HERE/$_fb/run.rc" ) &
   done
   wait
@@ -1842,7 +1989,7 @@ fi
 # error but a verdict: one run reads the other's half-written log and reports a
 # guest that exported no symbols. A directory is the lock because creating one is
 # atomic. A run killed outright leaves it behind, so the message says where it is.
-run_cell() { # cell mode -> run_one's status
+run_cell() { # cell mode repeat -> run_one's status
   _rc_w=$HERE/$1
   mkdir -p "$_rc_w"
   if ! mkdir "$_rc_w/.lock" 2>/dev/null; then
@@ -1850,7 +1997,7 @@ run_cell() { # cell mode -> run_one's status
     echo "  SKIP  another run holds $_rc_w/.lock (remove it if that run is gone)"
     return 3
   fi
-  run_one "$1" "$2"
+  run_one "$1" "$2" "$3"
   _rc_st=$?
   rmdir "$_rc_w/.lock" 2>/dev/null
   return $_rc_st
@@ -1883,26 +2030,46 @@ tally() { # status
 # writing to one terminal interleave into something no reader can follow. So the
 # parallel path buffers each cell and replays them in list order, and the
 # sequential path does not buffer at all.
-if [ "$JOBS" -le 1 ]; then
-  for a in $list; do
-    batch=$a
-    run_cell "$a" "$mode"
-    tally $?
-  done
-  batch=
-else
-  echo "[*] $JOBS cells at a time"
-  n=0
-  for a in $list; do
-    batch="$batch $a"
-    n=$((n + 1))
-    [ "$n" -lt "$JOBS" ] && continue
-    flush_batch
+# How many times each cell is booted. A residual is a property of the boot that
+# produced it wherever the evidence moved the window at all: the floor holds still
+# between boots and the ceiling is read off an address the draw itself placed, so
+# one boot is one sample of that cell rather than a constant of it. More than one
+# is what lets the rendered matrix state a spread instead of a figure.
+#
+# The passes are sequential and each covers the whole list: repeats of ONE cell
+# cannot overlap, since they share its log and its staging, and spacing them apart
+# also keeps a pass from sampling one moment of host load.
+REPEATS=${REPEATS:-1}
+case $REPEATS in
+  ''|*[!0-9]*|0) echo "REPEATS must be a positive integer: $REPEATS" >&2; exit 2 ;;
+esac
+[ "$REPEATS" = 1 ] || echo "[*] $REPEATS boots per cell (sweep $SWEEP)"
+
+pass_n=1
+while [ "$pass_n" -le "$REPEATS" ]; do
+  [ "$REPEATS" = 1 ] || echo "=== boot $pass_n of $REPEATS ==="
+  if [ "$JOBS" -le 1 ]; then
+    for a in $list; do
+      batch=$a
+      run_cell "$a" "$mode" "$pass_n"
+      tally $?
+    done
+    batch=
+  else
+    [ "$pass_n" = 1 ] && echo "[*] $JOBS cells at a time"
     n=0
-  done
-  flush_batch
-fi
+    for a in $list; do
+      batch="$batch $a"
+      n=$((n + 1))
+      [ "$n" -lt "$JOBS" ] && continue
+      flush_batch
+      n=0
+    done
+    flush_batch
+  fi
+  pass_n=$((pass_n + 1))
+done
 
 echo "----------------------------------------------------------------------"
-echo "vm: $pass ok, $fail fail, $skip skip  (mode=$mode, jobs=$JOBS)"
+echo "vm: $pass ok, $fail fail, $skip skip  (mode=$mode, jobs=$JOBS, boots=$REPEATS, sweep=$SWEEP)"
 exit $rc

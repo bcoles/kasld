@@ -2,3 +2,9 @@
 # rootfs. The tracked recipe is just run, init.c, README.md and this file.
 .cache/
 /*/
+
+# The boot ledger: one record per boot, appended. Local evidence, like the boot
+# logs beside it — it describes this host's guests and grows with every sweep, and
+# a published figure cites the sweep that produced it rather than carrying its
+# records along.
+results.tsv

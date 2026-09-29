@@ -207,6 +207,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-make-deps` | every test and fuzz binary declares as a make prerequisite each source it reaches by `#include`, so an edit to one of them relinks rather than leaving a stale binary that passes against code no longer in the tree |
 | `check-caller-flags` | `EXTRA_CFLAGS` / `EXTRA_LDFLAGS` carry what the caller asked for and the Makefile never assigns them: a recursive make invocation that sets one on its own command line replaces the caller's value rather than adding to it, so a `-Werror` supplied to `make cross` would reach the native build and vanish from every cross target, and both variables still reach `ALL_CFLAGS` / `ALL_LDFLAGS` so what is passed is read by something |
 | `check-cross-triple` | `make cross TRIPLE=<triple>` visits that triple and no other, a sweep with no `TRIPLE` visits the whole list, and a triple named by `TRIPLE` whose toolchain is absent fails where the same absence in a sweep is skipped. An ignored selector is invisible in the output — every triple the host cannot build prints the same line either way, and the build is a no-op once the tree is current — while costing a Makefile parse and a set of compiler feature probes per sub-make for every other triple in the list. `CROSS_TARGETS` is overridden with triples no host can have, so nothing is compiled and the result does not depend on which toolchains are installed |
+| `check-vm-ledger` | the VM boot ledger's record shape holds and the matrix rendered from it still refuses what it must. The shape is stated three times — the field count, the `printf` that writes a record, the `read` that splits one — and a disagreement refuses every record as the wrong width, which is loud only to whoever next spends an hour on a sweep. The soundness gate is checked by exercising it: synthetic records are fed to the renderer with `LEDGER` pointed at a scratch file, so no guest boots and the ledger is the whole input, and a record whose truth lies outside its own window must withhold the table. Nothing else in the suite can catch a broken gate, because every committed boot log is sound — which is exactly why a gate that had stopped working would look identical to one that had not. Also asserted: two boots of one cell that disagree render as a span rather than as whichever was last, the number of boots behind the figures is stated, a truncated line is ignored rather than read with its fields shifted, and a matrix pooling records from different sweeps says so |
 | `check-component-prune` | the component directory holds exactly the binaries the sources imply: one whose source was renamed or deleted is dropped, since the orchestrator runs every executable it finds there, and a live component's binary or arch-gate stamp is kept |
 | `check-suite-registry` | every unit-test binary the Makefile builds is also executed by `tests/run-all`, so a suite cannot be added, compiled on every build and never run while `make test` reports a clean pass |
 | `check-property-arches` | every supported architecture has BOTH whole-engine property tests — `test_full_engine_property_<arch>` and `..._floor` — defined and wired into the `RUN()` list † |
@@ -1100,9 +1101,11 @@ contains it.
 Needs `qemu-system-<arch>` and the cross toolchains on PATH; an arch is
 skipped (not failed) when either is missing. After running the scenarios,
 `tests/vm/run table` renders the `arch × scenario → KASLR / virt residual /
-phys residual` matrix from the boot logs (soundness is a gate, not a column —
-it refuses to emit if any cell's window excludes the truth); the published
-snapshot is in [reproducibility.md](reproducibility.md). See
+phys residual` matrix from the boot ledger, one record per boot (soundness is a
+gate, not a column — it refuses to emit if any cell's window excludes the truth,
+in any boot). Where `REPEATS` booted a cell several times and its boots
+disagreed, the residual is the span they covered rather than whichever was last;
+the published snapshot is in [reproducibility.md](reproducibility.md). See
 [tests/vm/README.md](../tests/vm/README.md) for the full arch list and options.
 
 Architectures Alpine does not port (`mips`, `mipsel`, `mips64el`, `riscv32`,

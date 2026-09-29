@@ -1,0 +1,137 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-vm-ledger — the boot ledger's record shape holds, and the matrix rendered
+# from it still refuses what it must.
+#
+# tests/vm/run writes one record per boot and renders the published results matrix
+# from those records. Two things about that can rot without any boot noticing.
+#
+# The RECORD SHAPE is stated in three places: the REC_FIELDS count, the printf
+# that writes a record, and the read that splits one. A disagreement means every
+# record is refused as the wrong width, which is loud — but only to whoever next
+# runs a sweep, and a sweep is an hour. Cheaper to catch here.
+#
+# The GATE is the reason the matrix can be published at all: a cell whose window
+# does not contain the true base is a bug, and one such cell withholds the whole
+# table. A gate is only worth having if it can fail, and nothing else in the suite
+# exercises it — the committed boot logs are all sound, which is exactly why a
+# broken gate would look identical to a working one. So this feeds the renderer
+# records that must be refused, and fails if any of them renders.
+#
+# Synthetic records against a real cell name, with LEDGER pointed at a scratch
+# file, so no guest is booted and nothing on the host is consulted: the ledger is
+# the whole input. `table` also appends the speculative-narrowing table, which
+# reads boot logs and prints a note when there are none; only the matrix half is
+# examined here.
+#
+# Usage: tests/check-vm-ledger   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
+
+RUN=$ROOT/tests/vm/run
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/kasld-vmledger.XXXXXX") || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+fail=0
+
+# --- 1. the three statements of the record shape agree ---------------------
+declared=$(sed -n 's/^REC_FIELDS=\([0-9]*\)$/\1/p' "$RUN")
+# the writer: %s specifiers in the printf that emits a record -- the only one
+# whose format is tab-separated, which is what distinguishes it from the printfs
+# extract_record uses to read single values
+written=$(sed -n '/^extract_record()/,/^}/p' "$RUN" |
+  grep -oE "printf '(%s\\\\t)+%s\\\\n'" | tr -cd '%' | wc -c)
+# the reader: names on the `read` that splits a record
+readback=$(sed -n '/^rec_read()/,/^}/p' "$RUN" |
+  sed -n '/read -r R_/,/^$/p' | tr ' ' '\n' | grep -c '^R_')
+
+if [ -z "$declared" ]; then
+  guard_fail "no REC_FIELDS in tests/vm/run — the record shape is no longer declared"
+  fail=1
+elif [ "$written" != "$declared" ] || [ "$readback" != "$declared" ]; then
+  guard_fail "record shape disagrees: REC_FIELDS=$declared, written=$written, read=$readback"
+  printf 'Every record would be refused as the wrong width, and the matrix would\n' >&2
+  printf 'render nothing, the next time anyone spent an hour on a sweep.\n' >&2
+  fail=1
+fi
+
+# --- 2. a sound record renders; a violation withholds the table ------------
+CELL=ppc32-mainline-7.0
+# sweep rep cell profile done release source kaslr truth vlo vhi vbits
+#   plo phi pbits coupled pverdict rverdict
+sound="20260101T000000Z	1	$CELL	default	yes	7.0.0	mainline	on	0xc1000000	0x00000000c0000000	0x00000000c2000000	12	-	-	-	yes	NA	NA"
+# the same boot with the truth moved outside its own window
+violation=$(printf '%s' "$sound" | awk -F'\t' 'BEGIN{OFS="\t"} {$9="0x00000000ffffffff"; print}')
+# a second boot of the same cell, disagreeing by two bits
+wider=$(printf '%s' "$sound" | awk -F'\t' 'BEGIN{OFS="\t"} {$2=2; $11="0x00000000ce000000"; $12=14; print}')
+
+render() { # ledger-contents -> stdout, status in $?
+  printf '%s\n' "$1" >"$TMP/ledger"
+  LEDGER="$TMP/ledger" "$RUN" table 2>"$TMP/err"
+}
+
+out=$(render "$sound") || {
+  guard_fail "a sound record did not render"
+  sed 's/^/    /' "$TMP/err" >&2
+  fail=1
+}
+case $out in
+*"| ppc32 |"*"12 bits"*) ;;
+*)
+  guard_fail "a sound record rendered no row for $CELL at 12 bits"
+  fail=1 ;;
+esac
+
+if render "$violation" >/dev/null 2>&1; then
+  guard_fail "a record whose truth lies OUTSIDE its window was published"
+  printf 'The soundness gate is the reason this matrix can be published at all.\n' >&2
+  fail=1
+elif ! grep -q 'SOUNDNESS GATE FAILED' "$TMP/err"; then
+  guard_fail "a violation was refused, but not as a soundness failure"
+  fail=1
+fi
+
+# --- 3. boots that disagree render as a span ------------------------------
+out=$(render "$sound
+$wider") || { guard_fail "two boots of one cell did not render"; fail=1; }
+case $out in
+*"12–14 bits"*) ;;
+*)
+  guard_fail "two boots at 12 and 14 bits did not render as a span"
+  printf 'A residual is a sample wherever the evidence moved the window, and a\n' >&2
+  printf 'single figure over disagreeing boots states one boot as the result.\n' >&2
+  fail=1 ;;
+esac
+case $out in
+*"booted 2 time(s)"*) ;;
+*) guard_fail "the number of boots behind the figures was not stated"; fail=1 ;;
+esac
+
+# --- 4. a short line is ignored, not read with its fields shifted ---------
+out=$(render "$sound
+truncated	line") || { guard_fail "a truncated line broke the render"; fail=1; }
+case $out in
+*"12 bits"*) ;;
+*) guard_fail "a truncated line displaced the record beside it"; fail=1 ;;
+esac
+
+# --- 5. rows from different sweeps are disclosed --------------------------
+older=$(printf '%s' "$sound" | awk -F'\t' 'BEGIN{OFS="\t"} {$1="20250101T000000Z"; $4="hardened"; print}')
+out=$(render "$sound
+$older") || { guard_fail "records from two sweeps did not render"; fail=1; }
+case $out in
+*"sweeps between 20250101T000000Z and 20260101T000000Z"*) ;;
+*)
+  guard_fail "a matrix pooling two sweeps did not say so"
+  printf 'A figure that moved between sweeps moved for a reason no column names.\n' >&2
+  fail=1 ;;
+esac
+
+[ "$fail" = 0 ] || exit 1
+guard_ok "record shape agrees in 3 places ($declared fields); the gate refuses a truth outside its window; disagreeing boots render as a span; short lines and mixed sweeps are handled"
