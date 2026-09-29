@@ -560,6 +560,27 @@ append_text_truth() {
 # ---------------------------------------------------------------------------
 REC_FIELDS=18
 
+# The index this boot takes in the ledger: one past the highest already recorded
+# for this (sweep, cell, profile).
+#
+# The pass number cannot serve. It counts within one invocation, and a sweep is
+# routinely several -- a full matrix is one invocation per profile, and boots
+# added to a sweep later are another. Numbering from the pass number gave two
+# records claiming to be boot 1 of the same pair, so (sweep, cell, profile, boot)
+# was not a key: "boot 2 gave 13 bits" named two different boots, and anything
+# filed under that tuple, an archived log included, would collide.
+#
+# Read per boot rather than counted in the shell, because a sweep is resumable:
+# the ledger is the only thing that knows what a pair already has. Concurrent
+# boots of ONE pair would race here, and cannot happen -- a cell is held by its
+# lock for the duration of its run.
+next_boot_index() { # sweep cell profile
+  [ -f "$LEDGER" ] || { echo 1; return; }
+  awk -F'\t' -v s="$1" -v c="$2" -v p="$3" '
+    NF >= 4 && $1 == s && $3 == c && $4 == p && $2 + 0 > m { m = $2 + 0 }
+    END { print m + 1 }' "$LEDGER"
+}
+
 extract_record() { # log cell profile sweep repeat
   _er_log=$1 _er_cell=$2 _er_prof=$3 _er_sweep=$4 _er_rep=$5
 
@@ -665,8 +686,9 @@ record_verdict() {
 # Facts are extracted once, here, and the verdict computed from them -- so the
 # line printed after a boot and the row rendered from the ledger are the same
 # judgement of the same numbers rather than two readings of one log.
-verdict() { # log cell profile sweep repeat
-  _v_rec=$(extract_record "$1" "$2" "$3" "$4" "$5")
+verdict() { # log cell profile sweep
+  _v_idx=$(next_boot_index "$4" "$2" "$3")
+  _v_rec=$(extract_record "$1" "$2" "$3" "$4" "$_v_idx")
   printf '%s\n' "$_v_rec" >> "$LEDGER"
   rec_read "$_v_rec" || { echo "INCOMPLETE  (could not record this boot)"; return 1; }
   record_verdict
@@ -1056,7 +1078,7 @@ stage_image() {
 
 # Build + boot one arch in one mode. Returns the verdict's status.
 run_one() {
-  name=$1 mode=$2 repeat=${3:-1}
+  name=$1 mode=$2
   row=$(echo "$TABLE" | grep -E "^[[:space:]]*${name}[[:space:]]*\|")
   [ -n "$row" ] || { echo "$name: unknown arch"; return 2; }
   IFS='|' read -r _ aarch flavor prefix qsuf machine console <<EOF
@@ -1268,7 +1290,7 @@ EOF
   fi
 
   printf '  %-11s ' "$name"
-  verdict "$log" "$name" "$mode" "$SWEEP" "$repeat"
+  verdict "$log" "$name" "$mode" "$SWEEP"
 }
 
 # Virtual-side KASLR residual entropy from a boot log's -j JSON, or empty.
@@ -1926,7 +1948,7 @@ flush_batch() {
   [ -n "$batch" ] || return 0
   for _fb in $batch; do
     mkdir -p "$HERE/$_fb"
-    ( run_cell "$_fb" "$mode" "$pass_n" >"$HERE/$_fb/run.out" 2>&1
+    ( run_cell "$_fb" "$mode" >"$HERE/$_fb/run.out" 2>&1
       echo $? >"$HERE/$_fb/run.rc" ) &
   done
   wait
@@ -1989,7 +2011,7 @@ fi
 # error but a verdict: one run reads the other's half-written log and reports a
 # guest that exported no symbols. A directory is the lock because creating one is
 # atomic. A run killed outright leaves it behind, so the message says where it is.
-run_cell() { # cell mode repeat -> run_one's status
+run_cell() { # cell mode -> run_one's status
   _rc_w=$HERE/$1
   mkdir -p "$_rc_w"
   if ! mkdir "$_rc_w/.lock" 2>/dev/null; then
@@ -1997,7 +2019,7 @@ run_cell() { # cell mode repeat -> run_one's status
     echo "  SKIP  another run holds $_rc_w/.lock (remove it if that run is gone)"
     return 3
   fi
-  run_one "$1" "$2" "$3"
+  run_one "$1" "$2"
   _rc_st=$?
   rmdir "$_rc_w/.lock" 2>/dev/null
   return $_rc_st
@@ -2051,7 +2073,7 @@ while [ "$pass_n" -le "$REPEATS" ]; do
   if [ "$JOBS" -le 1 ]; then
     for a in $list; do
       batch=$a
-      run_cell "$a" "$mode" "$pass_n"
+      run_cell "$a" "$mode"
       tally $?
     done
     batch=
