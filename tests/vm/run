@@ -93,6 +93,12 @@
 #   BUILD_DIR       kasld build root (default: ./build)
 #   LOONGARCH_BIOS  path to edk2 loongarch firmware (loongarch64 needs UEFI)
 #   TIMEOUT         per-boot timeout seconds (default: 600)
+#   JOBS            cells booted at once for `all` (default: online CPUs minus
+#                   one, capped at 4; 1 is a sequential sweep). One named cell is
+#                   always sequential, so its output is not buffered.
+#   VM_MAP          1 = also run the human-readable `--map` pass on every
+#                   profile, 0 = on none. Default: only on `default`, which
+#                   exercises the layout renderer once per cell.
 #   SPEC_INCLUDE_TIMING  1 = include timing/side-channel (method:timing) rows in
 #                   the speculative-narrowing table; default 0 excludes them
 #                   because their result is hardware- and run-dependent
@@ -918,52 +924,9 @@ arm_be32_binary() {
   [ $((0x$_fl & 0x00800000)) -eq 0 ]
 }
 
-# Build + boot one arch in one mode. Returns the verdict's status.
-run_one() {
-  name=$1 mode=$2
-  row=$(echo "$TABLE" | grep -E "^[[:space:]]*${name}[[:space:]]*\|")
-  [ -n "$row" ] || { echo "$name: unknown arch"; return 2; }
-  IFS='|' read -r _ aarch flavor prefix qsuf machine console <<EOF
-$row
-EOF
-  aarch=$(trim "$aarch"); flavor=$(trim "$flavor"); prefix=$(trim "$prefix")
-  qsuf=$(trim "$qsuf"); machine=$(trim "$machine"); console=$(trim "$console")
-
-  # Guest RAM. Default 1 GiB; the qemu malta board (mips) caps at 256 MiB.
-  mem=1024; case "$name" in mips | mipsel | mips64 | mips64el) mem=256 ;; ppc32*) mem=512 ;; esac
-
-  echo "=================== $name ($mode) ==================="
-  tc=$(resolve_target "$prefix")
-  [ -n "$tc" ] || { echo "  SKIP  no build/$prefix-*/kasld with toolchain on PATH (run make cross)"; return 3; }
-  bdir=${tc% *}; cc=${tc#* }
-  # Build before booting. An out-of-date binary runs, passes every check, and
-  # yields a matrix describing a tree nobody can identify.
-  make -C "$ROOT" cross TRIPLE="$(basename "$bdir")" >/dev/null 2>&1 ||
-    { echo "  SKIP  make cross TRIPLE=$(basename "$bdir") failed"; return 3; }
-  if arm_be32_binary "$bdir/kasld"; then
-    echo "  SKIP  $(basename "$bdir") emits BE32; a big-endian arm kernel runs userspace BE8, so kasld cannot execute"
-    return 3
-  fi
-  qemu=$(resolve_qemu "$qsuf")
-  [ -n "$qemu" ] || { echo "  SKIP  qemu-system-$qsuf not found"; return 3; }
-
-  work=$HERE/$name
-  mkdir -p "$work"
-  fetch_kernel "$name" "$aarch" "$flavor" "$CACHE/$name-vmlinuz" || { echo "  SKIP  no kernel"; return 3; }
-
-  # The payload has to match the kernel's userspace byte order, not just the
-  # toolchain's default. A big-endian arm kernel from ARMv6 on runs userspace
-  # BE8, and an armeb toolchain emits BE32 unless asked: init then takes SIGILL
-  # on its first instruction and the kernel panics killing pid 1, which reads as
-  # a boot failure rather than a build one. Same requirement `make cross` applies
-  # to the kasld binary this init execs.
-  _initf=
-  case "$cc" in
-  *armeb-*) _initf=-mbe8 ;;
-  esac
-  # shellcheck disable=SC2086  # $_initf is one optional flag, deliberately split
-  "$cc" -O2 -static $_initf -o "$work/init.bin" "$HERE/init.c" || { echo "  !! init build failed ($cc)"; return 2; }
-
+# Stage the cell's initramfs: the tree the guest boots into, and the image made
+# from it. Reads the caller's $work / $bdir / $name, as the rest of run_one does.
+stage_image() {
   rm -rf "$work/root"
   mkdir -p "$work/root/proc" "$work/root/sys" "$work/root/dev" "$work/root/tmp" "$work/root/components"
   cp "$work/init.bin" "$work/root/init"
@@ -987,7 +950,91 @@ EOF
     cp "$CACHE/$name-modules"/*.ko "$work/root/modules/" 2>/dev/null || true
   fi
   chmod +x "$work/root/init" "$work/root/kasld" "$work/root/components/"* 2>/dev/null || true
-  (cd "$work/root" && find . -print0 | cpio --null -o --format=newc 2>/dev/null | gzip -9 >"$work/initramfs.cpio.gz")
+  # gzip -1: the guest decompresses this in memory and the image is ~40 MiB of
+  # already-compact static binaries, where -9 spends seconds of host CPU per
+  # staging to save a fraction of a second of guest boot.
+  (cd "$work/root" && find . -print0 | cpio --null -o --format=newc 2>/dev/null | gzip -1 >"$work/initramfs.cpio.gz")
+}
+
+# Build + boot one arch in one mode. Returns the verdict's status.
+run_one() {
+  name=$1 mode=$2
+  row=$(echo "$TABLE" | grep -E "^[[:space:]]*${name}[[:space:]]*\|")
+  [ -n "$row" ] || { echo "$name: unknown arch"; return 2; }
+  IFS='|' read -r _ aarch flavor prefix qsuf machine console <<EOF
+$row
+EOF
+  aarch=$(trim "$aarch"); flavor=$(trim "$flavor"); prefix=$(trim "$prefix")
+  qsuf=$(trim "$qsuf"); machine=$(trim "$machine"); console=$(trim "$console")
+
+  # Guest RAM. Default 1 GiB; the qemu malta board (mips) caps at 256 MiB.
+  mem=1024; case "$name" in mips | mipsel | mips64 | mips64el) mem=256 ;; ppc32*) mem=512 ;; esac
+
+  echo "=================== $name ($mode) ==================="
+  tc=$(resolve_target "$prefix")
+  [ -n "$tc" ] || { echo "  SKIP  no build/$prefix-*/kasld with toolchain on PATH (run make cross)"; return 3; }
+  bdir=${tc% *}; cc=${tc#* }
+  if arm_be32_binary "$bdir/kasld"; then
+    echo "  SKIP  $(basename "$bdir") emits BE32; a big-endian arm kernel runs userspace BE8, so kasld cannot execute"
+    return 3
+  fi
+  qemu=$(resolve_qemu "$qsuf")
+  [ -n "$qemu" ] || { echo "  SKIP  qemu-system-$qsuf not found"; return 3; }
+
+  work=$HERE/$name
+  mkdir -p "$work"
+  fetch_kernel "$name" "$aarch" "$flavor" "$CACHE/$name-vmlinuz" || { echo "  SKIP  no kernel"; return 3; }
+
+  # The payload has to match the kernel's userspace byte order, not just the
+  # toolchain's default. A big-endian arm kernel from ARMv6 on runs userspace
+  # BE8, and an armeb toolchain emits BE32 unless asked: init then takes SIGILL
+  # on its first instruction and the kernel panics killing pid 1, which reads as
+  # a boot failure rather than a build one. Same requirement `make cross` applies
+  # to the kasld binary this init execs.
+  _initf=
+  case "$cc" in
+  *armeb-*) _initf=-mbe8 ;;
+  esac
+  # Rebuilt only when its source or its compiler is newer than it, so that the
+  # binary's timestamp stays a fact about its inputs -- the staged-image check
+  # below reads it as one, and an unconditional compile would make every run look
+  # like a changed input.
+  _initsrc=$(command -v "$cc" 2>/dev/null)
+  _initold=0
+  [ -f "$work/init.bin" ] || _initold=1
+  for _in in "$HERE/init.c" $_initsrc; do
+    [ -e "$_in" ] || continue
+    [ -n "$(find "$_in" -newer "$work/init.bin" -print -quit 2>/dev/null)" ] && _initold=1
+  done
+  if [ "$_initold" = 1 ]; then
+    # shellcheck disable=SC2086  # $_initf is one optional flag, deliberately split
+    "$cc" -O2 -static $_initf -o "$work/init.bin" "$HERE/init.c" || { echo "  !! init build failed ($cc)"; return 2; }
+  fi
+
+  # The staged tree and the image built from it do not depend on the mode: the
+  # profile travels on the kernel command line, not in the initramfs. So a cell
+  # swept through several profiles stages once, and restages only when one of its
+  # inputs is newer than the image. `find -newer` rather than `test -nt`, which
+  # is not in POSIX test.
+  _stale=0
+  if [ ! -f "$work/initramfs.cpio.gz" ]; then
+    _stale=1
+  else
+    for _in in "$work/init.bin" "$bdir/kasld" "$bdir/components" \
+               "$CACHE/$name-vmlinuz" "$CACHE/kbuild-$name/.config" \
+               "$CACHE/$name-kernel.release" "$CACHE/$name-modules"; do
+      [ -e "$_in" ] || continue
+      if [ -n "$(find "$_in" -newer "$work/initramfs.cpio.gz" -print -quit 2>/dev/null)" ]; then
+        _stale=1
+        break
+      fi
+    done
+  fi
+  if [ "$_stale" = 0 ]; then
+    echo "  [*] reusing the staged initramfs (inputs unchanged)"
+  else
+    stage_image || return 2
+  fi
 
   # Some boards need firmware the qemu binary does not bundle. Discover it next to
   # the resolved qemu (a from-source build keeps it in pc-bios/), in the usual
@@ -1077,6 +1124,16 @@ EOF
     la57)        accel="-accel tcg" ;;
     capture)     append="$append capture" ;;
     *) echo "  unknown mode: $mode"; return 2 ;;
+  esac
+
+  # The second, human-readable analysis pass (the address-space map) doubles a
+  # boot's analysis cost and nothing reads its output — the verdicts and the
+  # matrix come from the -j document. What it covers is the layout renderer on an
+  # architecture the host is not, which a cell exercises once: the `default`
+  # profile draws it, the others do not. VM_MAP=1 draws it on every profile and
+  # VM_MAP=0 on none.
+  case "${VM_MAP:-$([ "$mode" = default ] && echo 1 || echo 0)}" in
+    1) append="$append drawmap" ;;
   esac
 
   # Anything in KASLD_VM_APPEND is appended verbatim to the kernel command line.
@@ -1646,6 +1703,93 @@ cmd_chart() {
   '
 }
 
+# Online CPUs, read from sysfs where it is there. `nproc` reports the affinity
+# mask rather than the machine, which is the wrong number inside a cpuset — and
+# the harness is run in containers.
+vm_cpus() {
+  if [ -r /sys/devices/system/cpu/online ]; then
+    awk -F, '{n=0; for (i=1;i<=NF;i++) {split($i,r,"-"); n += (r[2] ? r[2]-r[1]+1 : 1)} print n}' \
+      /sys/devices/system/cpu/online
+  elif command -v nproc >/dev/null 2>&1; then
+    nproc
+  else
+    echo 1
+  fi
+}
+
+# Build every triple the selected cells need, once, before any of them boots.
+#
+# An out-of-date binary runs, passes every check, and yields a matrix describing
+# a tree nobody can identify, so the build has to happen — but once per triple,
+# not once per cell per profile. Two concurrent `make` runs over one build tree
+# also read each other's half-written objects and fail in ways that look like a
+# cross-compilation error, so this is what lets the boots run in parallel at all:
+# all the compiling is finished before the first guest starts.
+#
+# A cell whose triple cannot be named yet — nothing built for that prefix, so
+# there is no directory to read it from — falls back to building the whole set,
+# which is also the first-run case on a clean tree.
+prepare_builds() { # cell...
+  _pb_triples=
+  _pb_all=0
+  for _pb_cell in "$@"; do
+    _pb_prefix=$(printf '%s' "$TABLE" | awk -F'|' -v a="$_pb_cell" \
+      'NF>1{gsub(/ /,"",$1); if ($1==a) {gsub(/ /,"",$4); print $4; exit}}')
+    [ -n "$_pb_prefix" ] || continue
+    _pb_t=
+    for _pb_d in "$BUILD_DIR/$_pb_prefix"-*; do
+      [ -d "$_pb_d" ] || continue
+      _pb_t=$(basename "$_pb_d")
+      command -v "$_pb_t-gcc" >/dev/null 2>&1 && break
+      _pb_t=
+    done
+    if [ -z "$_pb_t" ]; then _pb_all=1; continue; fi
+    case " $_pb_triples " in *" $_pb_t "*) ;; *) _pb_triples="$_pb_triples$_pb_t " ;; esac
+  done
+
+  # One make at a time, each parallel within itself. Two concurrent makes over
+  # one build tree is the failure this hoist exists to avoid; -j inside one is
+  # what keeps a real rebuild — every object depends on the Makefile, so editing
+  # it invalidates all of them — from being served one file at a time.
+  _pb_j=-j$(vm_cpus)
+  if [ "$_pb_all" = 1 ]; then
+    echo "[*] building every cross target (a selected cell has none yet)"
+    make -C "$ROOT" "$_pb_j" cross >/dev/null 2>&1 ||
+      { echo "  !! make cross failed — run it directly to see why"; return 1; }
+    return 0
+  fi
+  for _pb_t in $_pb_triples; do
+    make -C "$ROOT" "$_pb_j" cross TRIPLE="$_pb_t" >/dev/null 2>&1 ||
+      { echo "  !! make cross TRIPLE=$_pb_t failed — run it directly to see why"; return 1; }
+  done
+  echo "[*] built$(printf '%s' " $_pb_triples" | sed 's/ $//')"
+}
+
+# Boot every cell in $batch at once, then replay their output in list order and
+# tally them. Each cell's output goes to a file inside its own directory rather
+# than to the terminal, because several guests printing at once interleave into a
+# transcript that cannot be read back per cell — and the verdict line is the one
+# thing a reader looks for.
+#
+# `wait` with no argument is the whole batch: a slot pool would start the next
+# cell the moment any one finished, but POSIX shell has no way to wait for the
+# first of several, and the cells within a batch cost enough alike that waiting
+# for the slowest is a smaller loss than the portability.
+flush_batch() {
+  [ -n "$batch" ] || return 0
+  for _fb in $batch; do
+    mkdir -p "$HERE/$_fb"
+    ( run_cell "$_fb" "$mode" >"$HERE/$_fb/run.out" 2>&1
+      echo $? >"$HERE/$_fb/run.rc" ) &
+  done
+  wait
+  for _fb in $batch; do
+    cat "$HERE/$_fb/run.out" 2>/dev/null
+    tally "$(cat "$HERE/$_fb/run.rc" 2>/dev/null || echo 2)"
+  done
+  batch=
+}
+
 # ---- dispatch ----
 # Cell list, ordered alphabetically by architecture (the rendered tables and the
 # boot loop both consume this). A stable sort keyed on the arch prefix
@@ -1667,15 +1811,98 @@ sel=${1:-all}; mode=${2:-default}
 rc=0; pass=0; fail=0; skip=0
 list=$arches
 [ "$sel" != all ] && list=$sel
-for a in $list; do
-  run_one "$a" "$mode"; st=$?
-  case $st in
+
+# shellcheck disable=SC2086  # $list is a deliberately split cell list
+prepare_builds $list || exit 2
+
+# How many cells boot at once. A guest is one vCPU in one qemu process and writes
+# only inside its own cell directory, so cells are independent once the builds are
+# hoisted out of the loop — which they are, above, because two concurrent `make`
+# runs over one build tree read each other's half-written objects and fail as
+# though the cross compiler were at fault.
+#
+# Capped rather than one per core: each guest holds up to 1 GiB, and a host that
+# has to swap loses more than the concurrency gains. One core is left for the
+# harness and the host. JOBS=1 restores a strictly sequential sweep, which is also
+# what a capture takes: it reconstructs a fixture under tests/fixtures, where two
+# cells can resolve to one destination.
+JOBS=${JOBS:-}
+if [ -z "$JOBS" ]; then
+  JOBS=$(( $(vm_cpus) - 1 ))
+  [ "$JOBS" -ge 1 ] || JOBS=1
+  [ "$JOBS" -le 4 ] || JOBS=4
+fi
+[ "$mode" = capture ] && JOBS=1
+# One named cell is someone watching one boot, where buffering its output until
+# the end is the wrong trade however many cores are free.
+[ "$sel" = all ] || JOBS=1
+
+# Hold a cell for the duration of its run. Concurrent runs of the SAME cell share
+# its boot log and its staging directory, and what comes out is not a harness
+# error but a verdict: one run reads the other's half-written log and reports a
+# guest that exported no symbols. A directory is the lock because creating one is
+# atomic. A run killed outright leaves it behind, so the message says where it is.
+run_cell() { # cell mode -> run_one's status
+  _rc_w=$HERE/$1
+  mkdir -p "$_rc_w"
+  if ! mkdir "$_rc_w/.lock" 2>/dev/null; then
+    echo "=================== $1 ($2) ==================="
+    echo "  SKIP  another run holds $_rc_w/.lock (remove it if that run is gone)"
+    return 3
+  fi
+  run_one "$1" "$2"
+  _rc_st=$?
+  rmdir "$_rc_w/.lock" 2>/dev/null
+  return $_rc_st
+}
+
+batch=
+# Interrupted mid-batch, the cells being held would keep their locks and refuse
+# the next run. Only this invocation's own batch is released: another invocation's
+# lock is not this one's to remove.
+# shellcheck disable=SC2317  # reached from the trap below, which shellcheck reads
+# as a string rather than as a call site
+release_locks() {
+  for _rl in $batch; do
+    rmdir "$HERE/$_rl/.lock" 2>/dev/null || true
+  done
+}
+trap 'release_locks; exit 130' INT TERM
+
+tally() { # status
+  case $1 in
     0) pass=$((pass+1)) ;;
     3) skip=$((skip+1)) ;;
     *) fail=$((fail+1)); rc=1 ;;
   esac
-done
+}
+
+# Sequential and parallel are separate paths on purpose. A single cell run
+# interactively should print its progress as it happens rather than after it
+# finishes, and that is exactly what a parallel sweep cannot do: several guests
+# writing to one terminal interleave into something no reader can follow. So the
+# parallel path buffers each cell and replays them in list order, and the
+# sequential path does not buffer at all.
+if [ "$JOBS" -le 1 ]; then
+  for a in $list; do
+    batch=$a
+    run_cell "$a" "$mode"
+    tally $?
+  done
+  batch=
+else
+  echo "[*] $JOBS cells at a time"
+  n=0
+  for a in $list; do
+    batch="$batch $a"
+    n=$((n + 1))
+    [ "$n" -lt "$JOBS" ] && continue
+    flush_batch
+    n=0
+  done
+  flush_batch
+fi
 
 echo "----------------------------------------------------------------------"
-echo "vm: $pass ok, $fail fail, $skip skip  (mode=$mode)"
+echo "vm: $pass ok, $fail fail, $skip skip  (mode=$mode, jobs=$JOBS)"
 exit $rc

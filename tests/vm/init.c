@@ -729,7 +729,7 @@ int main(void) {
    * then sets kptr/perf explicitly (default restores booted). `capture` mode
    * (below) reconstructs a fixture and never reaches this. */
   int hidden = 0, hardened = 0, perfopen = 0, dmesgopen = 0, bpfopen = 0,
-      tracefsopen = 0, capture = 0;
+      tracefsopen = 0, capture = 0, drawmap = 0;
   {
     int cf = open("/proc/cmdline", O_RDONLY);
     char cb[512];
@@ -752,6 +752,8 @@ int main(void) {
           tracefsopen = 1;
         if (strstr(cb, "capture"))
           capture = 1;
+        if (strstr(cb, "drawmap"))
+          drawmap = 1;
       }
       close(cf);
     }
@@ -921,16 +923,26 @@ int main(void) {
   char *av_j[] = {"/kasld", "-j", NULL};
   run_as(uid, "/kasld", av_j);
 
-  /* Then once more for the human-readable readout and the address-space
-   * diagram. --map, not --verbose: the layout rendering is the only thing this
-   * second pass is for, and -v adds per-component narration and the explain
-   * text on top of it. The components still re-run (there is no way to render
-   * two formats from one pass), so this stays the cheapest form of the second
-   * run — under TCG the per-component narration is what turns a slow boot into
-   * a timed-out one. Every layout decision is otherwise only ever seen on
-   * x86_64; this is what puts the map in front of a coupled 32-bit arch. */
-  char *av_map[] = {"/kasld", "--map", "-q", NULL};
-  run_as(uid, "/kasld", av_map);
+  /* Then, where `drawmap` asks for it, once more for the human-readable readout
+   * and the address-space diagram. --map, not --verbose: the layout rendering
+   * is the only thing this second pass is for, and -v adds per-component
+   * narration and the explain text on top of it. The components still re-run
+   * (there is no way to render two formats from one pass), so this stays the
+   * cheapest form of the second run — under TCG the per-component narration is
+   * what turns a slow boot into a timed-out one. Every layout decision is
+   * otherwise only ever seen on x86_64; this is what puts the map in front of a
+   * coupled 32-bit arch.
+   *
+   * Asked for rather than always run, because it doubles the analysis cost of a
+   * boot while nothing reads its output: the verdicts and the matrix are built
+   * from the -j document above. What it covers is the layout renderer on an
+   * architecture the host is not, which is a property of the cell rather than
+   * of the vantage — so one profile per cell exercises it and the rest need
+   * not. */
+  if (drawmap) {
+    char *av_map[] = {"/kasld", "--map", "-q", NULL};
+    run_as(uid, "/kasld", av_map);
+  }
 
   printf("\n==================== KASLD VM DONE ====================\n");
   sync();

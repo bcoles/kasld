@@ -26,9 +26,12 @@ real base* on a live kernel, across architectures and attacker profiles.
 
 ## Prerequisites
 
-- `make cross` already run, with the same cross toolchains on PATH (see the
-  project docs). The static per-arch `build/<triple>/kasld` binaries and the
-  matching `<triple>-gcc` (used here to build the tiny init) are both required.
+- The cross toolchains on PATH (see the project docs). `<triple>-gcc` is needed
+  both for the static per-arch `build/<triple>/kasld` binaries and for the tiny
+  init staged beside them. The build itself is done for you: every triple the
+  selected cells need is built once, before the first guest boots, rather than
+  per cell — an out-of-date binary would otherwise run, pass every check, and
+  yield a matrix describing a tree nobody can identify.
 - `qemu-system-<arch>` on PATH. On Debian/Ubuntu:
   `apt install qemu-system-x86 qemu-system-arm qemu-system-misc`.
 - `curl`, `cpio`, `gzip`.
@@ -291,8 +294,22 @@ The mainline cells are built on request, never part of the default gap set.
   share dir, or in the distro cross package
   (`/usr/lib/riscv32-linux-gnu/opensbi/generic/fw_dynamic.bin`), or set via
   `RISCV32_BIOS`.
+- A sweep over `all` boots several cells at once — online CPUs minus one, capped
+  at four, since each guest holds up to 1 GiB. `JOBS` overrides it and `JOBS=1`
+  makes the sweep sequential; one named cell is always sequential so its progress
+  prints as it happens rather than after it finishes. Each cell is held by a lock
+  directory for the duration of its run, because two runs of one cell share its
+  boot log and staging directory and produce a verdict that reads as a guest
+  exporting no symbols rather than as a collision. A run killed outright leaves
+  the lock behind, and the message names the path to remove.
+- Each boot runs the analysis once, for the `-j` document every verdict and table
+  is built from. The second, human-readable `--map` pass covers the layout
+  renderer on an architecture the host is not, which is a property of the cell
+  rather than of the vantage, so it runs on the `default` profile only. `VM_MAP=1`
+  runs it on every profile, `VM_MAP=0` on none.
 - Useful overrides: `QEMU_DIR` (qemu not on PATH), `ALPINE_VER`, `BUILD_DIR`,
-  `TIMEOUT`, `LOONGARCH_BIOS`, `RISCV32_BIOS`, and `LINUX_VERSION` (for
+  `TIMEOUT`, `JOBS`, `VM_MAP`, `LOONGARCH_BIOS`, `RISCV32_BIOS`, and
+  `LINUX_VERSION` (for
   `build-kernel`). `chart` takes two more: `CHART_BASELINE` for the kernel line
   to plot, and `CHART_DEFAULT_OFF` for the architectures whose upstream default
   leaves the kernel image unrandomised, which the footer names apart from those
