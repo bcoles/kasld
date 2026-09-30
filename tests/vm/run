@@ -125,10 +125,10 @@ ALPINE_VER=${ALPINE_VER:-3.21}
 ALPINE_MIRROR=${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}
 TIMEOUT=${TIMEOUT:-600}
 CACHE=$HERE/.cache
-# Append-only, one line per boot. A boot log holds one boot and the next boot of
-# that cell overwrites it, so the ledger is what remembers a cell booted several
-# times -- and what lets the rendered matrix state a spread rather than whichever
-# boot happened to be last. The logs stay for reading a single boot back.
+# Append-only, one line per boot, and what lets the rendered matrix state a
+# spread rather than whichever boot happened to be last. The live boot log holds
+# only the most recent boot of its pair; every boot's log is archived beside it
+# (archive_log), named by the sweep and index its record carries.
 LEDGER=${LEDGER:-$HERE/results.tsv}
 # The invocation, stamped once so that every record it writes carries the same
 # one. A matrix pooling records from sweeps taken hours or trees apart is the
@@ -680,14 +680,39 @@ record_verdict() {
 
 # Record one boot in the ledger and report its verdict. The ledger is append-only
 # and one line per boot, which is what lets a cell be booted several times and the
-# spread of its results be read back: a boot log holds one boot, and the next boot
-# of that cell overwrites it.
+# spread of its results be read back, and archive_log keeps that boot's own log
+# beside the record indexing it.
 #
 # Facts are extracted once, here, and the verdict computed from them -- so the
 # line printed after a boot and the row rendered from the ledger are the same
 # judgement of the same numbers rather than two readings of one log.
+# Keep this boot's log beside the record that indexes it.
+#
+# The live log is one file per (cell, profile), and the next boot of that pair
+# overwrites it. That was invisible while a pair was only ever booted once; over
+# a sweep of fifteen it means the surviving log is whichever boot happened to run
+# last, which for a cell whose boots disagree is rarely the one worth reading --
+# the ledger records that some boot gave 12 bits while the log sitting beside it
+# is a 14-bit boot. The numbers survive in the record; everything else about that
+# boot, the component list and the dmesg and the full document, does not.
+#
+# Every boot is kept, with no judgement about which are interesting. A log is
+# ~90 KB and compresses fourfold, so a whole sweep of them costs a fraction of
+# one cached kernel image: there is nothing to ration, and a rule picking the
+# boots worth keeping would be deciding now which question gets asked later.
+#
+# Named by the same sweep and index the record carries, so a row of the ledger
+# names exactly one file.
+archive_log() { # log cell profile sweep index
+  [ -f "$1" ] || return 0
+  _al_dir=$(dirname "$1")/logs
+  mkdir -p "$_al_dir" 2>/dev/null || return 0
+  gzip -c "$1" >"$_al_dir/$4-$3-$5.log.gz" 2>/dev/null || true
+}
+
 verdict() { # log cell profile sweep
   _v_idx=$(next_boot_index "$4" "$2" "$3")
+  archive_log "$1" "$2" "$3" "$4" "$_v_idx"
   _v_rec=$(extract_record "$1" "$2" "$3" "$4" "$_v_idx")
   printf '%s\n' "$_v_rec" >> "$LEDGER"
   rec_read "$_v_rec" || { echo "INCOMPLETE  (could not record this boot)"; return 1; }

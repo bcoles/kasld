@@ -314,8 +314,12 @@ The mainline cells are built on request, never part of the default gap set.
   address the draw itself placed. The passes are sequential and each covers the
   whole list, so repeats of one cell are spaced apart rather than back to back.
 - Every boot appends one record to `results.tsv` (`LEDGER`), and `run table`
-  renders from those records rather than from the logs — a log holds one boot and
-  the next boot of that cell overwrites it. Each record carries the sweep that
+  renders from those records rather than from the live log, which holds only the
+  most recent boot of its pair. Every boot's log is kept too, compressed, under
+  `tests/vm/<cell>/logs/<sweep>-<profile>-<boot>.log.gz` — named by the same
+  sweep and index the record carries, so a row of the ledger names exactly one
+  file and a boot that disagrees with its neighbours can still be read. Each
+  record carries the sweep that
   produced it (`SWEEP`), and the table names the span of sweeps it drew on, since
   a figure that moved between sweeps moved for a reason no column names. The
   speculative-narrowing table still reads the logs, so it describes each cell's
