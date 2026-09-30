@@ -1799,7 +1799,21 @@ cmd_chart() {
       for (i = 0; i < n; i++) if (val[i] > MAXB) MAXB = val[i]
       bandY = TOP + RH * n + 34
       ny = bandY + (noff ? 30 : 4)
-      H = ny + 237
+      # A bar whose boots disagreed is the only reason to explain the faint part,
+      # so the line saying what it means is drawn only when one is.
+      anyspan = 0
+      for (i = 0; i < n; i++) if (val[i] != low[i]) anyspan = 1
+      a2_present = 0
+      for (i = 0; i < n; i++) if (arch[i] in defoff) a2_present = 1
+      # The canvas follows the footer rather than a fixed figure: the footer
+      # grows and shrinks with the groups that have members and with whether a
+      # span was drawn, and a height set independently of it either clips the
+      # last line or leaves a band of white under the image.
+      notes = 3   # one on the sample, two on what a long bar does not mean
+      if (a2_present) notes++
+      if (noff) notes++
+      if (anyspan) notes += 2
+      H = ny + notes * 17 + (anyspan ? 18 : 9) + 28
       printf "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"960\" height=\"%d\"", H
       printf " viewBox=\"0 0 960 %d\" font-family=\"sans-serif\">\n", H
       print "  <style>"
@@ -1842,30 +1856,35 @@ cmd_chart() {
       printf "  <line x1=\"24\" y1=\"%d\" x2=\"936\" y2=\"%d\" stroke=\"#eceff1\" stroke-width=\"1\"/>\n", bandY-16, bandY-16
       offlist = ""
       for (i = 0; i < noff; i++) offlist = offlist (offlist ? ", " : "") off[i]
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">Every bar is a single machine rather than an average: one kernel line and one configuration for each architecture, so the bars compare</text>\n", ny
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">architectures instead of summarising a fleet. A defconfig is each architecture&#8217;s own upstream default, which is what a stock build gives;</text>\n", ny+17
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">it is not one configuration imposed across all of them, and the default does not agree with itself across architectures:</text>\n", ny+34
-      a1 = ""; a2 = ""
+      a2 = ""
       for (i = 0; i < n; i++)
         if (arch[i] in defoff) a2 = a2 (a2 ? ", " : "") arch[i]
-        else a1 = a1 (a1 ? ", " : "") arch[i]
-      gy = ny + 55
-      if (a1) {
-        printf "  <text class=\"note\" x=\"48\" y=\"%d\">%s randomise the kernel image from their own defconfig.</text>\n", gy, a1
-        gy += 17
-      }
+      # The footer carries what a reader needs with nothing else on the page,
+      # since the file is committed and gets opened on its own. That is three
+      # claims: a bar is one machine rather than a fleet average, a long bar is
+      # not a strong kernel, and -- only where one is drawn -- what the faint
+      # part of a bar means. The document around the image says all of this at
+      # length; repeating the long form here only gave three copies to keep true.
+      gy = ny
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">Each bar is one machine on its own upstream defconfig, not an average: the bars compare architectures, not a fleet.</text>\n", gy
+      gy += 17
       if (a2) {
-        printf "  <text class=\"note\" x=\"48\" y=\"%d\">%s randomise only because the build enables RELOCATABLE and RANDOMIZE_BASE, which their defaults leave off.</text>\n", gy, a2
+        printf "  <text class=\"note\" x=\"24\" y=\"%d\">%s randomise only because this build asks for RELOCATABLE and RANDOMIZE_BASE, which their defaults leave off.</text>\n", gy, a2
         gy += 17
       }
-      if (offlist)
-        printf "  <text class=\"note\" x=\"48\" y=\"%d\">%s cannot randomise the kernel image at all on this line, and are not plotted.</text>\n", gy, offlist
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">A long bar is not evidence of a strong kernel. It records that nothing reachable at this vantage narrowed the starting window: where the</text>\n", ny+115
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">kallsyms and perf routes are both closed the figure is the untouched prior rather than a measured defence. These bound what sound</text>\n", ny+132
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">inference proves, not what an attacker holding another route could reach. Per-vantage and per-configuration figures are the matrix&#8217;s job.</text>\n", ny+149
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">A figure that the evidence does move is a property of the boot that produced it, the ceiling being read off an address that the draw itself</text>\n", ny+175
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">placed, so the boots of one machine can disagree. Where they did, the bar reaches the highest figure any boot left and the disputed part of</text>\n", ny+192
-      printf "  <text class=\"note\" x=\"24\" y=\"%d\">it is drawn faintly: solid is what survived every boot, faint what survived some. A bar with no faint part is one its boots agreed on.</text>\n", ny+209
+      if (offlist) {
+        printf "  <text class=\"note\" x=\"24\" y=\"%d\">%s cannot randomise the kernel image at all on this line, and are not plotted.</text>\n", gy, offlist
+        gy += 17
+      }
+      gy += 9
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">A long bar is not evidence of a strong kernel: it records that nothing reachable at this vantage narrowed the starting window,</text>\n", gy
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">so it bounds what sound inference proves rather than what an attacker holding another route could reach.</text>\n", gy+17
+      gy += 34
+      if (anyspan) {
+        gy += 9
+        printf "  <text class=\"note\" x=\"24\" y=\"%d\">Where the boots of one machine disagreed, the bar reaches the highest figure any of them left and the disputed part is faint:</text>\n", gy
+        printf "  <text class=\"note\" x=\"24\" y=\"%d\">solid is what survived every boot, faint what survived some.</text>\n", gy+17
+      }
       print "</svg>"
     }
     function X(b) { return L + (R - L) * b / MAXB }
