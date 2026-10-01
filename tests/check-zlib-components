@@ -1,0 +1,112 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-zlib-components — which components need zlib is stated once.
+#
+# A component that decompresses gzip has an in-process path under HAVE_ZLIB and
+# a zcat fallback. The Makefile passes -DHAVE_ZLIB -lz only to the components in
+# ZLIB_COMPONENTS, and verify-zlib -- run by CI on every release build and by
+# the VM harness before it boots one -- checks only those. A component that
+# grows a HAVE_ZLIB path without joining the list builds without zlib even in a
+# release: it compiles, it runs, and on a target without zcat it quietly stops
+# decompressing, while every check passes because none of them knows to look
+# at it. A list naming a component with no such path links zlib for nothing,
+# and has the release check enforce a promise the source does not make.
+#
+# A shared header is held to the same rule: a HAVE_ZLIB path there reaches
+# every component that includes it, and those are not on the list.
+#
+# The linkage check lives in that one target, too. CI once checked one
+# component by name while the VM harness checked nothing at all, and booted
+# builds that never ship.
+#
+# FAILS if the files whose code tests HAVE_ZLIB are not exactly the sources of
+# ZLIB_COMPONENTS, or if CI or the VM harness checks zlib linkage other than
+# through verify-zlib. Comments are exempt -- the rule is about what compiles
+# and what runs.
+#
+# Usage: tests/check-zlib-components   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+MK=$ROOT/Makefile
+CI=$ROOT/.github/workflows/_cross-build.yml
+VM=$ROOT/tests/vm/run
+fail=0
+
+listed=$(sed -n 's/^ZLIB_COMPONENTS[[:space:]]*:*=[[:space:]]*//p' "$MK" |
+  tr -s '[:blank:]' '\n' | sed '/^$/d' | sort -u)
+if [ -z "$listed" ]; then
+  guard_fail "no ZLIB_COMPONENTS in the Makefile — the list is not stated anywhere"
+  exit 1
+fi
+
+# Every source under src/ whose code (not a comment) tests HAVE_ZLIB in a
+# preprocessor conditional.
+n=0
+users=
+for f in $(find "$ROOT/src" -type f \( -name '*.c' -o -name '*.h' \) | sort); do
+  n=$((n + 1))
+  grep -qE '^[[:space:]]*#[[:space:]]*(if|ifdef|ifndef|elif)[[:space:]].*HAVE_ZLIB' "$f" ||
+    continue
+  users="$users${f#"$ROOT"/}
+"
+done
+guard_scope "check-zlib-components" "$n" 100
+
+for u in $users; do
+  case $u in
+  src/components/*.c)
+    c=$(basename "$u" .c)
+    printf '%s\n' "$listed" | grep -qx "$c" && continue
+    guard_fail "$u has a HAVE_ZLIB path but $c is not in ZLIB_COMPONENTS"
+    printf 'It builds without zlib even in a release, and verify-zlib never\n' >&2
+    printf 'looks at it. Add it to ZLIB_COMPONENTS in the Makefile.\n' >&2
+    fail=1 ;;
+  *)
+    guard_fail "$u has a HAVE_ZLIB path outside a component"
+    printf 'Every component including it would need zlib, and none of them is\n' >&2
+    printf 'on the list for that reason. Keep the zlib path in the component.\n' >&2
+    fail=1 ;;
+  esac
+done
+
+for c in $listed; do
+  case "
+$users" in
+  *"
+src/components/$c.c
+"*) ;;
+  *)
+    guard_fail "ZLIB_COMPONENTS names $c, whose source has no HAVE_ZLIB path"
+    printf 'It links zlib for nothing, and the release check enforces a\n' >&2
+    printf 'promise the source does not make.\n' >&2
+    fail=1 ;;
+  esac
+done
+
+# CI and the harness go through the target; neither inspects symbols itself.
+for f in "$CI" "$VM"; do
+  rel=${f#"$ROOT"/}
+  if ! grep -vE '^[[:space:]]*#' "$f" | grep -q 'verify-zlib'; then
+    guard_fail "$rel does not check zlib linkage through verify-zlib"
+    fail=1
+  fi
+  own=$(grep -nE 'inflate' "$f" | grep -vE '^[0-9]+:[[:space:]]*#')
+  if [ -n "$own" ]; then
+    guard_fail "$rel checks for zlib's symbols itself, beside verify-zlib"
+    printf '%s\n' "$own" | sed 's/^/  /' >&2
+    printf 'A second copy of the check drifts from the list. Call the target.\n' >&2
+    fail=1
+  fi
+done
+
+[ "$fail" = 0 ] || exit 1
+guard_ok "$(printf '%s\n' "$listed" | wc -l | tr -d ' ') components in ZLIB_COMPONENTS, matching every HAVE_ZLIB path in $n source files; CI and the VM harness check linkage only through verify-zlib"

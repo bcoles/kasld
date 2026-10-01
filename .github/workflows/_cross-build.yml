@@ -106,9 +106,10 @@ jobs:
           echo "$root/$t/bin" >> "$GITHUB_PATH"
 
       # Static zlib for this target. No musl toolchain ships one, so without it
-      # HAVE_ZLIB is empty and proc_config decompresses /proc/config.gz by
-      # running zcat from the target's PATH — which a minimal userland need not
-      # have, in a binary shipped precisely to be self-contained. Pinned by
+      # HAVE_ZLIB is empty and the components that decompress gzip
+      # (ZLIB_COMPONENTS in the Makefile) do it by running zcat from the
+      # target's PATH — which a minimal userland need not have, in a binary
+      # shipped precisely to be self-contained. Pinned by
       # version and checksum in the Makefile. Cached like the toolchain: the
       # source is a fixed tarball and the build is deterministic.
       - name: Cache zlib prefix
@@ -127,12 +128,11 @@ jobs:
           make build CC=${{ matrix.musl_triple }}-gcc EXTRA_CFLAGS="$xf -Werror" EXTRA_LDFLAGS="$xf"
 
       # A release binary that still shells out to zcat is the failure this whole
-      # step exists to prevent, and it is invisible in a build log.
+      # step exists to prevent, and it is invisible in a build log. The Makefile
+      # holds the list of components that need zlib (ZLIB_COMPONENTS), and the
+      # VM harness runs the same target, so this step names none of them.
       - name: Verify zlib is linked
-        run: |
-          set -euo pipefail
-          b="build/$(${{ matrix.musl_triple }}-gcc -dumpmachine)/components/proc_config"
-          ${{ matrix.musl_triple }}-nm "$b" | grep -qi inflate
+        run: make --no-print-directory verify-zlib TRIPLE=${{ matrix.musl_triple }}
 
       - name: Identify build directory
         id: builddir

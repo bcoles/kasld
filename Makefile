@@ -120,7 +120,7 @@ KASLD_HARDEN_FLAGS_WANTED := -fstack-protector-strong -D_FORTIFY_SOURCE=2
 # Neither reads a probed variable, so skipping the probes cannot change what they
 # print.
 kasld_compiling := 1
-ifeq ($(filter-out clean help uninstall cross-arch-flags cross-extra-flags,$(or $(MAKECMDGOALS),build)),)
+ifeq ($(filter-out clean help uninstall cross-arch-flags cross-extra-flags verify-zlib,$(or $(MAKECMDGOALS),build)),)
   kasld_compiling :=
 endif
 
@@ -227,7 +227,7 @@ BUILD_DIR := ./build
 # separation components/ already has.
 ARCH_DIR := $(BUILD_DIR)/$(_ARCH)
 # Cross-build dependencies, one prefix per target triple (see cross-deps).
-# Defined here rather than beside that target because the proc_config rule
+# Defined here rather than beside that target because the zlib component rule
 # expands it far earlier in this file, and a prerequisite is expanded when the
 # rule is read.
 DEPS_DIR := $(BUILD_DIR)/deps
@@ -277,7 +277,7 @@ DEPFLAGS = -MMD -MP
 # would depend on every dependency file and one changed header would rebuild
 # the tree -- the behaviour this replaces, restored silently.
 
-# Detect zlib (optional, for native gzip decompression in proc_config) and
+# Detect zlib (optional, for native gzip decompression in ZLIB_COMPONENTS) and
 # pthread (optional, for the parallel inference worker pool in the orchestrator).
 # Guarded by kasld_compiling so non-compiling goals (clean/help/uninstall) do not
 # fork the compiler to link these probe programs.
@@ -519,16 +519,30 @@ $(COMP_DIR)/dmesg_ex_handler_msr: $(COMP_SRC_DIR)/offsets/dmesg_ex_handler_msr.i
 $(COMP_DIR)/entrybleed: $(COMP_SRC_DIR)/offsets/entrybleed.inc
 $(COMP_DIR)/qemu_tcg_iret: $(COMP_SRC_DIR)/offsets/qemu_tcg_iret.inc
 
-# proc_config: link with zlib when available for native gzip decompression.
+# The components that decompress gzip, linked with zlib when it is available.
+# This list is the only statement of which components need zlib: the link rule
+# below, verify-zlib, and the build summary all read it, and CI and the VM
+# harness check a build through verify-zlib rather than naming components
+# themselves. A component added here is covered everywhere at once.
 #
+#   proc_config         reads /proc/config.gz
+#   kernel_image_facts  reads the extent an EFI zboot vmlinuz declares inside
+#                       its compressed payload
+#
+# Without zlib each spawns zcat instead. With neither, proc_config reads no
+# config, while kernel_image_facts sizes an EFI zboot container by its file
+# length -- a wider window, not a different claim.
+ZLIB_COMPONENTS := proc_config kernel_image_facts
+
 # The cross-deps prefix is a prerequisite where it exists, so populating it
-# rebuilds this component. Without that, gaining zlib changes which RULE applies
-# and leaves the object alone: the build reports success while shipping the
-# binary that shells out to zcat. $(wildcard) yields nothing when the prefix is
-# absent, which is every host build and every cross build before cross-deps.
+# rebuilds these components. Without that, gaining zlib changes which RULE
+# applies and leaves the objects alone: the build reports success while
+# shipping binaries that shell out to zcat. $(wildcard) yields nothing when the
+# prefix is absent, which is every host build and every cross build before
+# cross-deps.
 ZLIB_DEP := $(wildcard $(DEPS_DIR)/$(_ARCH)/lib/libz.a)
 ifeq ($(HAVE_ZLIB),1)
-$(COMP_DIR)/proc_config: $(COMP_SRC_DIR)/proc_config.c Makefile $(ZLIB_DEP) | $(COMP_DIR) $(OBJ_DIR)
+$(addprefix $(COMP_DIR)/,$(ZLIB_COMPONENTS)): $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c Makefile $(ZLIB_DEP) | $(COMP_DIR) $(OBJ_DIR)
 	$(call cc-component, $(CC) $(ALL_CFLAGS) $(COMP_DEPFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) -DHAVE_ZLIB $< -lz -o $@)
 endif
 
@@ -1227,6 +1241,7 @@ lint :
 	    $(TEST_DIR)/check-caller-flags \
 	    $(TEST_DIR)/check-cross-triple \
 	    $(TEST_DIR)/check-vm-ledger \
+	    $(TEST_DIR)/check-zlib-components \
 	    $(TEST_DIR)/check-component-prune \
 	    $(TEST_DIR)/check-suite-registry \
 	    $(TEST_DIR)/check-render-model-only \
@@ -1659,6 +1674,41 @@ cross-deps :
 	done; \
 	echo "cross-deps: $$built built, $$have already present, $$absent toolchain-absent"
 
+# Check that a build links zlib into every component in ZLIB_COMPONENTS. One
+# that lost it still builds and still runs, and on a target without zcat quietly
+# stops decompressing -- invisible in a build log, and the failure a static
+# binary is shipped to avoid. CI runs this on every release build and the VM
+# harness before it boots one, so neither names the components itself.
+#
+# gzdopen is the symbol tested because the components call it and because it is
+# present whichever way zlib is linked: defined (T) in a static release binary,
+# an undefined reference (U) in a dynamically linked host build. A symbol
+# internal to zlib, such as inflate, is absent from the latter and would fail a
+# build that is perfectly good; `nm -D` is no help either, since a static binary
+# has no dynamic symbol table for it to read.
+# TRIPLE selects one target; without it, every CROSS_TARGETS triple whose
+# toolchain is installed.
+.PHONY: verify-zlib
+verify-zlib :
+	@set -e; checked=0; \
+	for triple in $${TRIPLE:-$(CROSS_TARGETS)}; do \
+	  if ! command -v $${triple}-gcc >/dev/null 2>&1; then \
+	    [ -z "$${TRIPLE:-}" ] && continue; \
+	    echo "verify-zlib: $${triple}-gcc not found" >&2; exit 1; \
+	  fi; \
+	  d='$(BUILD_DIR)'/$$($${triple}-gcc -dumpmachine)/components; \
+	  for c in $(ZLIB_COMPONENTS); do \
+	    [ -f "$$d/$$c" ] || \
+	      { echo "verify-zlib: $$c was not built for $$triple ($$d)" >&2; exit 1; }; \
+	    $${triple}-nm "$$d/$$c" 2>/dev/null | grep -qE ' [UTt] gzdopen$$' || \
+	      { echo "verify-zlib: $$c is not linked against zlib for $$triple" >&2; \
+	        echo "  run: make cross-deps TRIPLE=$$triple, then rebuild" >&2; exit 1; }; \
+	  done; \
+	  checked=$$((checked + 1)); \
+	done; \
+	[ "$$checked" -gt 0 ] || { echo "verify-zlib: no cross toolchain found" >&2; exit 1; }; \
+	echo "verify-zlib: $(ZLIB_COMPONENTS) link zlib on $$checked target(s)"
+
 CROSS_TARGETS := \
 	x86_64-unknown-linux-musl x86_64-linux-musl \
 	i686-unknown-linux-musl \
@@ -1730,15 +1780,18 @@ print-deps:
 	@printf '  pthread   present: %-3s  parallel inference pool (kasld) + kernelsnitch\n' "$(if $(HAVE_PTHREAD),yes,no)"
 	@echo "                          kasld runs sequentially without it;"
 	@echo "                          kernelsnitch is skipped without it."
-	@printf '  zlib      present: %-3s  native /proc/config.gz decompression (proc_config)\n' "$(if $(HAVE_ZLIB),yes,no)"
-	@echo "                          proc_config still builds without it, running"
-	@echo "                          zcat instead. Cross builds get it from"
-	@echo "                          make cross-deps; no musl toolchain ships one."
+	@printf '  zlib      present: %-3s  native gzip decompression (%s)\n' "$(if $(HAVE_ZLIB),yes,no)" "$(ZLIB_COMPONENTS)"
+	@echo "                          They still build without it, running zcat"
+	@echo "                          instead. With neither, proc_config reads no"
+	@echo "                          config and kernel_image_facts emits only a"
+	@echo "                          lower bound on an EFI zboot image's size."
+	@echo "                          Cross builds get zlib from make cross-deps;"
+	@echo "                          no musl toolchain ships one."
 	@echo
 	@echo "Per-component compile/link flag exceptions:"
 	@echo "  -O0 (timing-sensitive side channels):"
 	@echo "      $(SIDECHANNEL_COMPONENTS)"
-	@echo "  -DHAVE_ZLIB -lz:   proc_config (when zlib present)"
+	@echo "  -DHAVE_ZLIB -lz:   $(ZLIB_COMPONENTS) (when zlib present)"
 	@echo "  -lpthread:         kernelsnitch; kasld orchestrator (adds -DHAVE_PTHREAD)"
 	@echo
 	@echo "Debian control mapping:"
@@ -1785,6 +1838,7 @@ help:
 	@echo "      run             Build and run kasld"
 	@echo "      cross           Cross-compile for all supported architectures"
 	@echo "      cross-deps      Build static zlib for the cross targets (network)"
+	@echo "      verify-zlib     Check cross builds link zlib where they need it"
 	@echo "      coverage        Host unit-test coverage report (gcov)"
 	@echo "      coverage-e2e    End-to-end coverage over x86 fixtures (gcov)"
 	@echo "      install         Install to PREFIX (default: /usr/local)"
