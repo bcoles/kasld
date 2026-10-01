@@ -1,8 +1,9 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Emit x86 setup-header scalar facts: the exact in-memory kernel size
-// (init_size, emitted as both SF_IMAGE_SIZE_MIN and SF_IMAGE_SIZE_MAX since it
-// is sound in both directions), SF_PHYS_KERNEL_ALIGN (CONFIG_PHYSICAL_ALIGN,
+// Emit x86 setup-header scalar facts: an upper bound on the in-memory kernel
+// size (init_size, emitted as SF_IMAGE_SIZE_MAX alone -- it is the greater of
+// the footprint and the decompressor's working space, so it bounds the image
+// from above and not from below), SF_PHYS_KERNEL_ALIGN (CONFIG_PHYSICAL_ALIGN,
 // the KASLR slot granularity), and the KASLR-off scalars for a kernel built
 // without CONFIG_RELOCATABLE.
 //
@@ -70,8 +71,14 @@ int main(void) {
   }
 
   if (init_size) {
-    /* Exact footprint: feeds both the ceiling (MIN) and the floor (MAX). */
-    kasld_emit_scalar(SF_IMAGE_SIZE_MIN, init_size, CONF_PARSED);
+    /* init_size is an UPPER bound on the footprint, not the footprint:
+     * arch/x86/boot/header.S takes the greater of _end - _text and the space
+     * the decompressor needs to run, and on 64-bit builds the latter wins by
+     * several per cent. It therefore feeds the image-base floor (MAX) alone.
+     * Offered as the ceiling's lower bound it would be worse than absent, since
+     * the evidence layer takes the MAX over lower bounds: an over-stated one
+     * displaces the exact facts and lowers the ceiling past what the truth
+     * permits. */
     kasld_emit_scalar(SF_IMAGE_SIZE_MAX, init_size, CONF_PARSED);
   }
   if (align)

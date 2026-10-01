@@ -167,7 +167,7 @@ int main(int argc, char **argv) {
    * no gate at all -- no /boot, no kptr_restrict, no dmesg -- so it answers in
    * a container where nothing else does. Stated before the type parse, since a
    * table this component cannot walk still has a length. */
-  unsigned long isize = kasld_image_size_from_btf();
+  unsigned long isize = kasld_image_size_from_btf(NULL);
   if (isize) {
     kasld_info("BTF section length: %lu bytes", isize);
     kasld_emit_scalar(SF_IMAGE_SIZE_MIN, isize, CONF_PARSED);

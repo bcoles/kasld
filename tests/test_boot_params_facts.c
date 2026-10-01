@@ -140,7 +140,13 @@ static void test_synthesized_header_defers_to_the_image(void) {
   th_sysroot_rm("/boot/vmlinuz-" TEST_RELEASE);
 
   TH_CHECK(!emits_kaslr_off());
-  TH_CHECK(strstr(cap, "image_size_min conf=parsed value=0x4000000") != NULL);
+  /* init_size bounds the footprint from above and never from below -- it is
+   * the greater of _end - _text and the decompressor's working space -- so it
+   * feeds the upper bound alone. Offered as the lower bound it would lower the
+   * ceiling past what the truth permits, since the evidence layer takes the
+   * max over lower bounds. */
+  TH_CHECK(strstr(cap, "image_size_max conf=parsed value=0x4000000") != NULL);
+  TH_CHECK(strstr(cap, "image_size_min") == NULL);
   TH_CHECK(strstr(cap, "phys_kernel_align conf=parsed value=0x200000") != NULL);
 }
 

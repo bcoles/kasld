@@ -42,5 +42,30 @@ if [ -n "$bad" ]; then
   exit 1
 fi
 
-printf '%scheck-image-size: OK%s (size read only via the evidence accessors)\n' \
+# The other half of the contract, on the emitting side: a reader must not band
+# its own return value. Each one that did stated the band itself, and one of
+# them stated only the lower half -- an x86 bzImage init_size was returned
+# unclamped, so a corrupted field became a multi-gigabyte footprint, emitted as
+# the lower bound that the ceiling rules subtract from a window top. The band
+# belongs in one place, so KIMG_MIN_BYTES / KIMG_MAX_BYTES may be named only by
+# their own definitions and by kasld_image_size_plausible(); every reader
+# returns through that. A new reader adding its own comparison trips this.
+KIMG=$ROOT/src/include/kasld/kernel_image.h
+# One file, so grep -n prefixes "<line>:" with no leading colon.
+band=$(grep -nE 'KIMG_(MIN|MAX)_BYTES' "$KIMG" 2>/dev/null \
+       | grep -vE '^[0-9]+:[[:space:]]*(//|/?\*)' \
+       | grep -vE '^[0-9]+:#define KIMG_(MIN|MAX)_BYTES ' \
+       | grep -vF 'if (v < KIMG_MIN_BYTES || v > KIMG_MAX_BYTES)')
+
+if [ -n "$band" ]; then
+  printf '%scheck-image-size: FAIL%s — a size reader bands its own return\n' \
+    "$RED" "$RESET" >&2
+  echo "value. Return through kasld_image_size_plausible() so the plausible" >&2
+  echo "footprint band is stated once and holds for every source:" >&2
+  printf '%s\n' "$band" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+printf '%scheck-image-size: OK%s (size read only via the evidence accessors; ' \
   "$GREEN" "$RESET"
+printf 'banded in one place)\n'

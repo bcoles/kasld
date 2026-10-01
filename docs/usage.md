@@ -397,8 +397,8 @@ diagrams:
 KASLR analysis:
   Quantity             Certainty   Window                                   Candidates        Grain
   -------------------  ----------  ---------------------------------------  ----------------  -----
-  Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000              1 of 490  2 MiB
-  Physical Image Base  guaranteed          0x19600000 slide +0x18600000             1 of 490  2 MiB
+  Virtual Image Base   guaranteed  0xffffffff8ea00000 slide +0xda00000              1 of 491  2 MiB
+  Physical Image Base  guaranteed          0x19600000 slide +0x18600000             1 of 491  2 MiB
   Direct Map Base      guaranteed  0xffff880000000000 - 0xffffa4aa80000000  29,355 of 29,355  1 GiB
   Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000  79,191 of 79,191  1 GiB
   Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000  85,504 of 85,504  1 GiB
