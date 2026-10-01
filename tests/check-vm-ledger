@@ -133,5 +133,143 @@ case $out in
   fail=1 ;;
 esac
 
+# --- 6. a live log is kept before a boot overwrites it -------------------
+# A boot truncates its pair's live log the moment qemu starts. keep_live_log
+# runs first and must: keep a log that was never archived, name it by its record
+# only when the log proves it is that boot, never duplicate or replace an
+# archive, and refuse -- not skip -- when it cannot keep the log at all. The
+# boot logs this protects cost hours to regenerate, and the failure it prevents
+# is silent: nothing reports a log that was overwritten.
+sed -n '/^gz_keep()/,/^}/p; /^archive_log()/,/^}/p; /^keep_live_log()/,/^}/p' \
+  "$RUN" >"$TMP/keep.sh"
+printf '%s\n' "$sound" >"$TMP/kl-ledger"
+keep_fn() { # function args... -> its status, with the ledger bound as run binds it
+  (REC_FIELDS=$declared
+    LEDGER=$TMP/kl-ledger
+    export REC_FIELDS LEDGER
+    # shellcheck disable=SC1091  # extracted from tests/vm/run above
+    . "$TMP/keep.sh"
+    "$@")
+}
+kl() { keep_fn keep_live_log "$1/boot-$2.log" "$CELL" "$2"; } # dir profile
+boot_log() { # dir profile _text -> writes a live log carrying that landmark
+  mkdir -p "$1"
+  printf '=== kallsyms landmarks ===\n%s T _text\nboot %s\n' "$3" "$4" \
+    >"$1/boot-$2.log"
+}
+# shellcheck disable=SC2012  # every name in there was created by this test
+kept() { ls "$1/logs" 2>/dev/null | tr '\n' ' '; }
+REC=20260101T000000Z-default-1.log.gz
+
+d=$TMP/kl/none
+mkdir -p "$d"
+kl "$d" default || { guard_fail "a pair with no live log was refused"; fail=1; }
+[ -z "$(kept "$d")" ] || { guard_fail "nothing to keep, yet something was written"; fail=1; }
+
+d=$TMP/kl/proven
+boot_log "$d" default c1000000 a
+if ! kl "$d" default || ! gzip -dc "$d/logs/$REC" 2>/dev/null | cmp -s - "$d/boot-default.log"; then
+  guard_fail "a log proven to be its record's boot was not kept under that record"
+  printf '  kept: %s\n' "$(kept "$d")" >&2
+  fail=1
+fi
+kl "$d" default
+[ "$(kept "$d")" = "$REC " ] || {
+  guard_fail "an already-kept log was kept a second time: $(kept "$d")"
+  fail=1
+}
+
+# Kept under the name one ledger implies, then checked with LEDGER pointed at
+# another that has never heard of the pair: still kept, so not kept again.
+: >"$TMP/kl-empty-ledger"
+if ! (REC_FIELDS=$declared
+  LEDGER=$TMP/kl-empty-ledger
+  export REC_FIELDS LEDGER
+  # shellcheck disable=SC1091  # extracted from tests/vm/run above
+  . "$TMP/keep.sh"
+  keep_live_log "$d/boot-default.log" "$CELL" default) ||
+  [ "$(kept "$d")" != "$REC " ]; then
+  guard_fail "a kept log was kept again once LEDGER changed: $(kept "$d")"
+  printf 'Whether a log is kept is a fact about the archive, not about the ledger.\n' >&2
+  fail=1
+fi
+
+d=$TMP/kl/other-boot
+boot_log "$d" default c2000000 b
+kl "$d" default
+case $(kept "$d") in
+"unrecorded-default-1.log.gz ") ;;
+*)
+  guard_fail "a log whose _text is not its record's truth was attributed to it: $(kept "$d")"
+  printf 'A kept log named by a record is a claim that it is that boot.\n' >&2
+  fail=1 ;;
+esac
+
+d=$TMP/kl/no-landmark
+mkdir -p "$d"
+printf 'no kallsyms in this one\n' >"$d/boot-default.log"
+kl "$d" default
+[ "$(kept "$d")" = "unrecorded-default-1.log.gz " ] || {
+  guard_fail "a log that cannot show its _text was attributed to a record: $(kept "$d")"
+  fail=1
+}
+
+d=$TMP/kl/no-record
+boot_log "$d" hardened c1000000 c
+kl "$d" hardened
+boot_log "$d" hardened c1000000 d
+kl "$d" hardened
+if [ "$(kept "$d")" != "unrecorded-hardened-1.log.gz unrecorded-hardened-2.log.gz " ] ||
+  ! gzip -dc "$d/logs/unrecorded-hardened-1.log.gz" | grep -q '^boot c$'; then
+  guard_fail "two unrecorded logs of one pair were not both kept intact: $(kept "$d")"
+  fail=1
+fi
+
+d=$TMP/kl/archive-differs
+boot_log "$d" default c1000000 e
+mkdir -p "$d/logs"
+printf 'an earlier boot\n' | gzip -c >"$d/logs/$REC"
+cp "$d/logs/$REC" "$TMP/before.gz"
+kl "$d" default
+if ! cmp -s "$d/logs/$REC" "$TMP/before.gz"; then
+  guard_fail "an existing archive was replaced"
+  fail=1
+elif [ "$(kept "$d")" != "$REC unrecorded-default-1.log.gz " ]; then
+  guard_fail "a live log differing from its record's archive was not kept beside it: $(kept "$d")"
+  fail=1
+fi
+
+# The refusal. A regular file where the archive directory belongs makes both the
+# directory and the write fail whoever runs this, root included.
+d=$TMP/kl/cannot-keep
+boot_log "$d" default c1000000 f
+: >"$d/logs"
+if kl "$d" default 2>/dev/null; then
+  guard_fail "a log that could not be kept was reported kept -- the boot would overwrite it"
+  fail=1
+fi
+if keep_fn archive_log "$d/boot-default.log" "$CELL" default \
+  20260101T000000Z 1 2>/dev/null; then
+  guard_fail "archive_log reported success on a log it could not write"
+  printf 'A swallowed failure leaves the log unkept with nothing saying so.\n' >&2
+  fail=1
+fi
+
+# And it is called where it can still help: in run_one, before the qemu line
+# whose redirect truncates the log, with a failure stopping the boot.
+body=$(sed -n '/^run_one()/,/^}/p' "$RUN")
+# shellcheck disable=SC2016  # literal source text, matched as written in run
+guard_at=$(printf '%s\n' "$body" | grep -n 'if ! keep_live_log "\$log"' | cut -d: -f1)
+# shellcheck disable=SC2016
+qemu_at=$(printf '%s\n' "$body" | grep -n 'timeout "\$TIMEOUT" \$qemu' | cut -d: -f1)
+if [ -z "$guard_at" ] || [ -z "$qemu_at" ] || [ "$guard_at" -ge "$qemu_at" ]; then
+  guard_fail "keep_live_log does not run before the boot that overwrites the log"
+  printf '  guard at line %s of run_one, qemu at line %s\n' "${guard_at:-none}" "${qemu_at:-none}" >&2
+  fail=1
+elif ! printf '%s\n' "$body" | sed -n "${guard_at},$((guard_at + 3))p" | grep -q 'return [1-9]'; then
+  guard_fail "a log that cannot be kept does not stop the boot"
+  fail=1
+fi
+
 [ "$fail" = 0 ] || exit 1
-guard_ok "record shape agrees in 3 places ($declared fields); the gate refuses a truth outside its window; disagreeing boots render as a span; short lines and mixed sweeps are handled"
+guard_ok "record shape agrees in 3 places ($declared fields); the gate refuses a truth outside its window; disagreeing boots render as a span; short lines and mixed sweeps are handled; a live log is kept before a boot overwrites it, or the boot is refused"

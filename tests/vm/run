@@ -128,7 +128,8 @@ CACHE=$HERE/.cache
 # Append-only, one line per boot, and what lets the rendered matrix state a
 # spread rather than whichever boot happened to be last. The live boot log holds
 # only the most recent boot of its pair; every boot's log is archived beside it
-# (archive_log), named by the sweep and index its record carries.
+# (archive_log), named by the sweep and index its record carries, and a live log
+# never kept that way is kept before a boot overwrites it (keep_live_log).
 LEDGER=${LEDGER:-$HERE/results.tsv}
 # The invocation, stamped once so that every record it writes carries the same
 # one. A matrix pooling records from sweeps taken hours or trees apart is the
@@ -703,11 +704,81 @@ record_verdict() {
 #
 # Named by the same sweep and index the record carries, so a row of the ledger
 # names exactly one file.
+#
+# A failure is reported, not swallowed: the log then stays live and unkept, and
+# keep_live_log keeps it before the next boot of the pair overwrites it -- or
+# refuses that boot. The record is still written either way; it does not depend
+# on the archive.
 archive_log() { # log cell profile sweep index
   [ -f "$1" ] || return 0
   _al_dir=$(dirname "$1")/logs
-  mkdir -p "$_al_dir" 2>/dev/null || return 0
-  gzip -c "$1" >"$_al_dir/$4-$3-$5.log.gz" 2>/dev/null || true
+  if mkdir -p "$_al_dir" 2>/dev/null && gz_keep "$1" "$_al_dir/$4-$3-$5.log.gz"; then
+    return 0
+  fi
+  echo "  !! could not archive $1 -- it stays live; the next boot of" \
+    "$2 ($3) keeps it first or refuses to boot" >&2
+  return 1
+}
+
+# Compress $1 to $2, never leaving a partial file under the final name: it is
+# written beside it and moved into place, so an archive that exists is whole.
+gz_keep() { # src dest
+  _gk_tmp=$2.part.$$
+  if gzip -c "$1" >"$_gk_tmp" 2>/dev/null && mv -f "$_gk_tmp" "$2" 2>/dev/null; then
+    return 0
+  fi
+  rm -f "$_gk_tmp" 2>/dev/null
+  return 1
+}
+
+# Keep the live log of a pair before a boot overwrites it, unless an identical
+# copy is already archived. Returns non-zero when it cannot, and the boot is then
+# not run.
+#
+# The live log is lost at one moment: qemu's output is redirected onto it, which
+# truncates it as qemu starts, before the new boot has produced a byte. archive_log
+# keeps each boot's log as that boot records, so what this protects is a log that
+# never got kept: one written before archiving existed, or one whose archive
+# failed. Neither announces itself, and the next boot of the pair would take it.
+#
+# The copy is named by the pair's LAST ledger record -- every boot of a pair writes
+# this one file and the ledger is appended in boot order -- but only when the log
+# proves it is that boot: the base the record holds as truth is the _text the log
+# itself carries, read as extract_record reads it. A log that cannot show that is
+# kept under a name claiming no record, and an existing archive is never replaced,
+# so nothing here can attribute a log to a boot it did not come from.
+keep_live_log() { # log cell profile
+  [ -f "$1" ] || return 0
+  _kl_dir=$(dirname "$1")/logs
+  _kl_rec=$(awk -F'\t' -v c="$2" -v p="$3" -v want="$REC_FIELDS" '
+    NF == want && $3 == c && $4 == p { k = $1 "-" p "-" $2; t = $9 }
+    END { if (k != "") print k, t }' "$LEDGER" 2>/dev/null)
+  _kl_key=${_kl_rec% *}
+  _kl_truth=${_kl_rec#* }
+
+  # Already kept is a question of content, not of name: LEDGER can be pointed
+  # elsewhere between runs, and a log kept under the name one ledger implies is
+  # still kept when another is in use. Only this profile's archives can hold it.
+  for _kl_a in "$_kl_dir"/*-"$3"-*.log.gz; do
+    [ -f "$_kl_a" ] || continue
+    gzip -dc "$_kl_a" 2>/dev/null | cmp -s - "$1" && return 0
+  done
+
+  mkdir -p "$_kl_dir" 2>/dev/null || return 1
+  _kl_text=$(awk '/ _text$/{print $1; exit}' "$1")
+  if [ -n "$_kl_rec" ] && [ -n "$_kl_text" ] &&
+    [ ! -e "$_kl_dir/$_kl_key.log.gz" ] &&
+    [ "$(printf '%s' "$_kl_truth" | tr 'A-F' 'a-f')" = \
+      "0x$(printf '%s' "$_kl_text" | tr 'A-F' 'a-f')" ]; then
+    _kl_dest=$_kl_dir/$_kl_key.log.gz
+  else
+    _kl_n=1
+    while [ -e "$_kl_dir/unrecorded-$3-$_kl_n.log.gz" ]; do
+      _kl_n=$((_kl_n + 1))
+    done
+    _kl_dest=$_kl_dir/unrecorded-$3-$_kl_n.log.gz
+  fi
+  gz_keep "$1" "$_kl_dest"
 }
 
 verdict() { # log cell profile sweep
@@ -1289,6 +1360,13 @@ EOF
   [ -z "${KASLD_VM_APPEND:-}" ] || append="$append $KASLD_VM_APPEND"
 
   log="$work/boot-$mode.log"
+  # The redirect below truncates this file as qemu starts, so the log it holds
+  # is kept first. A log that cannot be kept is not overwritten: the boot is
+  # refused and counted as a failure, rather than skipped quietly.
+  if ! keep_live_log "$log" "$name" "$mode"; then
+    echo "  FAIL  could not keep $log before a boot overwrites it; not booting"
+    return 2
+  fi
   echo "  [*] booting $qemu ($machine) -> $log"
   # shellcheck disable=SC2086
   timeout "$TIMEOUT" $qemu $machine $accel -smp 1 -m "$mem" $bios $dtb \
@@ -1969,13 +2047,28 @@ prepare_builds() { # cell...
     echo "[*] building every cross target (a selected cell has none yet)"
     make -C "$ROOT" "$_pb_j" cross >/dev/null 2>&1 ||
       { echo "  !! make cross failed — run it directly to see why"; return 1; }
-    return 0
+    release_build ""
+    return
   fi
   for _pb_t in $_pb_triples; do
     make -C "$ROOT" "$_pb_j" cross TRIPLE="$_pb_t" >/dev/null 2>&1 ||
       { echo "  !! make cross TRIPLE=$_pb_t failed — run it directly to see why"; return 1; }
+    release_build "$_pb_t" || return 1
   done
   echo "[*] built$(printf '%s' " $_pb_triples" | sed 's/ $//')"
+}
+
+# Whether what was just built is what ships: the release links zlib into every
+# component that decompresses gzip, and a local build made before
+# `make cross-deps` does not -- it builds and boots without complaint, and its
+# components then go looking for a zcat the guest does not have. The matrix
+# would describe a binary nobody is given. The check is CI's own, run through
+# the same target, so the two cannot disagree about which components need it.
+# An empty triple checks every installed one.
+release_build() { # triple
+  make -C "$ROOT" --no-print-directory verify-zlib ${1:+TRIPLE="$1"} >/dev/null && return 0
+  echo "  !! this build is not the release configuration; not booting it"
+  return 1
 }
 
 # Boot every cell in $batch at once, then replay their output in list order and

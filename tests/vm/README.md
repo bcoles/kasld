@@ -318,7 +318,12 @@ The mainline cells are built on request, never part of the default gap set.
   most recent boot of its pair. Every boot's log is kept too, compressed, under
   `tests/vm/<cell>/logs/<sweep>-<profile>-<boot>.log.gz` — named by the same
   sweep and index the record carries, so a row of the ledger names exactly one
-  file and a boot that disagrees with its neighbours can still be read. Each
+  file and a boot that disagrees with its neighbours can still be read. A boot
+  first keeps the live log it is about to overwrite if no archive holds it yet —
+  one written before archiving existed, or one whose archive failed — under its
+  record's name when the log's own `_text` proves it is that boot and as
+  `unrecorded-<profile>-<n>.log.gz` otherwise; a log that cannot be kept stops
+  the boot rather than being lost. Each
   record carries the sweep that
   produced it (`SWEEP`), and the table names the span of sweeps it drew on, since
   a figure that moved between sweeps moved for a reason no column names. The
