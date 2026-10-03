@@ -960,11 +960,17 @@ for each against it. A cell whose region window excludes the true base is withhe
 exactly like a text-base violation; this gate runs in the live matrix and offline
 via `validate-bundle`, and every gated cell is sound.
 
-The per-region *residual entropy* is not yet tabulated here: the harness gates
-each region window for soundness but does not yet emit its residual bit-count.
-That is a reporting gap, not a soundness gap — the windows are checked to contain
-the truth today; only the "how many bits survived" number for these three
-quantities is still to be surfaced.
+The module region base is gated the same way on the two architectures that
+publish its value rather than computing it: s390 assigns `MODULES_VADDR` in the
+boot decompressor, and loongarch derives the address from the exported
+`vm_map_base`. Elsewhere it is a compile-time expression, so there is no runtime
+value to read.
+
+The per-region *residual entropy* is not tabulated here, though every run
+publishes a region's candidate count and residual bits beside its window. On the
+architectures where these regions exist the figure has either no set to measure
+it against or a count equal to its own denominator, which is the prior the chart
+above already declines to present as a measurement.
 
 Scope (see [Architecture characterization](#architecture-characterization)):
 these three region bases are independently randomized only under

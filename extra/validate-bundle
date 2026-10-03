@@ -717,20 +717,31 @@ elif [ -n "$ptext" ]; then
   nare "phys image_base"    "resolved 0x$ptext (no truth)"
 fi
 
-# RANDOMIZE_MEMORY region windows (direct map / vmalloc / vmemmap). Truth for
-# each region base is the variable's VALUE, captured from /proc/kcore into the
-# kcore-region-truth frame (a few bytes — never kcore itself). Absent on arches
-# without CONFIG_RANDOMIZE_MEMORY, or from a bundle captured before this frame
-# existed, in which case the region is N/A (or silent when kasld resolves no
-# window for it either). A region base outside its resolved window is a
-# soundness bug, same criterion as the text base.
+# Randomized region windows (direct map / vmalloc / vmemmap / module region).
+# Truth for each region base is the variable's VALUE, captured from /proc/kcore
+# into the kcore-region-truth frame (a few bytes — never kcore itself). Absent
+# on arches that do not randomize the region, or from a bundle captured before
+# this frame existed, in which case the region is N/A (or silent when kasld
+# resolves no window for it either). A region base outside its resolved window
+# is a soundness bug, same criterion as the text base.
+#
+# Each entry names the label, the frame's symbol and the document path, because
+# all three can differ: the module region base is a sibling of memory_kaslr
+# rather than a member, since it exists on every architecture whereas the other
+# three are the x86_64 randomization set. The frame carries it where the kernel
+# publishes it as a value -- s390 as the MODULES_VADDR variable, loongarch by
+# arithmetic on vm_map_base.
 RT=$SR/kcore-region-truth
-for _reg in page_offset:page_offset_base vmalloc:vmalloc_base vmemmap:vmemmap_base; do
-  _rlabel=${_reg%%:*}; _rsym=${_reg#*:}
+for _reg in page_offset:page_offset_base:kaslr.memory_kaslr.virt_page_offset_base \
+            vmalloc:vmalloc_base:kaslr.memory_kaslr.virt_vmalloc_base \
+            vmemmap:vmemmap_base:kaslr.memory_kaslr.virt_vmemmap_base \
+            modules:modules_vaddr:kaslr.module_base; do
+  _rlabel=${_reg%%:*}; _rrest=${_reg#*:}
+  _rsym=${_rrest%%:*}; _rpath=${_rrest#*:}
   _rtruth=""
   [ -s "$RT" ] && _rtruth=$(sed -n "s/^region_truth $_rsym = 0x\([0-9a-fA-F]*\).*/\1/p" "$RT" | head -1)
-  _rwmin=$(get ".kaslr.memory_kaslr.virt_${_rsym}.min")
-  _rwmax=$(get ".kaslr.memory_kaslr.virt_${_rsym}.max")
+  _rwmin=$(get ".${_rpath}.min")
+  _rwmax=$(get ".${_rpath}.max")
   if [ -n "$_rwmin" ] && [ -n "$_rwmax" ]; then
     _rwmin=$(hex16 "$_rwmin"); _rwmax=$(hex16 "$_rwmax")
     if [ -n "$_rtruth" ]; then

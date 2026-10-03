@@ -263,9 +263,28 @@ static int kcore_read_word(unsigned long addr, unsigned long *out) {
   return ok;
 }
 
-/* The RANDOMIZE_MEMORY region bases whose live soundness tests/vm/run gates. */
-static const char *const region_syms[] = {"page_offset_base", "vmalloc_base",
-                                          "vmemmap_base"};
+/* The region bases whose live soundness tests/vm/run gates: the kernel symbol
+ * holding each value, and the region_truth name the resolved window is gated
+ * against. The two differ where the kernel's own spelling does.
+ *
+ * s390 publishes the module region base as a variable rather than computing it
+ * from one: MODULES_VADDR is set in the boot decompressor below the loaded
+ * image and declared extern for the rest of the kernel, so its value is a fact
+ * read through kcore and needs no arithmetic -- unlike loongarch, where the
+ * address is derived from vm_map_base below.
+ *
+ * It needs no architecture guard. MODULES_VADDR is a variable on s390 alone;
+ * every other architecture defines it as a macro, so no symbol of that name
+ * exists and the lookup finds nothing. The entry resolves exactly where the
+ * kernel publishes the value, which is also why it cannot collide with the
+ * loongarch route for the same region_truth name. */
+static const struct {
+  const char *sym;
+  const char *name;
+} region_syms[] = {{"page_offset_base", "page_offset_base"},
+                   {"vmalloc_base", "vmalloc_base"},
+                   {"vmemmap_base", "vmemmap_base"},
+                   {"MODULES_VADDR", "modules_vaddr"}};
 
 /* Ground truth for the randomized region bases. One "region_truth <name> =
  * 0x<value>" line per region that resolves; nothing where kcore/the symbols are
@@ -360,9 +379,9 @@ static void dump_region_kaslr_truth(void) {
   printf("=== region kaslr truth (/proc/kcore) ===\n");
   int any = 0;
   for (unsigned i = 0; i < sizeof region_syms / sizeof region_syms[0]; i++) {
-    unsigned long addr = kallsyms_addr(region_syms[i]), val;
+    unsigned long addr = kallsyms_addr(region_syms[i].sym), val;
     if (addr && kcore_read_word(addr, &val)) {
-      printf("region_truth %s = 0x%lx\n", region_syms[i], val);
+      printf("region_truth %s = 0x%lx\n", region_syms[i].name, val);
       any = 1;
     }
   }
@@ -571,10 +590,10 @@ static void capture_bundle(void) {
     unsigned char buf[256];
     int n = 0;
     for (unsigned i = 0; i < sizeof region_syms / sizeof region_syms[0]; i++) {
-      unsigned long addr = kallsyms_addr(region_syms[i]), val;
+      unsigned long addr = kallsyms_addr(region_syms[i].sym), val;
       if (addr && kcore_read_word(addr, &val))
         n += snprintf((char *)buf + n, sizeof buf - (size_t)n,
-                      "region_truth %s = 0x%lx\n", region_syms[i], val);
+                      "region_truth %s = 0x%lx\n", region_syms[i].name, val);
     }
     if (n > 0)
       emit_frame("/kcore-region-truth", buf, (unsigned long)n);
