@@ -17,11 +17,17 @@
 # and, in the other direction, that every matrix cell has a summary row, so a
 # newly booted architecture cannot be added to one table alone.
 #
-# The prose around the two tables states two counts — how many rows the fold
-# holds, and how many of the omitted scenarios depart from their cell's
-# `default` — and both are checked against the tables. A stated count is the
-# thing that rots first: one more booted cell moves it, and nothing about
-# regenerating a table draws the eye to a sentence forty lines above it.
+# The prose around the two tables states four counts — how many rows the fold
+# holds, how many of the omitted scenarios depart from their cell's `default`,
+# and how many pairs disagreed across their boots over how many cells — and all
+# four are checked against the tables. A stated count is the thing that rots
+# first: one more booted cell moves it, and nothing about regenerating a table
+# draws the eye to a sentence forty lines above it.
+#
+# How many BOOTS each figure rests on is deliberately not among them. That count
+# moved in five separate paragraphs every time the harness was re-run, so the
+# prose no longer states it anywhere: the renderer prints it beside the rows it
+# describes, and this guard asserts only that the printed line is present.
 #
 # Each count is read through a fixed phrase. Rewording either sentence makes
 # this guard fail rather than quietly stop checking, which is the failure worth
@@ -121,9 +127,38 @@ elif [ "$exc_stated" != "$exc_actual" ]; then
   note "the prose says $exc_stated rows depart from default; the matrix has $exc_actual"
 fi
 
+# How many pairs disagreed across their boots, and over how many cells. Both
+# are a function of the fold alone -- a pair disagreed exactly when its row
+# carries a span -- so the prose must not drift from it. The boot count itself
+# is deliberately absent from the prose: the renderer states it beside the rows
+# it describes, which is the only place it cannot go stale.
+span_rows=$(awk -F'\t' '$6 ~ /–/ || $7 ~ /–/' "$TMP/full" | wc -l | tr -d ' ')
+span_cells=$(awk -F'\t' '$6 ~ /–/ || $7 ~ /–/ { print $1 "|" $2 "|" $3 }' "$TMP/full" |
+  sort -u | wc -l | tr -d ' ')
+span_stated=$(sed -n 's|.* \([0-9][0-9]*\) of the [0-9][0-9]* pairs returned figures.*|\1|p' "$DOC" | head -1)
+cells_stated=$(sed -n 's|.*spread over \([a-z][a-z]*\) cells.*|\1|p' "$DOC" | head -1)
+words="zero one two three four five six seven eight nine ten"
+cells_word=$(printf '%s' "$words" | awk -v n="$span_cells" '{ print $(n+1) }')
+if [ -z "$span_stated" ]; then
+  note "the sentence stating how many pairs disagreed was reworded — restore the phrasing or update this guard"
+elif [ "$span_stated" != "$span_rows" ]; then
+  note "the prose says $span_stated pairs disagreed; the matrix has $span_rows"
+fi
+if [ -z "$cells_stated" ]; then
+  note "the sentence stating how many cells carry a span was reworded — restore the phrasing or update this guard"
+elif [ "$cells_stated" != "$cells_word" ]; then
+  note "the prose says the spans cover $cells_stated cells; the matrix has $span_cells ($cells_word)"
+fi
+
+# The renderer's own provenance line must be present, because the prose no
+# longer states the boot count anywhere else.
+if ! grep -qE '^(Each cell was booted [0-9]+ time\(s\)|Cells were booted between [0-9]+ and [0-9]+ times)\.' "$DOC"; then
+  note "the generated line stating how many boots each figure rests on is missing from the page"
+fi
+
 if [ "$fail" -ne 0 ]; then
   printf '%scheck-matrix-summary: FAIL%s (summary and matrix disagree)\n' "$RED" "$RESET" >&2
   exit 1
 fi
-printf '%scheck-matrix-summary: OK%s (%d summary rows agree with %s matrix rows; %s departing, as stated)\n' \
-  "$GREEN" "$RESET" "$nrow" "$fold_actual" "$exc_actual"
+printf '%scheck-matrix-summary: OK%s (%d summary rows agree with %s matrix rows; %s departing, %s pairs over %s cells disagreeing, all as stated; boot count stated by the renderer)\n' \
+  "$GREEN" "$RESET" "$nrow" "$fold_actual" "$exc_actual" "$span_rows" "$span_cells"
