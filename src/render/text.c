@@ -332,6 +332,12 @@ static void render_kaslr_text(void) {
         kasld_report_find(rep, Q_PHYS_IMAGE_BASE);
     const struct kasld_report_quantity *id =
         kasld_report_find(rep, Q_PAGE_OFFSET);
+    const struct kasld_report_quantity *iva =
+        kasld_report_find(rep, Q_VMALLOC_BASE);
+    const struct kasld_report_quantity *ivm =
+        kasld_report_find(rep, Q_VMEMMAP_BASE);
+    const struct kasld_report_quantity *imo =
+        kasld_report_find(rep, Q_MODULE_BASE);
 
     if (iv && iv->has_stext)
       printf("  %-*s 0x%016lx\n", KASLR_LABEL_W, "Virtual _stext:", iv->stext);
@@ -370,6 +376,9 @@ static void render_kaslr_text(void) {
     readout_excluded("Virtual image base", iv);
     readout_excluded("Physical image base", ip);
     readout_excluded("Direct map base", id);
+    readout_excluded("Vmalloc base", iva);
+    readout_excluded("Vmemmap base", ivm);
+    readout_excluded("Module region base", imo);
   }
   printf("\n");
 }

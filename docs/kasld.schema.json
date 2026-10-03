@@ -30,7 +30,7 @@
   "properties": {
     "schema_version": {
       "description": "Format version of this document, MAJOR.MINOR. Not the tool's version.",
-      "const": "1.0"
+      "const": "1.1"
     },
     "version": {
       "description": "The kasld binary's version. A `-dev` suffix is not unique to a commit.",
@@ -899,13 +899,15 @@
       }
     },
     "edgeWindow": {
-      "description": "A window stated as its two edges. An unstated edge is null, never the address zero. `slots` is hole-aware and cannot be derived from min/max: interior exclusions are carved at read time and never appear on the wire, so (max - min) / align is the hole-blind number.",
+      "description": "A window stated as its two edges. An unstated edge is null, never the address zero. `slots` is hole-aware and cannot be derived from min/max: interior exclusions are carved at read time, so (max - min) / align is the hole-blind number. `excluded` lists those carved sub-ranges and `excluded_total` says how many there were, on the same terms as the image-base windows: a quantity of this kind states where inside its edges the value cannot be.",
       "type": "object",
       "additionalProperties": false,
       "required": ["min", "max"],
       "properties": {
         "min": { "$ref": "#/$defs/addressOrNull" },
         "max": { "$ref": "#/$defs/addressOrNull" },
+        "excluded_total": { "description": "How many sub-ranges were carved out of this window's interior. `excluded` holds as many as the model retains, so a consumer can tell a complete list from a truncated one.", "type": "integer" },
+        "excluded": { "type": "array", "items": { "$ref": "#/$defs/excludedRange" } },
         "slots": { "type": "integer" },
         "entropy_bits": { "type": "integer" },
         "slots_upper_bound": { "type": "boolean" },

@@ -294,6 +294,9 @@ void render_markdown(const struct summary *s) {
       md_excluded("Virtual image base", iv);
       md_excluded("Physical image base", ip);
       md_excluded("Direct map base", kasld_report_find(rep, Q_PAGE_OFFSET));
+      md_excluded("Vmalloc base", kasld_report_find(rep, Q_VMALLOC_BASE));
+      md_excluded("Vmemmap base", kasld_report_find(rep, Q_VMEMMAP_BASE));
+      md_excluded("Module region base", kasld_report_find(rep, Q_MODULE_BASE));
     }
 
     /* Phys/virt coupling — the static classification the text readout carries,

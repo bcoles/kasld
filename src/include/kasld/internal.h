@@ -40,7 +40,7 @@
  * docs/kasld.schema.json describes exactly this version and pins it as a
  * `const`, so the two cannot disagree; tests/check-json-schema compares them.
  */
-#define KASLD_JSON_SCHEMA_VERSION "1.0"
+#define KASLD_JSON_SCHEMA_VERSION "1.1"
 
 /* =========================================================================
  * Constants

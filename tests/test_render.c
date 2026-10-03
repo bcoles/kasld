@@ -207,17 +207,25 @@ static void stage_window(struct kasld_report_window *w, unsigned long lo,
  * how an assertion comes to pass for the wrong reason. */
 static unsigned long t_vlikely_lo, t_vlikely_hi, t_vlikely_slots;
 static unsigned long t_plikely_lo, t_plikely_hi, t_plikely_slots;
-/* One carved interior range for the virtual image base, and the total carved --
- * which may exceed what the model retains, so a format can be checked for
- * disclosing the truncation as well as the range. */
+/* One carved interior range, the total carved -- which may exceed what the
+ * model retains, so a format can be checked for disclosing the truncation as
+ * well as the range -- and the quantity it belongs to.
+ *
+ * Any windowed quantity, not just the image base: the region and module windows
+ * carve holes of their own, and no capture in the corpus produces one, so a
+ * test is the only thing that reaches their emitters. Defaults to the virtual
+ * image base, which is the quantity a test staging a hole without naming one
+ * means. */
 static unsigned long t_excl_lo, t_excl_hi;
 static int t_excl_total;
+static enum kasld_quantity t_excl_q;
 
 static void stage_likely_reset(void) {
   t_vlikely_lo = t_vlikely_hi = t_vlikely_slots = 0;
   t_plikely_lo = t_plikely_hi = t_plikely_slots = 0;
   t_excl_lo = t_excl_hi = 0;
   t_excl_total = 0;
+  t_excl_q = Q_VIRT_IMAGE_BASE;
 }
 
 /* Counts a test stages to drive the report model it renders.
@@ -259,6 +267,15 @@ stage_item(struct kasld_report *r, enum kasld_quantity q, const char *label,
    * renderer under test. */
   it->top_bits = report_bits(top);
   stage_window(&it->guaranteed, lo, hi, cand);
+  /* The carved interior range, where the test staged one for this quantity.
+   * Applied here rather than at a call site so that every windowed quantity is
+   * reached by the same staging. */
+  if (t_excl_total > 0 && q == t_excl_q) {
+    it->guaranteed.n_excluded = t_excl_total;
+    it->guaranteed.excluded_listed = 1;
+    it->guaranteed.excluded[0].lo = t_excl_lo;
+    it->guaranteed.excluded[0].hi = t_excl_hi;
+  }
   return it;
 }
 
@@ -286,12 +303,6 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
    * orchestrator cannot produce. */
   if (t_vlikely_hi)
     stage_window(&it->likely, t_vlikely_lo, t_vlikely_hi, t_vlikely_slots);
-  if (t_excl_total > 0) {
-    it->guaranteed.n_excluded = t_excl_total;
-    it->guaranteed.excluded_listed = 1;
-    it->guaranteed.excluded[0].lo = t_excl_lo;
-    it->guaranteed.excluded[0].hi = t_excl_hi;
-  }
   if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
       layout.virt_kaslr_text_min)
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
@@ -3280,6 +3291,108 @@ static void test_render_excluded_ranges_are_disclosed(void) {
   }
 }
 
+/* A region or module window's carved ranges are disclosed too, not only the
+ * image base's.
+ *
+ * Every windowed quantity is a window over an address, and the engine carves
+ * interior holes out of the region bases as readily as out of the image base --
+ * `arm64_page_offset_from_va_bits` excludes on the direct map. Publishing the
+ * count without the ranges leaves a consumer brute-forcing placements already
+ * ruled out, and leaves anyone checking a window against a known base unable to
+ * tell whether it is inside the candidate SET or merely inside the edges.
+ *
+ * Both emitter layouts are exercised, because they are the thing that differs:
+ * the module window is written one field per line, the memory_kaslr regions
+ * inline, and a shared emitter has to produce valid JSON in either. The holes
+ * are also asserted to fall INSIDE the object that owns them: a reader taking
+ * the first match of a field name answers for whichever object the emitter
+ * printed first, which on this document is not the one it was asked about. */
+static void test_render_region_excluded_ranges_are_disclosed(void) {
+  struct summary s;
+  unsigned long base;
+
+  /* The module window: emitted one field per line.
+   *
+   * The base comes from the arch's own compile-time module band rather than a
+   * literal, for the reason the text-base staging gives: a 64-bit address
+   * written out here does not fit `unsigned long` on a 32-bit target, and the
+   * test would describe an address space the target does not have. */
+  set_rich_render_state(&s);
+  base = layout.modules_start;
+  s.kaslr.virt_module_min = base;
+  s.kaslr.virt_module_max = base + 0x400000ul;
+  s.kaslr.virt_module_slots = 1025;
+  t_excl_q = Q_MODULE_BASE;
+  t_excl_lo = base + 0x1000ul;
+  t_excl_hi = base + 0x2000ul;
+  t_excl_total = 2;
+
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+  {
+    char hex[40];
+    TH_CHECK(strstr(render_cap, "Module region base excludes 2 ranges") !=
+             NULL);
+    snprintf(hex, sizeof hex, "0x%lx - 0x%lx", t_excl_lo, t_excl_hi);
+    TH_CHECK(strstr(render_cap, hex) != NULL);
+  }
+
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  {
+    const char *obj = strstr(render_cap, "\"module_base\"");
+    char pair[96];
+    TH_CHECK(obj != NULL);
+    TH_CHECK(strstr(obj, "\"excluded_total\": 2") != NULL);
+    snprintf(pair, sizeof pair, "\"min\": \"0x%016lx\"", t_excl_lo);
+    TH_CHECK(strstr(obj, pair) != NULL);
+  }
+
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  /* A memory_kaslr region: emitted inline, and followed by a sibling, so the
+   * holes landing in the wrong object would be visible. */
+  set_rich_render_state(&s);
+  /* All three regions, so the one carrying holes has a sibling after it. */
+  s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET + 0x01000000ul;
+  s.kaslr.virt_page_offset_max = (unsigned long)PAGE_OFFSET + 0x02000000ul;
+  s.kaslr.virt_page_offset_slots = 2;
+  s.kaslr.virt_vmalloc_min = (unsigned long)PAGE_OFFSET + 0x11000000ul;
+  s.kaslr.virt_vmalloc_max = (unsigned long)PAGE_OFFSET + 0x11400000ul;
+  s.kaslr.virt_vmalloc_slots = 4;
+  s.kaslr.virt_vmemmap_min = (unsigned long)PAGE_OFFSET + 0x13000000ul;
+  s.kaslr.virt_vmemmap_max = (unsigned long)PAGE_OFFSET + 0x14000000ul;
+  s.kaslr.virt_vmemmap_slots = 8;
+  t_excl_q = Q_VMALLOC_BASE;
+  t_excl_lo = s.kaslr.virt_vmalloc_min + 0x1000ul;
+  t_excl_hi = s.kaslr.virt_vmalloc_min + 0x2000ul;
+  t_excl_total = 1;
+
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+  TH_CHECK(strstr(render_cap, "Vmalloc base excludes 1 range") != NULL);
+
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  {
+    const char *own = strstr(render_cap, "\"virt_vmalloc_base\"");
+    const char *next = own ? strstr(own, "\"virt_vmemmap_base\"") : NULL;
+    const char *holes = own ? strstr(own, "\"excluded\"") : NULL;
+    TH_CHECK(own != NULL);
+    TH_CHECK(holes != NULL);
+    /* Within its own object: before the sibling that follows it. */
+    TH_CHECK(next == NULL || holes < next);
+  }
+#endif
+}
+
 static void test_render_directmap_residual_has_a_denominator(void) {
 #if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
@@ -6120,6 +6233,7 @@ int main(void) {
   RUN(test_render_oneline_with_rich_content);
   RUN(test_render_map_ceiling_from_target_not_host);
   RUN(test_render_excluded_ranges_are_disclosed);
+  RUN(test_render_region_excluded_ranges_are_disclosed);
   RUN(test_render_directmap_residual_has_a_denominator);
   RUN(test_render_oneline_set_value_is_not_hex);
   RUN(test_render_oneline_page_geometry_present);

@@ -260,15 +260,21 @@ static void json_addr_pair(const char *lo_key, const char *hi_key,
  * `excluded_total` is how many were carved; the array holds as many as the
  * model retains, so a consumer can tell a complete list from a truncated one
  * rather than assuming the ranges it sees are all of them. */
-static void json_excluded(const struct kasld_report_window *w) {
+/* `lead` is what precedes each field: a newline and the enclosing object's
+ * field indent where that object is written one field per line, a single space
+ * where it is written inline. Every windowed quantity carries the same two
+ * fields, so the one that differs between them is the layout, not the content.
+ */
+static void json_excluded(const struct kasld_report_window *w,
+                          const char *lead) {
   if (w->n_excluded <= 0)
     return;
-  printf(",\n      \"excluded_total\": %d", w->n_excluded);
-  printf(",\n      \"excluded\": [");
+  printf(",%s\"excluded_total\": %d", lead, w->n_excluded);
+  printf(",%s\"excluded\": [", lead);
   for (int i = 0; i < w->excluded_listed; i++)
-    printf("%s\n        { \"min\": \"0x%016lx\", \"max\": \"0x%016lx\" }",
-           i ? "," : "", w->excluded[i].lo, w->excluded[i].hi);
-  printf("\n      ]");
+    printf("%s%s  { \"min\": \"0x%016lx\", \"max\": \"0x%016lx\" }",
+           i ? "," : "", lead, w->excluded[i].lo, w->excluded[i].hi);
+  printf("%s]", lead);
 }
 
 /* Whether a window states a single address rather than a range. */
@@ -711,7 +717,7 @@ void render_json(const struct summary *s) {
                kasld_entropy_baseline_bits(rv, &rv->guaranteed));
       printf(",\n      \"entropy_bits\": %d", rv->guaranteed.bits);
     }
-    json_excluded(&rv->guaranteed);
+    json_excluded(&rv->guaranteed, "\n      ");
     printf("\n    }");
   }
 
@@ -782,7 +788,7 @@ void render_json(const struct summary *s) {
                kasld_entropy_baseline_bits(rp, &rp->guaranteed));
       printf(",\n      \"entropy_bits\": %d", rp->guaranteed.bits);
     }
-    json_excluded(&rp->guaranteed);
+    json_excluded(&rp->guaranteed, "\n      ");
     printf("\n");
     printf("    }");
   }
@@ -838,6 +844,10 @@ void render_json(const struct summary *s) {
       if (kasld_entropy_baseline_bits(it, &it->guaranteed))
         printf(",\n      \"entropy_bits_initial\": %d",
                kasld_entropy_baseline_bits(it, &it->guaranteed));
+      /* And the sub-ranges carved out of its interior, for the same reason the
+       * count above is carried: the edges alone do not say which placements
+       * inside them survive. */
+      json_excluded(&it->guaranteed, "\n      ");
       if (kasld_report_likely_is_tighter(it)) {
         printf(",\n      \"likely\": { \"min\": \"0x%016lx\", "
                "\"max\": \"0x%016lx\"",
@@ -884,8 +894,8 @@ void render_json(const struct summary *s) {
         json_addr_or_null(g->has_hi, g->hi);
         /* The hole-aware candidate count and its residual entropy. A consumer
          * cannot derive these from min/max: interior C_EXCLUDE holes are carved
-         * at read time and never appear on the wire, so (max - min) / align is
-         * the hole-blind number, not this one. */
+         * at read time, so (max - min) / align is the hole-blind number, not
+         * this one. The holes themselves follow, so the two agree. */
         if (g->candidates > 0) {
           printf(", \"slots\": %lu, \"entropy_bits\": %d, "
                  "\"slots_upper_bound\": %s",
@@ -896,6 +906,13 @@ void render_json(const struct summary *s) {
             printf(", \"entropy_bits_initial\": %d",
                    kasld_entropy_baseline_bits(it, g));
         }
+        /* The sub-ranges carved out of this window's interior. A region base is
+         * a window over an address like the image base, and a consumer given
+         * only the edges brute-forces placements the engine already ruled out.
+         * Withholding them also leaves a reader unable to tell whether a truth
+         * inside the edges is inside the candidate SET, which is the question a
+         * soundness check asks. */
+        json_excluded(g, " ");
         /* Speculative sub-window from the all-signals snapshot; subset of
          * [min, max] and may be wrong. Emitted only where it says something the
          * proven window does not -- the same question every format asks, asked

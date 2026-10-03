@@ -38,6 +38,13 @@
 # — and holding it exact in both directions is what keeps it from rotting into
 # one. A key that starts being exercised is removed from it.
 #
+# The region and module windows' `excluded` is declared and unexercised for the
+# same reason kaslr.inferred's is: the engine carves those windows -- the direct
+# map is excluded on by arm64_page_offset_from_va_bits -- but no capture in the
+# corpus is of a machine where it happened. Declared because the soundness gate
+# reads it to tell a truth inside a window's edges from one inside its candidate
+# set, and a field the gate depends on is not one to leave undocumented.
+#
 # The direct-map region's slots_initial is there for a reason worth naming,
 # because it is not the usual one. A baseline is published only where it can
 # serve as a denominator, and on that region the resolved count runs above the
@@ -251,16 +258,32 @@ kaslr.inferred.excluded
 kaslr.inferred.excluded.[].max
 kaslr.inferred.excluded.[].min
 kaslr.inferred.excluded_total
+kaslr.memory_kaslr.virt_page_offset_base.excluded
+kaslr.memory_kaslr.virt_page_offset_base.excluded.[].max
+kaslr.memory_kaslr.virt_page_offset_base.excluded.[].min
+kaslr.memory_kaslr.virt_page_offset_base.excluded_total
+kaslr.memory_kaslr.virt_vmalloc_base.excluded
+kaslr.memory_kaslr.virt_vmalloc_base.excluded.[].max
+kaslr.memory_kaslr.virt_vmalloc_base.excluded.[].min
+kaslr.memory_kaslr.virt_vmalloc_base.excluded_total
 kaslr.memory_kaslr.virt_vmalloc_base.likely
 kaslr.memory_kaslr.virt_vmalloc_base.likely.max
 kaslr.memory_kaslr.virt_vmalloc_base.likely.min
 kaslr.memory_kaslr.virt_vmalloc_base.likely.slots
 kaslr.memory_kaslr.virt_vmalloc_base.likely.speculative
+kaslr.memory_kaslr.virt_vmemmap_base.excluded
+kaslr.memory_kaslr.virt_vmemmap_base.excluded.[].max
+kaslr.memory_kaslr.virt_vmemmap_base.excluded.[].min
+kaslr.memory_kaslr.virt_vmemmap_base.excluded_total
 kaslr.memory_kaslr.virt_vmemmap_base.likely
 kaslr.memory_kaslr.virt_vmemmap_base.likely.max
 kaslr.memory_kaslr.virt_vmemmap_base.likely.min
 kaslr.memory_kaslr.virt_vmemmap_base.likely.slots
 kaslr.memory_kaslr.virt_vmemmap_base.likely.speculative
+kaslr.module_base.excluded
+kaslr.module_base.excluded.[].max
+kaslr.module_base.excluded.[].min
+kaslr.module_base.excluded_total
 kaslr.physical.stext
 kaslr.virtual.speculative
 EOF
