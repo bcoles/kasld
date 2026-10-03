@@ -307,14 +307,134 @@ fetch_kernel() {
 norm() { v=$(printf '%s' "$1" | sed 's/^0x//' | tr 'A-F' 'a-f'); [ -n "$v" ] || return 0; printf '%016s' "$v" | tr ' ' 0; }
 hexle() { [ "$1" = "$2" ] && return 0; [ "$(printf '%s\n%s\n' "$1" "$2" | LC_ALL=C sort | head -1)" = "$1" ]; }
 
-# Physical soundness for a boot log, echoed as one word:
-#   Y   truth inside the window and outside every carved sub-range
+# window_containment <log> <key> <truth>: how a known address stands against the
+# window the -j document names `key`, echoed as one word:
+#   Y   inside the window's bounds and outside every carved sub-range
 #   Y*  as Y, but the carved list was truncated, so membership is unsettled
-#   N   truth outside the window bounds
-#   X   truth inside the bounds but inside a carved sub-range
-#   NA  coupled arch, or no truth / no window to compare
+#   X   inside the bounds but inside a carved sub-range -- ruled out of the set
+#   N   outside the bounds
+#   NA  no truth given, or no such window in the document
+#
+# "Inside the bounds" is not "inside the candidate SET". A C_EXCLUDE carves an
+# interior hole: the counts drop but min/max do not move, so a base ruled out of
+# the set sits between the bounds and passes a bounds test while having been
+# excluded. That is over-narrowing -- the window no longer contains the truth --
+# and it is the one failure a soundness gate exists to catch, so the holes are
+# read too.
+#
+# Scoped to the object `key` names, and within it to that object's own fields.
+# Every window states its edges under the same names, and a window may carry a
+# nested `likely` sub-window and an `excluded` array that use those names again,
+# so a reader taking the first match of a field name answers for whichever
+# quantity -- or whichever sub-object -- the emitter happened to print first.
+# The virtual window is emitted before the physical one, so an unscoped read
+# answers for the virtual window whichever axis it was asked about -- and a
+# physical address cannot lie inside a virtual hole, so a check built that way
+# reports clear without having checked anything.
+window_containment() {
+  _wc_log=$1 _wc_key=$2
+  _wc_t=$(norm "$3")
+  [ -n "$_wc_t" ] || { echo NA; return; }
+  _wc_w=$(awk -v KEY="$_wc_key" '
+    function depth1(s,   n, i, ch, d, out) {
+      n = length(s); d = 0; out = ""
+      for (i = 1; i <= n; i++) {
+        ch = substr(s, i, 1)
+        if (ch == "{" || ch == "[") { d++; continue }
+        if (ch == "}" || ch == "]") { d--; continue }
+        if (d == 1) out = out ch
+      }
+      return out
+    }
+    # The contents of the array named k, by bracket matching from its opening
+    # bracket, so a nested object inside it does not end the span.
+    function array_of(s, k,   p, n, i, ch, d, st) {
+      p = index(s, "\"" k "\"")
+      if (!p) return ""
+      n = length(s)
+      for (i = p; i <= n && substr(s, i, 1) != "["; i++) continue
+      if (i > n) return ""
+      d = 0; st = i + 1
+      for (; i <= n; i++) {
+        ch = substr(s, i, 1)
+        if (ch == "[") d++
+        else if (ch == "]") { d--; if (d == 0) return substr(s, st, i - st) }
+      }
+      return ""
+    }
+    function addr(s, k,   m) {
+      if (match(s, "\"" k "\"[^0-9a-fx]*\"0x[0-9a-fA-F]+\"") == 0) return ""
+      m = substr(s, RSTART, RLENGTH)
+      match(m, /0x[0-9a-fA-F]+/)
+      return substr(m, RSTART, RLENGTH)
+    }
+    BEGIN { KEYQ = "\"" KEY "\":" }
+    !found { p = index($0, KEYQ); if (!p) next
+             found = 1; $0 = substr($0, p + length(KEYQ)) }
+    found && !done {
+      obj = obj " " $0
+      n = length($0)
+      for (i = 1; i <= n; i++) {
+        ch = substr($0, i, 1)
+        if (ch == "{") { d++; seen = 1 } else if (ch == "}") d--
+      }
+      if (seen && d <= 0) done = 1
+    }
+    END {
+      if (!found || !done) { print "none"; exit }
+      head = depth1(obj)
+      # The image-base windows name their edges range_min/range_max, the region
+      # and module windows min/max. Both are read rather than one spelling being
+      # imposed on the emitter.
+      lo = addr(head, "range_min"); if (lo == "") lo = addr(head, "min")
+      hi = addr(head, "range_max"); if (hi == "") hi = addr(head, "max")
+      if (lo == "" || hi == "") { print "none"; exit }
+      etot = 0
+      if (match(head, /"excluded_total"[^0-9]*[0-9]+/)) {
+        m = substr(head, RSTART, RLENGTH); match(m, /[0-9]+$/)
+        etot = substr(m, RSTART, RLENGTH) + 0
+      }
+      print "bounds " lo " " hi " " etot
+      # Carved ranges come from the `excluded` array alone: a `likely`
+      # sub-window states a min and a max of its own and is not a hole.
+      s = array_of(obj, "excluded")
+      while (match(s, /"min"[^0-9a-fx]*"0x[0-9a-fA-F]+"[^0-9a-fx]*"max"[^0-9a-fx]*"0x[0-9a-fA-F]+"/)) {
+        m = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+        match(m, /0x[0-9a-fA-F]+/); a = substr(m, RSTART, RLENGTH)
+        m2 = substr(m, RSTART + RLENGTH); match(m2, /0x[0-9a-fA-F]+/)
+        print "hole " a " " substr(m2, RSTART, RLENGTH)
+      }
+    }
+  ' "$_wc_log")
+  case $_wc_w in none | '') echo NA; return ;; esac
+
+  _wc_lo=$(printf '%s\n' "$_wc_w" | awk '/^bounds /{print $2; exit}')
+  _wc_hi=$(printf '%s\n' "$_wc_w" | awk '/^bounds /{print $3; exit}')
+  _wc_et=$(printf '%s\n' "$_wc_w" | awk '/^bounds /{print $4; exit}')
+  _wc_lo=$(norm "$_wc_lo"); _wc_hi=$(norm "$_wc_hi")
+  if ! hexle "$_wc_lo" "$_wc_t" || ! hexle "$_wc_t" "$_wc_hi"; then echo N; return; fi
+
+  _wc_listed=0
+  for _wc_h in $(printf '%s\n' "$_wc_w" | awk '/^hole /{print $2 ":" $3}'); do
+    _wc_listed=$((_wc_listed + 1))
+    _wc_hl=$(norm "${_wc_h%%:*}"); _wc_hh=$(norm "${_wc_h#*:}")
+    if hexle "$_wc_hl" "$_wc_t" && hexle "$_wc_t" "$_wc_hh"; then echo X; return; fi
+  done
+  # The report keeps at most KASLD_REPORT_MAX_EXCLUDED holes; past that the list
+  # is a sample and membership cannot be settled from it. Say so rather than
+  # reporting a pass the evidence does not support.
+  [ "$_wc_et" -gt "$_wc_listed" ] 2>/dev/null && { echo 'Y*'; return; }
+  echo Y
+}
+
+# Physical soundness for a boot log: window_containment's word for the physical
+# image base, or NA where this architecture gives the question no meaning.
+#
 # Truth = the lowest "Kernel code" address in the root-captured /proc/iomem dump
-# (raw "START-END : Kernel code" format). Window = the -j phys_kaslr_text_min/max.
+# (raw "START-END : Kernel code" format). Window = the resolved guaranteed one,
+# `kaslr.inferred_physical`, read with its carved sub-ranges out of the one
+# object, so the bounds and the holes cannot describe different windows.
+#
 # Only meaningful on DECOUPLED arches: where text tracks the direct map (coupled)
 # the phys base is a projection of the virt base and the window is the wide honest
 # top, so a phys verdict is trivially-sound noise -> NA.
@@ -324,60 +444,34 @@ phys_verdict() {
   [ "$_dec" = false ] || { echo NA; return; }
   _pt=$(grep -am1 -aE '[0-9a-fA-F]+-[0-9a-fA-F]+ : Kernel code' "$_plog" \
         | sed -E 's/^[[:space:]]*([0-9a-fA-F]+)-.*/\1/')
-  _pmin=$(grep -am1 -oE '"phys_kaslr_text_min": *"0x[0-9a-fA-F]+"' "$_plog" | grep -oE '0x[0-9a-fA-F]+')
-  _pmax=$(grep -am1 -oE '"phys_kaslr_text_max": *"0x[0-9a-fA-F]+"' "$_plog" | grep -oE '0x[0-9a-fA-F]+')
-  _pt=$(norm "$_pt"); _plo=$(norm "$_pmin"); _phi=$(norm "$_pmax")
-  if [ -z "$_pt" ] || [ -z "$_plo" ] || [ -z "$_phi" ]; then echo NA; return; fi
-  if ! hexle "$_plo" "$_pt" || ! hexle "$_pt" "$_phi"; then echo N; return; fi
-  # Inside the headline window is not the same as inside the candidate SET. A
-  # C_EXCLUDE carves an interior hole: the counts drop but range_min/range_max
-  # do not move, so a truth sitting in a carved hole passes every bound test
-  # while having been ruled out. Test the holes too, or this whole class of
-  # over-narrowing is invisible here.
-  _holes=$(awk '
-    /"excluded": \[/          { inb = 1; next }
-    inb && /^[[:space:]]*\]/  { exit }
-    inb {
-      n = 0
-      while (match($0, /0x[0-9a-fA-F]+/)) {
-        v[++n] = substr($0, RSTART, RLENGTH)
-        $0 = substr($0, RSTART + RLENGTH)
-      }
-      if (n >= 2) print v[1], v[2]
-    }
-  ' "$_plog")
-  echo "$_holes" | while read -r _hlo _hhi; do
-    [ -n "$_hlo" ] || continue
-    if hexle "$(norm "$_hlo")" "$_pt" && hexle "$_pt" "$(norm "$_hhi")"; then
-      exit 9
-    fi
-  done || { echo X; return; }
-  # The report keeps at most KASLD_REPORT_MAX_EXCLUDED holes; past that the list
-  # is a sample and membership cannot be settled from it. Say so rather than
-  # reporting a pass the evidence does not support.
-  _etot=$(grep -am1 -oE '"excluded_total": *[0-9]+' "$_plog" | grep -oE '[0-9]+')
-  _elist=$(echo "$_holes" | grep -c '[0-9]')
-  if [ -n "$_etot" ] && [ "$_etot" -gt "$_elist" ]; then echo 'Y*'; return; fi
-  echo Y
+  [ -n "$_pt" ] || { echo NA; return; }
+  window_containment "$_plog" inferred_physical "$_pt"
 }
 
 # region_verdict <log>: gates the RANDOMIZE_MEMORY region bases (direct map,
 # vmalloc, vmemmap) and, where the init can establish it, the module region
 # base. Each truth the init reads from /proc/kcore (the
-# "region_truth <sym> = 0x..." lines) must lie inside its resolved window
-# (the "virt_<region>_base" {min,max} in -j). The module entry matters because a
-# region placed by arithmetic on a reported width is pinned exactly, so an error
-# in that arithmetic is a wrong C_EQUALS in the guaranteed window rather than a
-# window merely too wide, and no unit test comparing the rule against its own
-# expression can see it. Prints:
+# "region_truth <sym> = 0x..." lines) must be inside its resolved window -- and
+# inside that window's candidate set, since a region base is carved like any
+# other: arm64_page_offset_from_va_bits excludes on the direct map. The module
+# entry matters because a region placed by arithmetic on a reported width is
+# pinned exactly, so an error in that arithmetic is a wrong C_EQUALS in the
+# guaranteed window rather than a window merely too wide, and no unit test
+# comparing the rule against its own expression can see it. Prints:
 #   Y        every captured region truth was compared and is inside its window
+#   Y*:<sym> as Y, but <sym>'s carved list was truncated: membership unsettled
 #   NA       no region truth captured (arch without RANDOMIZE_MEMORY, or no kcore)
 #   N:<sym>  <sym>'s truth is outside its resolved window (a soundness violation)
+#   X:<sym>  <sym>'s truth was carved out of its window (also a violation)
 #   ?:<sym>  <sym>'s truth was captured but no window was found to gate it
 #            against — nothing was verified, which is not a pass
+#
+# One unsettled region does not mask another's violation, so a truncated list is
+# carried and reported only once every region has been compared.
 region_verdict() {
   _rlog=$1
   _rany=0
+  _runsettled=
   for _rp in page_offset_base:virt_page_offset_base \
              vmalloc_base:virt_vmalloc_base \
              vmemmap_base:virt_vmemmap_base \
@@ -385,24 +479,18 @@ region_verdict() {
     _rsym=${_rp%%:*}; _rkey=${_rp#*:}
     _rt=$(grep -am1 -oE "region_truth $_rsym = 0x[0-9a-fA-F]+" "$_rlog" | grep -oE '0x[0-9a-fA-F]+')
     [ -n "$_rt" ] || continue
-    # The window object is read from the key onwards up to its closing brace, so
-    # a pretty-printed one spanning several lines is found as readily as one
-    # written inline. A line-at-a-time match sees only the inline form, and
-    # silently gates nothing where the emitter wraps.
-    _rwin=$(awk -v k="\"$_rkey\":" '
-      { p = index($0, k)
-        if (!f && p) { f = 1; $0 = substr($0, p) }
-        if (f) { buf = buf " " $0; if (index(buf, "}")) { print buf; exit } } }' "$_rlog")
-    _rmin=$(printf '%s' "$_rwin" | grep -oE '0x[0-9a-fA-F]+' | sed -n 1p)
-    _rmax=$(printf '%s' "$_rwin" | grep -oE '0x[0-9a-fA-F]+' | sed -n 2p)
-    _rtn=$(norm "$_rt"); _rlo=$(norm "$_rmin"); _rhi=$(norm "$_rmax")
-    # A truth with no window gates nothing. Report it rather than counting it as
-    # a pass: a silent skip here is indistinguishable from a comparison that
-    # succeeded, which is how a gate comes to hold open.
-    { [ -n "$_rlo" ] && [ -n "$_rhi" ]; } || { echo "?:$_rsym"; return; }
-    _rany=1
-    if hexle "$_rlo" "$_rtn" && hexle "$_rtn" "$_rhi"; then :; else echo "N:$_rsym"; return; fi
+    case $(window_containment "$_rlog" "$_rkey" "$_rt") in
+      # A truth with no window gates nothing. Report it rather than counting it
+      # as a pass: a silent skip here is indistinguishable from a comparison
+      # that succeeded, which is how a gate comes to hold open.
+      NA)   echo "?:$_rsym"; return ;;
+      N)    echo "N:$_rsym"; return ;;
+      X)    echo "X:$_rsym"; return ;;
+      'Y*') _rany=1; [ -n "$_runsettled" ] || _runsettled=$_rsym ;;
+      Y)    _rany=1 ;;
+    esac
   done
+  [ -n "$_runsettled" ] && { echo "Y*:$_runsettled"; return; }
   [ "$_rany" = 1 ] && echo Y || echo NA
 }
 
@@ -559,11 +647,19 @@ append_text_truth() {
 #  16 coupled    yes where text tracks the direct map, so phys is not independent
 #  17 pverdict   18 rverdict    as phys_verdict / region_verdict report them
 #  19 vslots     the virtual window as a raw candidate count, which vbits is
-#                ceil(log2) of. A record written before this field carries 18
-#                fields and reads with a dash here.
+#                ceil(log2) of
+#  20 vverdict   as window_containment reports the virtual image base: the axis
+#                vbits is measured on, gated for set membership rather than for
+#                bounds alone
 # ---------------------------------------------------------------------------
-REC_FIELDS=19
-REC_FIELDS_PREV=18
+REC_FIELDS=20
+# The oldest shape this harness wrote and still reads. Every field is appended at
+# the END, so a record from an earlier shape carries each field it does have in
+# the right place and the ones it lacks read as `-`. A width outside the range is
+# a truncated or foreign line rather than an old record, and is refused. Stated
+# once, as a range, so adding a field does not mean finding every reader that
+# spelled "one shape back" as arithmetic of its own.
+REC_FIELDS_MIN=18
 
 # The index this boot takes in the ledger: one past the highest already recorded
 # for this (sweep, cell, profile).
@@ -619,13 +715,21 @@ extract_record() { # log cell profile sweep repeat
 
   _er_pv=$(phys_verdict "$_er_log")
   _er_rv=$(region_verdict "$_er_log")
+  # The virtual axis, gated the same way as the other two. Its holes are in the
+  # document and were never read: the engine carves Q_VIRT_IMAGE_BASE wherever a
+  # text observation leaves more than one candidate base, which is not an
+  # architecture's special case, and a base carved out of the set sits between
+  # the bounds. Stored rather than recomputed because the row rendered from the
+  # ledger has no log to read, and the two must be one judgement.
+  _er_vv=$(window_containment "$_er_log" inferred "$_er_truth")
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$_er_sweep" "$_er_rep" "$_er_cell" "$_er_prof" "$_er_done" \
     "${_er_rel:--}" "$_er_src" "$_er_kaslr" "${_er_truth:--}" \
     "${_er_vlo:--}" "${_er_vhi:--}" "${_er_vbits:--}" \
     "${_er_plo:--}" "${_er_phi:--}" "${_er_pbits:--}" \
-    "$_er_coupled" "${_er_pv:--}" "${_er_rv:--}" "${_er_vslots:--}"
+    "$_er_coupled" "${_er_pv:--}" "${_er_rv:--}" "${_er_vslots:--}" \
+    "${_er_vv:--}"
 }
 
 # Split one record into R_* for the readers below. A field count that does not
@@ -639,21 +743,19 @@ rec_read() { # record
   R_sweep='' R_repeat='' R_cell='' R_profile='' R_done='' R_release=''
   R_source='' R_kaslr='' R_truth='' R_vlo='' R_vhi='' R_vbits='' R_plo=''
   R_phi='' R_pbits='' R_coupled='' R_pverdict='' R_rverdict='' R_vslots=''
-  # A record from before vslots existed is read rather than refused: it is one
-  # field short at the END, so every field it does carry still lands correctly.
-  # Any other width is still a truncated or foreign line.
-  case "$(printf '%s' "$1" | awk -F'\t' '{print NF}')" in
-    "$REC_FIELDS" | "$REC_FIELDS_PREV") ;;
-    *) return 1 ;;
-  esac
+  R_vverdict=''
+  _rr_n=$(printf '%s' "$1" | awk -F'\t' '{print NF}')
+  { [ "$_rr_n" -ge "$REC_FIELDS_MIN" ] && [ "$_rr_n" -le "$REC_FIELDS" ]; } 2>/dev/null ||
+    return 1
   # shellcheck disable=SC2034  # the fields this shell does not name are read by
   # ledger_rows, in awk, by column position
   IFS="$(printf '\t')" read -r R_sweep R_repeat R_cell R_profile R_done \
     R_release R_source R_kaslr R_truth R_vlo R_vhi R_vbits R_plo R_phi \
-    R_pbits R_coupled R_pverdict R_rverdict R_vslots <<EOF
+    R_pbits R_coupled R_pverdict R_rverdict R_vslots R_vverdict <<EOF
 $1
 EOF
   : "${R_vslots:=-}"
+  : "${R_vverdict:=-}"
 }
 
 # The verdict for the record in R_*: one word, then a detail. Computed from the
@@ -674,6 +776,16 @@ record_verdict() {
     echo "FAIL  truth=$R_truth OUTSIDE [$R_vlo,$R_vhi] — soundness violation (phys=$R_pverdict)"
     return 1
   fi
+  # Inside the bounds, and the bounds are all a record carries -- so the set is
+  # read from the verdict the extractor took off the document, which is the only
+  # thing that saw the carved sub-ranges. A record from a shape that predates it
+  # reads `-`, and gates nothing here rather than passing for having been quiet.
+  case "$R_vverdict" in
+  X) echo "FAIL  truth=$R_truth EXCLUDED by a carved sub-range of [$R_vlo,$R_vhi] — soundness violation"
+     return 1 ;;
+  N) echo "FAIL  truth=$R_truth OUTSIDE the resolved virtual window — soundness violation"
+     return 1 ;;
+  esac
   case "$R_pverdict" in
   N) echo "FAIL  phys base OUTSIDE resolved window — soundness violation (virt truth=$R_truth ∈ [$R_vlo,$R_vhi])"
      return 1 ;;
@@ -683,11 +795,13 @@ record_verdict() {
   case "$R_rverdict" in
   N:*) echo "FAIL  region ${R_rverdict#N:} OUTSIDE resolved window — soundness violation (text/phys sound)"
        return 1 ;;
+  X:*) echo "FAIL  region ${R_rverdict#X:} EXCLUDED by a carved sub-range of its resolved window — soundness violation (text/phys sound)"
+       return 1 ;;
   \?:*) echo "FAIL  region ${R_rverdict#?:} truth captured but no resolved window to gate it against"
         return 1 ;;
   esac
   _rv_rec=N; [ "$_rv_lo" = "$_rv_hi" ] && _rv_rec=Y
-  echo "PASS  truth=$R_truth ∈ [$R_vlo,$R_vhi] recovered=$_rv_rec phys=$R_pverdict region=$R_rverdict"
+  echo "PASS  truth=$R_truth ∈ [$R_vlo,$R_vhi] recovered=$_rv_rec virt=$R_vverdict phys=$R_pverdict region=$R_rverdict"
   return 0
 }
 
@@ -762,11 +876,13 @@ gz_keep() { # src dest
 keep_live_log() { # log cell profile
   [ -f "$1" ] || return 0
   _kl_dir=$(dirname "$1")/logs
-  _kl_rec=$(awk -F'\t' -v c="$2" -v p="$3" -v want="$REC_FIELDS" '
-    # A record one field short predates vslots. Every field read here is well
-    # inside that, so it is accepted rather than passed over -- passing over it
-    # would file a log that IS its record boot under an unrecorded- name.
-    (NF == want || NF == want - 1) && $3 == c && $4 == p { k = $1 "-" p "-" $2; t = $9 }
+  _kl_rec=$(awk -F'\t' -v c="$2" -v p="$3" -v want="$REC_FIELDS" \
+                -v least="$REC_FIELDS_MIN" '
+    # A record from an earlier shape is short at the END. Every field read here
+    # is well inside the oldest shape, so it is accepted rather than passed over
+    # -- passing over it would file a log that IS its record boot under an
+    # unrecorded- name.
+    (NF >= least && NF <= want) && $3 == c && $4 == p { k = $1 "-" p "-" $2; t = $9 }
     END { if (k != "") print k, t }' "$LEDGER" 2>/dev/null)
   _kl_key=${_kl_rec% *}
   _kl_truth=${_kl_rec#* }
@@ -1618,11 +1734,12 @@ EOF
 #
 # Sweep ids are UTC stamps, so lexical order is chronological.
 ledger_current() {
-  awk -F'\t' -v want="$REC_FIELDS" '
-    # A record one field short predates vslots. Pad it here rather than at every
-    # reader, so everything downstream sees one width.
-    NF == want || NF == want - 1 {
-      line = (NF == want - 1) ? $0 FS "-" : $0
+  awk -F'\t' -v want="$REC_FIELDS" -v least="$REC_FIELDS_MIN" '
+    # A record from an earlier shape is short at the END. Pad it here rather
+    # than at every reader, so everything downstream sees one width.
+    NF >= least && NF <= want {
+      line = $0
+      for (pad = NF; pad < want; pad++) line = line FS "-"
       key = $3 FS $4
       if ($1 > latest[key]) latest[key] = $1
       row[NR] = line; k[NR] = key; sw[NR] = $1

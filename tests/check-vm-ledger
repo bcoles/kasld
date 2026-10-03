@@ -42,6 +42,10 @@ fail=0
 
 # --- 1. the three statements of the record shape agree ---------------------
 declared=$(sed -n 's/^REC_FIELDS=\([0-9]*\)$/\1/p' "$RUN")
+# The oldest shape still read. The functions extracted below gate on the range,
+# so a subshell without it would fail under `set -u` rather than on the property
+# being tested.
+least=$(sed -n 's/^REC_FIELDS_MIN=\([0-9]*\)$/\1/p' "$RUN")
 # the writer: %s specifiers in the printf that emits a record -- the only one
 # whose format is tab-separated, which is what distinguishes it from the printfs
 # extract_record uses to read single values
@@ -51,8 +55,8 @@ written=$(sed -n '/^extract_record()/,/^}/p' "$RUN" |
 readback=$(sed -n '/^rec_read()/,/^}/p' "$RUN" |
   sed -n '/read -r R_/,/^$/p' | tr ' ' '\n' | grep -c '^R_')
 
-if [ -z "$declared" ]; then
-  guard_fail "no REC_FIELDS in tests/vm/run — the record shape is no longer declared"
+if [ -z "$declared" ] || [ -z "$least" ]; then
+  guard_fail "no REC_FIELDS / REC_FIELDS_MIN in tests/vm/run — the record shape is no longer declared"
   fail=1
 elif [ "$written" != "$declared" ] || [ "$readback" != "$declared" ]; then
   guard_fail "record shape disagrees: REC_FIELDS=$declared, written=$written, read=$readback"
@@ -96,6 +100,54 @@ elif ! grep -q 'SOUNDNESS GATE FAILED' "$TMP/err"; then
   guard_fail "a violation was refused, but not as a soundness failure"
   fail=1
 fi
+
+# --- 2b. a truth ruled OUT OF THE SET withholds the table too -------------
+# Inside the bounds is not inside the candidate set: a C_EXCLUDE carves an
+# interior hole and the bounds do not move, so a base ruled out sits between them
+# and passes a bounds test. The extractor settles set membership off the document
+# and records the word; these records assert the renderer refuses on it, for the
+# virtual axis, the physical one and a region. Without them the gate reads
+# identically whether or not it looks at the holes at all, so nothing would
+# notice a hole test that had stopped testing holes.
+#
+# Built by appending to the sound record, so they carry the current shape.
+pad=$(awk -v d="$declared" 'BEGIN{for(i=19;i<=d;i++)printf "\t-"}')
+set_field() { # record index value
+  printf '%s' "$1" | awk -F'\t' -v i="$2" -v v="$3" 'BEGIN{OFS="\t"} {$i=v; print}'
+}
+carved_virt=$(set_field "$sound$pad" "$declared" X)
+carved_phys=$(set_field "$sound$pad" 17 X)
+carved_region=$(set_field "$sound$pad" 18 X:page_offset_base)
+
+for case_name in virt phys region; do
+  case $case_name in
+  virt)   rec=$carved_virt;   want='EXCLUDED by a carved sub-range' ;;
+  phys)   rec=$carved_phys;   want='phys base EXCLUDED' ;;
+  region) rec=$carved_region; want='EXCLUDED by a carved sub-range of its resolved window' ;;
+  esac
+  if render "$rec" >/dev/null 2>&1; then
+    guard_fail "a $case_name truth carved OUT of its own window was published"
+    printf 'A base the engine ruled out is not inside the window that ruled it\n' >&2
+    printf 'out. Over-narrowing is the failure the gate exists to catch.\n' >&2
+    fail=1
+  elif ! grep -q 'SOUNDNESS GATE FAILED' "$TMP/err"; then
+    guard_fail "a carved-out $case_name truth was refused, but not as a soundness failure"
+    fail=1
+  elif ! grep -q "$want" "$TMP/err"; then
+    guard_fail "a carved-out $case_name truth was refused without saying it was carved out"
+    sed 's/^/    /' "$TMP/err" >&2
+    fail=1
+  fi
+done
+
+# A record from a shape that predates the virtual verdict must not pass for
+# having been quiet about it: it reads `-`, which gates nothing, and the bounds
+# test still applies.
+out=$(render "$sound") || { guard_fail "a record predating the virtual verdict did not render"; fail=1; }
+case $out in
+*"| ppc32 |"*"12 bits"*) ;;
+*) guard_fail "an older-shape record stopped rendering"; fail=1 ;;
+esac
 
 # --- 3. boots that disagree render as a span ------------------------------
 out=$(render "$sound
@@ -145,8 +197,9 @@ sed -n '/^gz_keep()/,/^}/p; /^archive_log()/,/^}/p; /^keep_live_log()/,/^}/p' \
 printf '%s\n' "$sound" >"$TMP/kl-ledger"
 keep_fn() { # function args... -> its status, with the ledger bound as run binds it
   (REC_FIELDS=$declared
+    REC_FIELDS_MIN=$least
     LEDGER=$TMP/kl-ledger
-    export REC_FIELDS LEDGER
+    export REC_FIELDS REC_FIELDS_MIN LEDGER
     # shellcheck disable=SC1091  # extracted from tests/vm/run above
     . "$TMP/keep.sh"
     "$@")
@@ -183,8 +236,9 @@ kl "$d" default
 # another that has never heard of the pair: still kept, so not kept again.
 : >"$TMP/kl-empty-ledger"
 if ! (REC_FIELDS=$declared
+  REC_FIELDS_MIN=$least
   LEDGER=$TMP/kl-empty-ledger
-  export REC_FIELDS LEDGER
+  export REC_FIELDS REC_FIELDS_MIN LEDGER
   # shellcheck disable=SC1091  # extracted from tests/vm/run above
   . "$TMP/keep.sh"
   keep_live_log "$d/boot-default.log" "$CELL" default) ||
