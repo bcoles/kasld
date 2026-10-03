@@ -50,6 +50,16 @@
 //     /proc/meminfo-sourced and container-fakeable, so it never reaches the
 //     guaranteed window.
 //
+//     The cap comes down by the image size. The top is one past the last RAM
+//     byte and the whole image has to sit below it, so no base within
+//     kernel_size of the top is reachable; dram_ceiling and
+//     phys_ceiling_from_memtotal already subtract the same way from a RAM top.
+//     Left at the top itself the bound admits a base the loader cannot
+//     produce, and over a window that is a power-of-two multiple of the grid
+//     that one slot is a whole bit: 1 GiB of RAM over the 16 KiB THREAD_SIZE
+//     grid counts 2^16 + 1 candidates and reports 17 bits where 16 is the
+//     truth.
+//
 // s390 only; inert elsewhere and when no config was readable.
 // ---
 // <bcoles@gmail.com>
@@ -173,8 +183,14 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
   }
   if (ram_top == 0)
     return 0;
+  /* Floored accessor: where no size was observed this still subtracts
+   * KASLD_MIN_IMAGE_SIZE, which every kernel image exceeds, so the bound holds
+   * at a vantage with no readable /boot. */
+  unsigned long min_image = evidence_image_size_min_or_floor(ev);
+  if (min_image >= ram_top)
+    return 0;
   c->op = C_UPPER_BOUND;
-  c->value = ram_top;
+  c->value = ram_top - min_image;
   return 1;
 #else
   (void)ev;

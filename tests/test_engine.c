@@ -4244,12 +4244,32 @@ static void test_s390_image_base_from_config_identity_ceiling(void) {
   const rule_fn rules[] = {rule_s390_image_base_from_config};
   engine_run(&e, rules, 1);
   const unsigned long ram_top = (0x80000ul + 1ul) * 0x1000ul;
-  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == ram_top);
-  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo <= 0x200ul && 0x200ul <= ram_top);
+  /* The top is one past the last RAM byte and the image has to fit below it,
+   * so the cap comes down by the image size; with none observed that is the
+   * conservative floor. Admitting the top itself is what costs a whole bit on
+   * a window that is a power-of-two multiple of the grid. */
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == ram_top - KASLD_MIN_IMAGE_SIZE);
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi < ram_top);
+  /* The low identity-mapped _text still survives the tighter cap. */
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo <= 0x200ul &&
+           0x200ul <= e.est[Q_VIRT_IMAGE_BASE].hi);
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   TH_CHECK(ram_top <
            top.hi); /* genuinely tighter than the architectural vmax */
+
+  /* An observed image size is larger than the assumed floor, so it subtracts
+   * more; the cap tracks the evidence rather than the constant. */
+  struct engine e2;
+  engine_init(&e2);
+  evidence_add(&e2.ev, &sel);
+  evidence_add(&e2.ev, &pfn);
+  evidence_add(&e2.ev, &ps);
+  struct observation sz = mk_scalar(SF_IMAGE_SIZE_MIN, 0xa00000ul, CONF_PARSED);
+  evidence_add(&e2.ev, &sz);
+  engine_run(&e2, rules, 1);
+  TH_CHECK(e2.est[Q_VIRT_IMAGE_BASE].hi == ram_top - 0xa00000ul);
+  TH_CHECK(0x200ul <= e2.est[Q_VIRT_IMAGE_BASE].hi);
 #endif
 }
 
@@ -4513,7 +4533,9 @@ static void test_s390_va_bits_from_config_kaslr_off_proves_3level(void) {
 /* s390_text_ceiling_from_va_bits turns a resolved paging level into the text
  * ceiling. The 3-level case is the one that matters: _REGION2_SIZE is 2048
  * times smaller than the architectural top, so the bound is worth 11 bits
- * there and nothing at 4-level. */
+ * there and nothing at 4-level. The limit itself is never a base -- the boot
+ * code puts the image below it -- so the bound comes down by the image size,
+ * which is the difference between 2^28 + 1 candidates and 2^28. */
 static void test_s390_text_ceiling_from_va_bits(void) {
 #if defined(__s390__) || defined(__zarch__)
   struct estimate top;
@@ -4533,8 +4555,11 @@ static void test_s390_text_ceiling_from_va_bits(void) {
   if (align < (unsigned long)KASLR_VIRT_ALIGN)
     align = (unsigned long)KASLR_VIRT_ALIGN;
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi ==
-           kasld_floor_virt_text_bound(S390_ASCE_LIMIT_3LEVEL, align));
+           kasld_floor_virt_text_bound(
+               S390_ASCE_LIMIT_3LEVEL - KASLD_MIN_IMAGE_SIZE, align));
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi < top.hi);
+  /* The limit is not itself a base. Admitting it is what cost the bit. */
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi < S390_ASCE_LIMIT_3LEVEL);
   /* Sound: a real 3-level base sits below the limit and survives. */
   TH_CHECK(0x3fffe4b4000ul <= e.est[Q_VIRT_IMAGE_BASE].hi);
 
@@ -4553,6 +4578,22 @@ static void test_s390_text_ceiling_from_va_bits(void) {
   engine_init(&e3);
   engine_run(&e3, rules, 3);
   TH_CHECK(e3.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
+
+  /* An observed image size is larger than the assumed floor, so it subtracts
+   * more; the bound tracks the evidence rather than the constant. A real base
+   * still survives, which is what stops the subtraction from over-narrowing. */
+  struct engine e4;
+  engine_init(&e4);
+  struct observation v4 = mk_scalar(SF_VIRT_ADDR_BITS, 42ul, CONF_PARSED);
+  evidence_add(&e4.ev, &v4);
+  struct observation sz =
+      mk_scalar(SF_IMAGE_SIZE_MIN, 0x1b4c000ul, CONF_PARSED); /* 27.3 MiB */
+  evidence_add(&e4.ev, &sz);
+  engine_run(&e4, rules, 3);
+  TH_CHECK(e4.est[Q_VIRT_IMAGE_BASE].hi <
+           kasld_floor_virt_text_bound(
+               S390_ASCE_LIMIT_3LEVEL - KASLD_MIN_IMAGE_SIZE, align));
+  TH_CHECK(0x3fffe4b4000ul <= e4.est[Q_VIRT_IMAGE_BASE].hi);
 #endif
 }
 
