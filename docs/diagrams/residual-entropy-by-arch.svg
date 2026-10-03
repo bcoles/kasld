@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="707" viewBox="0 0 960 707" font-family="sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="687" viewBox="0 0 960 687" font-family="sans-serif">
   <style>
       .title { font-size: 22px; font-weight: 700; fill: #263238; }
       .sub   { font-size: 13px; fill: #546e7a; }
@@ -8,7 +8,7 @@
       .axis  { font-size: 11px; fill: #607d8b; }
       .guide { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }
   </style>
-  <rect width="960" height="707" fill="#ffffff"/>
+  <rect width="960" height="687" fill="#ffffff"/>
   <text class="title" x="24" y="34">How much kernel address entropy survives, by architecture</text>
   <text class="sub" x="24" y="57">One kernel line, each architecture built from its own upstream defconfig, one machine per architecture, read by an</text>
   <text class="sub" x="24" y="75">unprivileged user at the default vantage. Each bar is what remains of the kernel image base, in bits, given only what</text>
@@ -28,43 +28,49 @@
   <line class="guide" x1="850.0" y1="150" x2="850.0" y2="464"/>
   <text class="axis" x="850.0" y="142" text-anchor="middle">30</text>
   <text class="axis" x="178" y="142" text-anchor="end">bits remaining</text>
+  <text class="axis" x="190.0" y="482" text-anchor="middle">1</text>
+  <text class="axis" x="410.0" y="482" text-anchor="middle">1Ki</text>
+  <text class="axis" x="630.0" y="482" text-anchor="middle">1Mi</text>
+  <text class="axis" x="850.0" y="482" text-anchor="middle">1Gi</text>
+  <text class="axis" x="178" y="482" text-anchor="end">slots remaining</text>
   <text class="arch" x="168" y="172" text-anchor="end">aarch64</text>
-  <rect x="190" y="159" width="682.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <text class="val" x="882.0" y="172">31</text>
+  <rect x="190" y="159" width="672.9" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <text class="val" x="872.9" y="172">30.6</text>
   <text class="arch" x="168" y="203" text-anchor="end">s390x</text>
-  <rect x="190" y="190" width="638.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <text class="val" x="838.0" y="203">29</text>
+  <rect x="190" y="190" width="616.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <text class="val" x="816.0" y="203">28.0</text>
   <text class="arch" x="168" y="234" text-anchor="end">loongarch64</text>
-  <rect x="190" y="221" width="352.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <text class="val" x="552.0" y="234">16</text>
+  <rect x="190" y="221" width="339.6" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <text class="val" x="539.6" y="234">15.4</text>
   <text class="arch" x="168" y="265" text-anchor="end">mips64el</text>
-  <rect x="190" y="252" width="308.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <text class="val" x="508.0" y="265">14</text>
+  <rect x="190" y="252" width="307.5" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <text class="val" x="507.5" y="265">14.0</text>
   <text class="arch" x="168" y="296" text-anchor="end">ppc32</text>
-  <rect x="190" y="283" width="264.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <rect x="454.0" y="283" width="44.0" height="18" fill="#2e7d32" opacity="0.30"/>
-  <text class="val" x="508.0" y="296">12&#8211;14</text>
+  <rect x="190" y="283" width="253.5" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <rect x="443.5" y="283" width="54.5" height="18" fill="#2e7d32" opacity="0.30"/>
+  <text class="val" x="508.0" y="296">11.5&#8211;14.0</text>
   <text class="arch" x="168" y="327" text-anchor="end">mips</text>
-  <rect x="190" y="314" width="286.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <text class="val" x="486.0" y="327">13</text>
+  <rect x="190" y="314" width="285.1" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <text class="val" x="485.1" y="327">13.0</text>
   <text class="arch" x="168" y="358" text-anchor="end">mipsel</text>
-  <rect x="190" y="345" width="286.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <text class="val" x="486.0" y="358">13</text>
+  <rect x="190" y="345" width="285.1" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <text class="val" x="485.1" y="358">13.0</text>
   <text class="arch" x="168" y="389" text-anchor="end">riscv64</text>
-  <rect x="190" y="376" width="198.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <text class="val" x="398.0" y="389">9</text>
+  <rect x="190" y="376" width="197.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <text class="val" x="397.0" y="389">9.0</text>
   <text class="arch" x="168" y="420" text-anchor="end">x86_64</text>
-  <rect x="190" y="407" width="198.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <text class="val" x="398.0" y="420">9</text>
+  <rect x="190" y="407" width="196.5" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <text class="val" x="396.5" y="420">8.9</text>
   <text class="arch" x="168" y="451" text-anchor="end">i686</text>
-  <rect x="190" y="438" width="176.0" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
-  <text class="val" x="376.0" y="451">8</text>
-  <line x1="24" y1="496" x2="936" y2="496" stroke="#eceff1" stroke-width="1"/>
-  <text class="note" x="24" y="542">Each bar is one machine on its own upstream defconfig, not an average: the bars compare architectures, not a fleet.</text>
-  <text class="note" x="24" y="559">mips64el, ppc32, mips, mipsel, riscv64 randomise only because this build asks for RELOCATABLE and RANDOMIZE_BASE, which their defaults leave off.</text>
-  <text class="note" x="24" y="576">armeb, armv7, powerpc64, ppc64le, riscv32 cannot randomise the kernel image at all on this line, and are not plotted.</text>
-  <text class="note" x="24" y="602">A long bar is not evidence of a strong kernel: it records that nothing reachable at this vantage narrowed the starting window,</text>
-  <text class="note" x="24" y="619">so it bounds what sound inference proves rather than what an attacker holding another route could reach.</text>
-  <text class="note" x="24" y="645">Where the boots of one machine disagreed, the bar reaches the highest figure any of them left and the disputed part is faint:</text>
-  <text class="note" x="24" y="662">solid is what survived every boot, faint what survived some.</text>
+  <rect x="190" y="438" width="174.5" height="18" fill="#2e7d32" opacity="0.85" rx="2"/>
+  <text class="val" x="374.5" y="451">7.9</text>
+  <line x1="24" y1="502" x2="936" y2="502" stroke="#eceff1" stroke-width="1"/>
+  <text class="note" x="24" y="522">Each bar is one machine on its own upstream defconfig, not an average: the bars compare architectures, not a fleet.</text>
+  <text class="note" x="24" y="539">mips64el, ppc32, mips, mipsel, riscv64 randomise only because this build asks for RELOCATABLE and RANDOMIZE_BASE, which their defaults leave off.</text>
+  <text class="note" x="24" y="556">armeb, armv7, powerpc64, ppc64le, riscv32 cannot randomise the kernel image at all on this line, and are not plotted.</text>
+  <text class="note" x="24" y="582">A long bar is not evidence of a strong kernel: it records that nothing reachable at this vantage narrowed the starting window,</text>
+  <text class="note" x="24" y="599">so it bounds what sound inference proves rather than what an attacker holding another route could reach.</text>
+  <text class="note" x="24" y="625">A figure here is the count its boots left, in bits and unrounded; the matrix states the same window rounded up to a whole bit.</text>
+  <text class="note" x="24" y="651">Where the boots of one machine disagreed, the bar reaches the highest figure any of them left:</text>
+  <text class="note" x="24" y="668">solid is what survived every boot, faint what survived some.</text>
 </svg>

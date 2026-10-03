@@ -17,8 +17,8 @@ not (it just means less was recovered). There are four ways to verify this, from
 boot-free structural check up to live-kernel soundness. All are runnable from a
 clean checkout.
 
-These overlap in breadth — several run KASLD across many architectures — but each
-answers a different question, so they are complementary, not redundant:
+They overlap in breadth — several run KASLD across many architectures — but each
+answers a different question:
 
 | check | runs against | answers | cost |
 |-------|--------------|---------|------|
@@ -26,24 +26,6 @@ answers a different question, so they are complementary, not redundant:
 | [`tests/validate-fixtures`](#3-offline-over-a-captured-corpus) | the shipped truth-bearing captures, offline | *does the inferred range contain the real base across many captured kernels, without a VM?* | seconds |
 | [`extra/validate-bundle`](#1-on-the-local-kernel) | one captured bundle, offline | *does the inferred range contain that system's truth?* | seconds |
 | [`tests/vm/run`](#2-live-across-architectures) | a live kernel booted under qemu | *does the inferred range contain a live kernel's truth, across arches and privilege levels?* | minutes |
-
-The key distinction is **structural vs. soundness**. `tests/replay` is structural
-— it confirms the binary runs cleanly over many captured kernels but does not
-compare against a truth. Soundness is checked directly: `tests/validate-fixtures`
-does it offline over the captured kernels that carry ground truth — a real kallsyms
-`_text`/`_stext` or an iomem "Kernel code" line — and `tests/vm/run` does it on a
-freshly booted live kernel whose real base it knows directly. Many committed
-captures keep that truth even though they are shared publicly: the anonymization
-that prepares a fixture for sharing (`extra/collect --anonymize`, plus
-`extra/anonymize-fdt` for device-tree boards) redacts host-identifying text —
-hostname, CPU model, UUIDs, MACs, sensitive `cmdline` values — from
-`cpuinfo`/`cmdline`/`version`/`dmesg`, but never touches `/proc/kallsyms` or the
-iomem kernel line, so the base survives. A capture's symbol table is reduced to
-the landmarks a fixture reads by `extra/trim-kallsyms`, which validates the
-capture before and after and keeps the reduction only when the soundness result
-is identical — a component that resolves a symbol by name reads a truncated
-table as an absence rather than an omission. The offline checks are cheap and
-continuous; the VM check is slower and run periodically.
 
 ## Table of Contents
 
@@ -142,16 +124,10 @@ builds, `1` on Alpine). The other profiles move away from that booted baseline:
   have `CONFIG_BPF_SYSCALL` the forced lock did not take, so those boot with
   unprivileged `bpf()` already permitted and `default` measures the same vantage
   `bpf-open` does.
-  The row is shown on **every** cell, like the other sysctl profiles, including
-  where it reads the same as `default` — that is a result, not an absence, and
-  it is the one this profile most often reports. Where the syscall exists, a row
-  matching `default` says unprivileged `bpf()` was permitted and still leaked
-  nothing; where it does not, the row says there was never a syscall to permit.
-  A missing row would leave a reader unable to tell either case from a cell
-  nobody ran. On a mainline cell that does have `bpf()`, the verifier-log
-  components would still report `unavailable`: their offset table is keyed by
-  `uname` and built from a corpus of published distro kernels, which a locally
-  built `7.0.0` is not in.
+  On a mainline cell that does have `bpf()`, the verifier-log components would
+  still report `unavailable`: their offset table is keyed by `uname` and built
+  from a corpus of published distro kernels, which a locally built `7.0.0` is
+  not in.
 - `hardened` — `kptr_restrict=2`, `dmesg_restrict=1`, `perf_event_paranoid=3`,
   `unprivileged_bpf_disabled=2`: the realistic attacker floor, where only
   file-derived facts survive.
@@ -228,11 +204,6 @@ Reading the result cells in the tables below:
   randomized), so there is no separate value to score.
 - `n/a` — the quantity does not exist on that architecture at all.
 
-Soundness itself is not a per-cell column: **every published cell is sound on
-every gated axis, and a cell whose window excludes the truth is withheld, never
-shown.** The tables report *how much* was recovered; that the window contains the
-truth is the invariant behind the whole page.
-
 ### Results matrix: image base
 
 This is the core soundness result — the virtual kernel-text base and, on
@@ -241,7 +212,7 @@ base lies inside the **guaranteed** window on *both* axes, and a cell whose
 window excludes the truth is withheld, never published. Every boot appends a
 record to the harness's ledger and the snapshot is rendered from those records:
 `REPEATS=<n> tests/vm/run all <scenario>` for each scenario, then
-`tests/vm/run table`. The figures below come from three boots of every cell.
+`tests/vm/run table`.
 
 The guaranteed window is resolved purely from signals at or above the sound floor
 and **never depends on a timing or microarchitectural side channel** — that is
@@ -254,16 +225,13 @@ table varies every axis, the chart holds all but one still: a single kernel
 line, each architecture on its own upstream defconfig, every figure read at the
 default vantage. What is left differing between the bars is the architecture:
 
-![How much kernel address entropy survives, by architecture - one horizontal bar per architecture giving the sound residual in the kernel image base on a single kernel line, each architecture built from its own upstream defconfig and read by an unprivileged user at the default vantage: aarch64 31 bits, s390x 29, loongarch64 16, mips64el 14, ppc32 12 to 14, mips and mipsel 13, riscv64 and x86_64 9, i686 8. Five further architectures - armeb, armv7, powerpc64, ppc64le and riscv32 - do not randomise the kernel image in this configuration and are listed beneath the bars rather than plotted, there being nothing to measure. Each bar covers twenty-two boots of its machine; where the boots of one disagreed the bar reaches the highest figure any of them left and the disputed part is drawn faintly](diagrams/residual-entropy-by-arch.svg)
+![How much kernel address entropy survives, by architecture - one horizontal bar per architecture giving the sound residual in the kernel image base on a single kernel line, each architecture built from its own upstream defconfig and read by an unprivileged user at the default vantage: aarch64 30.6 bits, s390x 28.0, loongarch64 15.4, mips64el 14.0, ppc32 11.5 to 14.0, mips and mipsel 13.0, riscv64 9.0, x86_64 8.9, i686 7.9. Five further architectures - armeb, armv7, powerpc64, ppc64le and riscv32 - do not randomise the kernel image in this configuration and are listed beneath the bars rather than plotted, there being nothing to measure. The axis is scaled in bits along the top and in the slot counts those bits stand for along the bottom, from 1 slot to 1Gi. Bars and figures are unrounded, and the matrix states the same windows rounded up to whole bits. Each bar covers the same boots as its matrix row; where the boots of one disagreed the bar reaches the highest figure any of them left, drawn solid for what survived every boot and faint for what survived some](diagrams/residual-entropy-by-arch.svg)
 
 Each bar is one machine, not an average. No figure in it is a total, a mean or
 a distribution across cells: the matrix is a convenience sample whose shape
 follows whatever was investigated most recently, so counting over it would
 measure that attention rather than the subject. One architecture, one kernel,
-one configuration. Each bar covers twenty-two boots of that machine: where they
-agreed it is one figure, and where they did not the bar reaches the highest
-figure any boot left with the disputed part of it drawn faintly — solid is what
-survived every boot, faint what survived some.
+one configuration.
 
 A defconfig is each architecture's own upstream default, which is what a stock
 build produces, not a single configuration imposed across all of them — and on
@@ -304,18 +272,17 @@ reach.
 
 One consequence is that the bars are reproducible for the wrong reason. A figure
 that is a prior is a constant, so it repeats exactly; a figure the evidence
-actually moves need not. Across fifteen boots of every cell and profile, 34 of
-the 452 pairs returned figures their boots did not agree on, spread over seven
-cells — three `ppc32`, two `loongarch64`, one `riscv64` and one `x86_64` — by
-between one and three bits. In each the lower bound and the prior hold still
-and only the ceiling moves, that ceiling being read off an observed address
-which the draw itself placed: land low and it cuts hard, land high and it
-barely cuts.
+actually moves need not. 25 of the 452 pairs returned figures their boots did
+not agree on, spread over eight cells — three `ppc32`, two `x86_64`, two `i686`
+and one `riscv64` — by between one and three bits. In each the lower bound and
+the prior hold still and only the ceiling moves, that ceiling being read off an
+observed address which the draw itself placed: land low and it cuts hard, land
+high and it barely cuts.
 
 What predicts it is not the architecture. `x86_64` is among them and is
 decoupled, while `mips`, `mipsel` and `mips64el` — which seed from
 `random_get_entropy()` rather than a device-tree value — do not vary at all.
-What the seven have in common is that the evidence narrowed their window: a
+What the eight have in common is that the evidence narrowed their window: a
 figure left at its starting window cannot move, and a figure the evidence set
 is a function of where the base landed.
 
@@ -330,8 +297,8 @@ in [Default text base and KASLR alignment](kaslr.md#default-text-base-and-kaslr-
 That chart counts the placements a kernel drew from, given a known
 configuration; this one measures the window KASLD can prove *without* knowing
 it. So a residual may legitimately exceed the architectural figure — in the
-chart above aarch64 reports 31 bits against an architectural 30, and
-loongarch64 16 against 12 — and the excess is uncertainty about the build, not
+chart above aarch64 reports 30.6 bits against an architectural 30, and
+loongarch64 15.4 against 12 — and the excess is uncertainty about the build, not
 entropy the kernel holds. The window has to span every layout and placement
 formula the architecture admits until evidence rules one out. On aarch64 the
 minimum offset differs between the pre-v5.4, v6.6 and v6.12 formulas. On
@@ -401,7 +368,7 @@ The summary names the two scenarios that carry the result: `default` is the
 ordinary unprivileged vantage, and `perf-open` is the one that moves the answer
 on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 `bpf-open`, `hardened`, and the x86 paging modes — restate their cell's
-`default` in all but 46 rows, and the fold beneath carries every one of them.
+`default` in all but 45 rows, and the fold beneath carries every one of them.
 
 | arch | release | source | KASLR | default (virt / phys) | perf-open (virt / phys) |
 |------|---------|--------|-------|-----------------------|-------------------------|
@@ -428,8 +395,8 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | i686 | 6.6.144 | mainline | on | 8 bits / coupled | exact / coupled |
 | i686 | 7.0.0 | mainline | on | 8 bits / coupled | exact / coupled |
 | i686 | 7.0.0 (vmsplit2g) | mainline | on | 8 bits / coupled | exact / coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | on | 10–11 bits / coupled | exact / coupled |
-| loongarch64 | 6.6.144 | mainline | on | 10–11 bits / coupled | exact / coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | on | 9 bits / coupled | exact / coupled |
+| loongarch64 | 6.6.144 | mainline | on | 9 bits / coupled | exact / coupled |
 | loongarch64 | 7.0.0 | mainline | on | 16 bits / coupled | exact / coupled |
 | mips | 5.15.211 | mainline | on | 8 bits / coupled | exact / coupled |
 | mips | 6.6.144 | mainline | on | 8 bits / coupled | exact / coupled |
@@ -458,14 +425,14 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | riscv64 | 6.6.144 | mainline | on | exact / 9 bits | exact / 9 bits |
 | riscv64 | 7.0.0 | mainline | on | 9 bits / 9 bits | exact / 9 bits |
 | s390x | 6.12.81-0-lts | alpine | on | 39 bits / 10 bits | exact / 10 bits |
-| s390x | 5.15.211 | mainline | on | 17 bits / 10 bits | exact / 9 bits |
-| s390x | 6.6.144 | mainline | on | 17 bits / 10 bits | exact / 9 bits |
-| s390x | 7.0.0 | mainline | on | 29 bits / 10 bits | exact / 10 bits |
+| s390x | 5.15.211 | mainline | on | 16 bits / 10 bits | exact / 9 bits |
+| s390x | 6.6.144 | mainline | on | 16 bits / 10 bits | exact / 9 bits |
+| s390x | 7.0.0 | mainline | on | 28 bits / 10 bits | exact / 10 bits |
 | s390x | 7.0.0 (4level) | mainline | on | 39 bits / 10 bits | exact / 10 bits |
 | x86_64 | 6.12.81-0-virt | alpine | on | 2 bits / 6 bits | exact / 6 bits |
 | x86_64 | 4.19.325 | mainline | on | 4 bits / 9 bits | exact / 9 bits |
-| x86_64 | 5.15.211 | mainline | on | 5 bits / 9 bits | exact / 9 bits |
-| x86_64 | 6.6.144 | mainline | on | 4–5 bits / 9 bits | exact / 9 bits |
+| x86_64 | 5.15.211 | mainline | on | 4–5 bits / 9 bits | exact / 9 bits |
+| x86_64 | 6.6.144 | mainline | on | 5 bits / 9 bits | exact / 9 bits |
 | x86_64 | 7.0.0 | mainline | on | 9 bits / 9 bits | exact / 9 bits |
 
 <details>
@@ -477,9 +444,9 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | aarch64 | 6.12.81-0-virt | alpine | kptr-hidden | on | 32 bits | 14 bits |
 | aarch64 | 6.12.81-0-virt | alpine | perf-open | on | exact | 9 bits |
 | aarch64 | 6.12.81-0-virt | alpine | dmesg-open | on | 32 bits | 14 bits |
-| aarch64 | 6.12.81-0-virt | alpine | bpf-open | on | 15 bits | 14 bits |
+| aarch64 | 6.12.81-0-virt | alpine | bpf-open | on | 9 bits | 14 bits |
 | aarch64 | 6.12.81-0-virt | alpine | hardened | on | 32 bits | 14 bits |
-| aarch64 | 6.12.81-0-virt | alpine | tracefs-open | on | 32 bits | 14 bits |
+| aarch64 | 6.12.81-0-virt | alpine | tracefs-open | on | 9 bits | 14 bits |
 | aarch64 | 4.19.325 | mainline | default | on | 32 bits | 14 bits |
 | aarch64 | 4.19.325 | mainline | kptr-hidden | on | 32 bits | 14 bits |
 | aarch64 | 4.19.325 | mainline | perf-open | on | exact | 9 bits |
@@ -612,7 +579,7 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | i686 | 5.15.211 | mainline | dmesg-open | on | 8 bits | coupled |
 | i686 | 5.15.211 | mainline | bpf-open | on | 8 bits | coupled |
 | i686 | 5.15.211 | mainline | hardened | on | 8 bits | coupled |
-| i686 | 5.15.211 | mainline | tracefs-open | on | 4 bits | coupled |
+| i686 | 5.15.211 | mainline | tracefs-open | on | 3–4 bits | coupled |
 | i686 | 6.6.144 | mainline | default | on | 8 bits | coupled |
 | i686 | 6.6.144 | mainline | kptr-hidden | on | 8 bits | coupled |
 | i686 | 6.6.144 | mainline | perf-open | on | exact | coupled |
@@ -633,21 +600,21 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | i686 | 7.0.0 (vmsplit2g) | mainline | dmesg-open | on | 8 bits | coupled |
 | i686 | 7.0.0 (vmsplit2g) | mainline | bpf-open | on | 8 bits | coupled |
 | i686 | 7.0.0 (vmsplit2g) | mainline | hardened | on | 8 bits | coupled |
-| i686 | 7.0.0 (vmsplit2g) | mainline | tracefs-open | on | 4 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | default | on | 10–11 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | kptr-hidden | on | 10–11 bits | coupled |
+| i686 | 7.0.0 (vmsplit2g) | mainline | tracefs-open | on | 3–4 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | default | on | 9 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | kptr-hidden | on | 9 bits | coupled |
 | loongarch64 | 6.18.44-0-lts | alpine | perf-open | on | exact | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | dmesg-open | on | 10–11 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | bpf-open | on | 9–10 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | hardened | on | 10–11 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | tracefs-open | on | 10–11 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | default | on | 10–11 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | kptr-hidden | on | 10–11 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | dmesg-open | on | 9 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | bpf-open | on | 3 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | hardened | on | 9 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | tracefs-open | on | 9 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | default | on | 9 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | kptr-hidden | on | 9 bits | coupled |
 | loongarch64 | 6.6.144 | mainline | perf-open | on | exact | coupled |
-| loongarch64 | 6.6.144 | mainline | dmesg-open | on | 10–11 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | bpf-open | on | 10–11 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | hardened | on | 10–11 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | tracefs-open | on | 10–11 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | dmesg-open | on | 9 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | bpf-open | on | 9 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | hardened | on | 9 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | tracefs-open | on | 9 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | default | on | 16 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | kptr-hidden | on | 16 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | perf-open | on | exact | coupled |
@@ -740,16 +707,16 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | powerpc64 | 7.0.0 | mainline | hardened | off | — | — |
 | powerpc64 | 7.0.0 | mainline | tracefs-open | off | — | — |
 | ppc32 | 5.15.211 | mainline | default | on | 11–14 bits | coupled |
-| ppc32 | 5.15.211 | mainline | kptr-hidden | on | 12–14 bits | coupled |
+| ppc32 | 5.15.211 | mainline | kptr-hidden | on | 11–14 bits | coupled |
 | ppc32 | 5.15.211 | mainline | perf-open | on | exact | coupled |
-| ppc32 | 5.15.211 | mainline | dmesg-open | on | 13–14 bits | coupled |
-| ppc32 | 5.15.211 | mainline | bpf-open | on | 12–14 bits | coupled |
+| ppc32 | 5.15.211 | mainline | dmesg-open | on | 11–14 bits | coupled |
+| ppc32 | 5.15.211 | mainline | bpf-open | on | 11–14 bits | coupled |
 | ppc32 | 5.15.211 | mainline | hardened | on | 11–14 bits | coupled |
 | ppc32 | 5.15.211 | mainline | tracefs-open | on | 9–11 bits | coupled |
 | ppc32 | 6.6.144 | mainline | default | on | 11–14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | kptr-hidden | on | 11–14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | perf-open | on | exact | coupled |
-| ppc32 | 6.6.144 | mainline | dmesg-open | on | 13–14 bits | coupled |
+| ppc32 | 6.6.144 | mainline | dmesg-open | on | 12–14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | bpf-open | on | 12–14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | hardened | on | 11–14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | tracefs-open | on | 9–11 bits | coupled |
@@ -852,26 +819,26 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | s390x | 6.12.81-0-lts | alpine | bpf-open | on | 28 bits | 10 bits |
 | s390x | 6.12.81-0-lts | alpine | hardened | on | 39 bits | 10 bits |
 | s390x | 6.12.81-0-lts | alpine | tracefs-open | on | 28 bits | 10 bits |
-| s390x | 5.15.211 | mainline | default | on | 17 bits | 10 bits |
-| s390x | 5.15.211 | mainline | kptr-hidden | on | 17 bits | 10 bits |
+| s390x | 5.15.211 | mainline | default | on | 16 bits | 10 bits |
+| s390x | 5.15.211 | mainline | kptr-hidden | on | 16 bits | 10 bits |
 | s390x | 5.15.211 | mainline | perf-open | on | exact | 9 bits |
-| s390x | 5.15.211 | mainline | dmesg-open | on | 17 bits | 10 bits |
-| s390x | 5.15.211 | mainline | bpf-open | on | 17 bits | 10 bits |
-| s390x | 5.15.211 | mainline | hardened | on | 17 bits | 10 bits |
+| s390x | 5.15.211 | mainline | dmesg-open | on | 16 bits | 10 bits |
+| s390x | 5.15.211 | mainline | bpf-open | on | 16 bits | 10 bits |
+| s390x | 5.15.211 | mainline | hardened | on | 16 bits | 10 bits |
 | s390x | 5.15.211 | mainline | tracefs-open | on | 11 bits | 10 bits |
-| s390x | 6.6.144 | mainline | default | on | 17 bits | 10 bits |
-| s390x | 6.6.144 | mainline | kptr-hidden | on | 17 bits | 10 bits |
+| s390x | 6.6.144 | mainline | default | on | 16 bits | 10 bits |
+| s390x | 6.6.144 | mainline | kptr-hidden | on | 16 bits | 10 bits |
 | s390x | 6.6.144 | mainline | perf-open | on | exact | 9 bits |
-| s390x | 6.6.144 | mainline | dmesg-open | on | 17 bits | 10 bits |
-| s390x | 6.6.144 | mainline | bpf-open | on | 17 bits | 10 bits |
-| s390x | 6.6.144 | mainline | hardened | on | 17 bits | 10 bits |
+| s390x | 6.6.144 | mainline | dmesg-open | on | 16 bits | 10 bits |
+| s390x | 6.6.144 | mainline | bpf-open | on | 16 bits | 10 bits |
+| s390x | 6.6.144 | mainline | hardened | on | 16 bits | 10 bits |
 | s390x | 6.6.144 | mainline | tracefs-open | on | 7 bits | 10 bits |
-| s390x | 7.0.0 | mainline | default | on | 29 bits | 10 bits |
-| s390x | 7.0.0 | mainline | kptr-hidden | on | 29 bits | 10 bits |
+| s390x | 7.0.0 | mainline | default | on | 28 bits | 10 bits |
+| s390x | 7.0.0 | mainline | kptr-hidden | on | 28 bits | 10 bits |
 | s390x | 7.0.0 | mainline | perf-open | on | exact | 10 bits |
-| s390x | 7.0.0 | mainline | dmesg-open | on | 29 bits | 10 bits |
-| s390x | 7.0.0 | mainline | bpf-open | on | 29 bits | 10 bits |
-| s390x | 7.0.0 | mainline | hardened | on | 29 bits | 10 bits |
+| s390x | 7.0.0 | mainline | dmesg-open | on | 28 bits | 10 bits |
+| s390x | 7.0.0 | mainline | bpf-open | on | 28 bits | 10 bits |
+| s390x | 7.0.0 | mainline | hardened | on | 28 bits | 10 bits |
 | s390x | 7.0.0 | mainline | tracefs-open | on | 12 bits | 10 bits |
 | s390x | 7.0.0 (4level) | mainline | default | on | 39 bits | 10 bits |
 | s390x | 7.0.0 (4level) | mainline | kptr-hidden | on | 39 bits | 10 bits |
@@ -898,24 +865,24 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | x86_64 | 4.19.325 | mainline | tracefs-open | on | 4 bits | 9 bits |
 | x86_64 | 4.19.325 | mainline | no5lvl | on | 4 bits | 9 bits |
 | x86_64 | 4.19.325 | mainline | la57 | on | 4 bits | 9 bits |
-| x86_64 | 5.15.211 | mainline | default | on | 5 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | default | on | 4–5 bits | 9 bits |
 | x86_64 | 5.15.211 | mainline | kptr-hidden | on | 5 bits | 9 bits |
 | x86_64 | 5.15.211 | mainline | perf-open | on | exact | 9 bits |
 | x86_64 | 5.15.211 | mainline | dmesg-open | on | 5 bits | 9 bits |
 | x86_64 | 5.15.211 | mainline | bpf-open | on | 5 bits | 9 bits |
 | x86_64 | 5.15.211 | mainline | hardened | on | 5 bits | 9 bits |
-| x86_64 | 5.15.211 | mainline | tracefs-open | on | 4 bits | 9 bits |
-| x86_64 | 5.15.211 | mainline | no5lvl | on | 5 bits | 9 bits |
-| x86_64 | 5.15.211 | mainline | la57 | on | 5 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | default | on | 4–5 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | kptr-hidden | on | 4–5 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | tracefs-open | on | 3–4 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | no5lvl | on | 3–5 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | la57 | on | 4–5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | default | on | 5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | kptr-hidden | on | 5 bits | 9 bits |
 | x86_64 | 6.6.144 | mainline | perf-open | on | exact | 9 bits |
 | x86_64 | 6.6.144 | mainline | dmesg-open | on | 5 bits | 9 bits |
 | x86_64 | 6.6.144 | mainline | bpf-open | on | 5 bits | 9 bits |
 | x86_64 | 6.6.144 | mainline | hardened | on | 5 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | tracefs-open | on | 3–4 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | no5lvl | on | 5 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | la57 | on | 2–5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | tracefs-open | on | 4 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | no5lvl | on | 3–5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | la57 | on | 5 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | default | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | kptr-hidden | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | perf-open | on | exact | 9 bits |
@@ -926,16 +893,18 @@ on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
 | x86_64 | 7.0.0 | mainline | no5lvl | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | la57 | on | 9 bits | 9 bits |
 
-Each row is fifteen boots, or twenty-two for the cells the chart plots. Where they
-agreed it states one figure; where they did not it states the span they covered,
-because the residual is not a constant of the cell: a figure the evidence
-actually moves follows where the base landed — the mechanism, and which cells it
-touches, are set out under the chart above. A figure that is the starting window
-unmoved repeats exactly, because a prior is a constant.
+Cells were booted between 7 and 90 times. Every row comes from one sweep, 20261001T103923Z.
+
+Where the boots of a row agreed it states one figure; where they did not it
+states the span they covered, because the residual is not a constant of the
+cell: a figure the evidence actually moves follows where the base landed — the
+mechanism, and which cells it touches, are set out under the chart above. A
+figure that is the starting window unmoved repeats exactly, because a prior is a
+constant.
 
 Two consequences follow for reading the table. A difference between two profile
 rows of one cell that is no larger than that cell's own spread may be the draw
-rather than the profile, since the rows are separate boots; the seven cells with
+rather than the profile, since the rows are separate boots; the eight cells with
 a span are where that applies. A difference in the *narrowing* direction under a
 more restrictive profile is always the draw and never the profile, because
 withholding a source can only widen a guaranteed window. A profile effect shows
@@ -1022,18 +991,18 @@ kernel that leaves perf open to unprivileged callers has no image-base entropy t
 defend, whatever its architecture would otherwise supply.
 
 The mitigation reached for first is the one that does least. `kptr_restrict`
-leaves 40 of the 42 KASLR-on cells identical, and both that move are `ppc32`
-cells whose own boots disagree — one reporting a span a bit narrower than its
-unmitigated one and the other a bit wider. Movement in both directions at once
-is not a mitigation taking effect, and which two cells move changes with the
-sample: at ten boots it was a different pair. Nothing here is attributable to
+leaves 40 of the 42 KASLR-on cells identical, and both that move — one `ppc32`,
+one `x86_64` — are cells whose own boots disagree, one reporting a span a bit
+narrower than its unmitigated one and the other a bit wider. Movement in both
+directions at once is not a mitigation taking effect, and which two cells move
+changes with the sample. Nothing here is attributable to
 `kptr_restrict`. The routes that matter either parse the kernel's own boot log
 or recover an address from a pointer hash, and neither is what `%pK`
 suppresses. Hiding pointers does not hide the base.
 
 With perf shut, what remains is interface-specific and unevenly spread. Opening
-`tracefs` alone moves 22 of the 42 KASLR-on cells, across nine architectures, by
-anything from one bit to twenty-seven. Every one of the 22 falls below the floor
+`tracefs` alone moves 23 of the 42 KASLR-on cells, across nine architectures, by
+anything from one bit to twenty-seven. Every one of the 23 falls below the floor
 of its own cell's spread, so none of it is the draw. The widest and the
 narrowest, with a few in between:
 
@@ -1041,7 +1010,7 @@ narrowest, with a few in between:
 |------|---------|--------------|----------|
 | `s390x` 4-level paging | 39 bits | 12 bits | 27 bits |
 | `aarch64` with function tracing | 31 bits | 7 bits | 24 bits |
-| `s390x` | 29 bits | 12 bits | 17 bits |
+| `s390x` | 28 bits | 12 bits | 16 bits |
 | `mips64el` | 14 bits | 8 bits | 6 bits |
 | `riscv64` | 9 bits | 4 bits | 5 bits |
 | `x86_64` | 9 bits | 5 bits | 4 bits |
@@ -1129,10 +1098,9 @@ a best guess and is not gated to contain the truth, which is why the
 soundness claim rests on the guaranteed matrix above and never on this
 table.
 
-The BPF verifier-log table is the counter-example worth noting: it used to be
-listed here, and no longer is, because its match now resolves the guaranteed
-window itself under `bpf-open` — a signal that graduates out of `likely` is the
-outcome to want.
+The BPF verifier-log table is absent from this list because its match resolves
+the guaranteed window itself under `bpf-open`, leaving the likely window nothing
+to add.
 
 Absolute recovery is monotonic in how much the profile relaxes: `perf-open`
 recovers the most, `hardened` the least, with `default`/`kptr-hidden`/`dmesg-open`
@@ -1181,8 +1149,21 @@ make test-fixtures    # assert the resolved window contains the truth, per captu
 it runs `extra/validate-bundle` over every captured kernel that carries ground
 truth and asserts `truth ∈ [min, max]`, catching the "window excludes the real
 base" class of bug without a VM. Captures with no recorded truth report `N/A`
-rather than pass. The corpus spans 13 architecture variants across
-distributions (Alpine, Debian, Ubuntu/Raspbian) and kernels from 4.14 to 7.0:
+rather than pass.
+
+Many committed captures keep their ground truth even though they are shared
+publicly. The anonymization that prepares a fixture for sharing
+(`extra/collect --anonymize`, plus `extra/anonymize-fdt` for device-tree boards)
+redacts host-identifying text — hostname, CPU model, UUIDs, MACs, sensitive
+`cmdline` values — from `cpuinfo`/`cmdline`/`version`/`dmesg`, but never touches
+`/proc/kallsyms` or the iomem kernel line, so the base survives. The symbol table
+is then reduced to the landmarks a fixture reads by `extra/trim-kallsyms`, which
+validates the capture before and after and keeps the reduction only when the
+soundness result is identical — a component that resolves a symbol by name reads
+a truncated table as an absence rather than an omission.
+
+The corpus spans 13 architecture variants across distributions (Alpine, Debian,
+Ubuntu/Raspbian) and kernels from 4.14 to 7.0:
 
 | family | example kernels |
 |--------|-----------------|
@@ -1215,12 +1196,12 @@ boots straight into the analysis harness from a minimal initramfs, so no distro
 init, `sysctl.d` drop-ins, service sandboxing, or LSM policy (AppArmor / SELinux /
 seccomp) ever runs. Every profile therefore measures the kernel's *own* posture —
 its compile-time sysctl defaults plus the one explicit sysctl vector the harness
-sets — and nothing a userland would layer on top. That scope boundary cuts both ways. A real
-distribution install may enforce controls these cells do not, so an actual
-system can be *stricter* than even the `hardened` column. And userland is
-itself a leak surface the matrix does not exercise — setuid helpers,
-privileged daemons, and files a running service populates — so an actual
-system may expose *more* than the `default` column. The isolation is deliberate: it attributes each result to a
+sets — and nothing a userland would layer on top. That boundary cuts both ways.
+A real distribution install may enforce controls these cells do not, so an
+actual system can be *stricter* than even the `hardened` column; and userland is
+itself a leak surface the matrix does not exercise — setuid helpers, privileged
+daemons, and files a running service populates — so an actual system may expose
+*more* than the `default` column. The isolation attributes each result to a
 named kernel and a declared sysctl vector, keeping the cells reproducible and
 independent of any particular distribution's userspace.
 
