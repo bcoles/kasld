@@ -1238,7 +1238,8 @@ static void test_phys_ceiling_from_memtotal(void) {
 
   struct estimate top;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
-  unsigned long ceiling = (floor + mem - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
+  unsigned long ceiling =
+      (floor + mem - KASLD_MIN_IMAGE_SIZE) & ~(KASLR_PHYS_ALIGN - 1);
   if (ceiling > (unsigned long)KERNEL_PHYS_DEFAULT)
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi ==
              min_ul(ceiling, top.hi)); /* fired */
@@ -1321,7 +1322,8 @@ static void test_phys_ceiling_memtotal_fallback_likely_only(void) {
 
   struct estimate top;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
-  unsigned long ceiling = (floor + mem - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
+  unsigned long ceiling =
+      (floor + mem - KASLD_MIN_IMAGE_SIZE) & ~(KASLR_PHYS_ALIGN - 1);
   if (ceiling > (unsigned long)KERNEL_PHYS_DEFAULT && ceiling < top.hi) {
     /* LIKELY: the convention fallback caps the ceiling. */
     engine_run(&e, rules, 1);
@@ -1360,7 +1362,7 @@ static void test_phys_ceiling_dram_top_stays_guaranteed(void) {
   struct estimate top;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   unsigned long ceiling =
-      (top_dram - (4ul << 20) + 1ul) & ~(KASLR_PHYS_ALIGN - 1);
+      (top_dram - KASLD_MIN_IMAGE_SIZE + 1ul) & ~(KASLR_PHYS_ALIGN - 1);
   engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
   if (ceiling > (unsigned long)KERNEL_PHYS_DEFAULT && ceiling < top.hi)
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi ==
@@ -1382,7 +1384,7 @@ static void test_phys_ceiling_no_dram_floor(void) {
   engine_run(&e, rules, 1);
 
   unsigned long expect =
-      (PHYS_OFFSET + mem - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
+      (PHYS_OFFSET + mem - KASLD_MIN_IMAGE_SIZE) & ~(KASLR_PHYS_ALIGN - 1);
   if (expect > KERNEL_PHYS_DEFAULT)
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi == expect);
 #endif
@@ -1727,7 +1729,7 @@ static void test_virt_ceiling_from_memtotal(void) {
 #else
   /* phys_floor == PHYS_OFFSET so the offset term is zero. */
   unsigned long expect = kasld_floor_virt_text_bound(
-      po + mem - (4ul << 20) + IMAGE_BASE_OFFSET, KASLR_VIRT_ALIGN);
+      po + mem - KASLD_MIN_IMAGE_SIZE + IMAGE_BASE_OFFSET, KASLR_VIRT_ALIGN);
   if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #endif
@@ -1753,15 +1755,16 @@ static void test_phys_bits_ceiling(void) {
 
 #if !TEXT_TRACKS_DIRECTMAP
   unsigned long expect =
-      ((1UL << bits) - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
+      ((1UL << bits) - KASLD_MIN_IMAGE_SIZE) & ~(KASLR_PHYS_ALIGN - 1);
   struct estimate top;
   quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   if (expect > KERNEL_PHYS_DEFAULT && expect < top.hi)
     TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi == expect);
 #else
-  unsigned long expect = (PAGE_OFFSET + IMAGE_BASE_OFFSET +
-                          ((1UL << bits) - (4ul << 20)) - PHYS_OFFSET) &
-                         ~(KASLR_VIRT_ALIGN - 1);
+  unsigned long expect =
+      (PAGE_OFFSET + IMAGE_BASE_OFFSET +
+       ((1UL << bits) - KASLD_MIN_IMAGE_SIZE) - PHYS_OFFSET) &
+      ~(KASLR_VIRT_ALIGN - 1);
   struct estimate vtop;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
   if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
@@ -3009,7 +3012,8 @@ static void test_highmem_32bit_bound(void) {
 #else
   if (sizeof(unsigned long) == 4) {
     unsigned long expect = kasld_floor_virt_text_bound(
-        po + 0x20000000ul - (4ul << 20) + IMAGE_BASE_OFFSET, KASLR_VIRT_ALIGN);
+        po + 0x20000000ul - KASLD_MIN_IMAGE_SIZE + IMAGE_BASE_OFFSET,
+        KASLR_VIRT_ALIGN);
     if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
       TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
   } else {
@@ -3068,8 +3072,9 @@ static void test_ppc64_firmware_ceiling(void) {
 #endif
 }
 
-/* x86_32_vmsplit_ceiling: cross-quantity ceiling = virt_page_offset + 512 MiB.
- */
+/* x86_32_vmsplit_ceiling: cross-quantity ceiling = virt_page_offset + 512 MiB
+ * less the image, which has to fit below the limit. No size is staged here, so
+ * the conservative floor is what comes off. */
 
 static void test_x86_32_vmsplit_ceiling(void) {
   struct engine e;
@@ -3085,11 +3090,30 @@ static void test_x86_32_vmsplit_ceiling(void) {
   struct estimate vtop;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if defined(__i386__)
-  unsigned long expect = po + (512UL * 1024 * 1024);
+  unsigned long expect = po + (512UL * 1024 * 1024) - KASLD_MIN_IMAGE_SIZE;
   if (expect > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect < vtop.hi)
     TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #else
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert off i386 */
+#endif
+
+  /* An observed image size comes off the limit, because the image has to fit
+   * below it. Only an observed one does: the window is exactly
+   * KERNEL_IMAGE_SIZE and the placement runs to its end, so a base can sit
+   * nearer the top than the assumed floor and subtracting that floor would
+   * cut below a reachable base. */
+  engine_init(&e); /* reused: struct engine is MiB-sized and two blow the
+                      frame limit, and this body is not behind an #ifdef */
+  evidence_add(&e.ev, &pl);
+  struct observation sz = mk_scalar(SF_IMAGE_SIZE_MIN, 0xa00000ul, CONF_PARSED);
+  evidence_add(&e.ev, &sz);
+  engine_run(&e, rules, 2);
+#if defined(__i386__)
+  unsigned long expect2 = po + (512UL * 1024 * 1024) - 0xa00000ul;
+  if (expect2 > VIRT_TEXT_MIN_DEFAULT_CONFIG && expect2 < vtop.hi)
+    TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == expect2);
+#else
+  TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
 #endif
 }
 
@@ -7656,7 +7680,10 @@ static void test_mmio_floor_phys_ceiling(void) {
   const rule_fn rules[] = {rule_mmio_floor_phys_ceiling};
   engine_run(&e, rules, 1);
 #if !TEXT_TRACKS_DIRECTMAP
-  TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi == P + 0x90000000ul - 1);
+  /* The image has to fit below the MMIO window, so the ceiling sits an image
+   * beneath it; with no size staged that is the conservative floor. */
+  TH_CHECK(e.est[Q_PHYS_IMAGE_BASE].hi ==
+           P + 0x90000000ul - KASLD_MIN_IMAGE_SIZE);
 #else
   (void)e;
 #endif

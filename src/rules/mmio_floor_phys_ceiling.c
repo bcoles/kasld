@@ -3,10 +3,11 @@
 // Rule: physical text ceiling from the lowest MMIO window above DRAM.
 //
 // On a decoupled arch the kernel image must fit entirely in DRAM, so if the
-// kernel sits below the first MMIO window above DRAM its physical base cannot
-// reach that window:
+// kernel sits below the first MMIO window above DRAM the whole image lies
+// below that window, and its physical base sits at least an image beneath it:
 //
-//   phys_image_base <= (lowest MMIO lo strictly above the highest DRAM lo) - 1
+//   phys_image_base <= (lowest MMIO lo strictly above the highest DRAM lo)
+//                      - image_size
 //
 // SOUNDNESS: this holds only when the observed DRAM map is COMPLETE up to that
 // MMIO window. A partial map — e.g. a single NUMA/DRAM landmark plus an MMIO
@@ -82,8 +83,12 @@ int rule_mmio_floor_phys_ceiling(const struct evidence_set *ev,
   if (!have_mmio)
     return 0;
 
-  /* Underflow impossible: mmio_floor > dram_floor >= 0 => mmio_floor >= 1. */
-  unsigned long ceiling = mmio_floor - 1;
+  /* Floored accessor: with no size observed this still subtracts
+   * KASLD_MIN_IMAGE_SIZE, which sits well under any real image. */
+  unsigned long min_image = evidence_image_size_min_or_floor(ev);
+  if (min_image >= mmio_floor)
+    return 0;
+  unsigned long ceiling = mmio_floor - min_image;
   if (ceiling <= KERNEL_PHYS_DEFAULT)
     return 0;
 

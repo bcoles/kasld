@@ -280,17 +280,40 @@ static inline int evidence_lowest_dram_base(const struct evidence_set *ev,
   return 1;
 }
 
-/* Minimum plausible kernel image size in bytes: every real kernel image is at
- * least this large, so it is always a sound lower bound on the footprint — the
- * conservative floor used when nothing tighter was observed. */
-#define KASLD_MIN_IMAGE_SIZE (4UL * 1024 * 1024)
+/* Minimum plausible kernel image size in bytes: the conservative floor the
+ * ceiling rules subtract when nothing tighter was observed.
+ *
+ * The value is deliberately far below the smallest image anyone ships. The
+ * smallest build measured across many builds is Alpine `-virt` kernel whose
+ * `_end - _text` spans 9.9 MiB, and the captures under tests/fixtures bottom
+ * out at 17.8 MiB, so 1 MiB clears the observed minimum by roughly ten times.
+ * That margin is the point: a survey of shipped kernels cannot bound a custom
+ * minimal build, and the floor has to hold for configurations nobody
+ * distributes.
+ *
+ * Too LARGE is the dangerous direction, not too small. A ceiling rule
+ * subtracts this from a window edge, so a floor above the true image cuts the
+ * bound below a base the kernel can reach. x86-32 is where that bites first
+ * and hardest: its window is exactly KERNEL_IMAGE_SIZE and the placement code
+ * runs to the end of it, leaving no headroom at all between the topmost base
+ * and the limit -- unlike the RAM-derived ceilings, which sit well above any
+ * image.
+ *
+ * Nothing is lost by keeping it small. On every window this floor reaches,
+ * the published bit count is identical at 1 MiB and at 4 MiB: the difference
+ * is 192 slots on a 16 KiB grid and one slot on a 2 MiB grid, which ceil(log2)
+ * cannot see. A larger floor buys no narrowing and only moves the bound closer
+ * to a reachable base. */
+#define KASLD_MIN_IMAGE_SIZE (1UL * 1024 * 1024)
 
 /* evidence_image_size_min(), floored at KASLD_MIN_IMAGE_SIZE. For ceiling rules
  * that subtract a kernel-size lower bound from a window edge: returns the
  * observed lower bound when present (tighter), the conservative floor
  * otherwise, so the rule fires soundly even with no size fact. Always
- * >= KASLD_MIN_IMAGE_SIZE. Rules that must distinguish observed-vs-assumed (for
- * confidence or to skip entirely) call evidence_image_size_min() instead. */
+ * >= KASLD_MIN_IMAGE_SIZE, whose comment explains why that floor is set well
+ * under the smallest image anyone ships rather than near it. Rules that must
+ * distinguish observed-vs-assumed (for confidence or to skip entirely) call
+ * evidence_image_size_min() instead. */
 static inline unsigned long
 evidence_image_size_min_or_floor(const struct evidence_set *ev) {
   unsigned long v = evidence_image_size_min(ev, NULL, NULL);

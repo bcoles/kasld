@@ -4,11 +4,15 @@
 //
 // On x86-32 KASLR places the
 // kernel within [LOAD_PHYSICAL_ADDR, KERNEL_IMAGE_SIZE=512 MiB) of physical
-// memory; coupled to virtual via va = pa + PAGE_OFFSET, the virtual text base
-// is bounded by PAGE_OFFSET + 512 MiB. The VMSPLIT (3G/2G/1G) determines
-// PAGE_OFFSET, which the engine resolves as Q_PAGE_OFFSET (pinned from the
-// CONFIG_PAGE_OFFSET landmark) — so this is a cross-quantity rule reading the
-// resolved virt_page_offset, deterministic and file-derived.
+// memory, and the whole image has to fit inside it: the placement code in
+// arch/x86/boot/compressed/kaslr.c sets mem_limit to KERNEL_IMAGE_SIZE on
+// 32-bit and rejects phys_addr + image_size > mem_limit. Coupled to virtual
+// via va = pa + PAGE_OFFSET, the virtual text base is bounded by
+// PAGE_OFFSET + 512 MiB less the image; the limit itself is never a base. The
+// VMSPLIT (3G/2G/1G) determines PAGE_OFFSET, which the engine resolves as
+// Q_PAGE_OFFSET (pinned from the CONFIG_PAGE_OFFSET landmark) — so this is a
+// cross-quantity rule reading the resolved virt_page_offset, deterministic and
+// file-derived.
 //
 // C_UPPER_BOUND on Q_VIRT_IMAGE_BASE; fires once virt_page_offset is pinned.
 // i386 only; inert elsewhere.
@@ -24,7 +28,6 @@
 int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
                                 const struct estimate *est,
                                 struct constraint *out, int out_max) {
-  (void)ev;
 #if defined(__i386__)
   if (out_max < 1)
     return 0;
@@ -33,7 +36,18 @@ int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
   if (!quantity_pinned(Q_PAGE_OFFSET, po, &virt_page_offset))
     return 0; /* virt_page_offset not yet pinned */
 
-  unsigned long ceiling = virt_page_offset + X86_32_KERNEL_IMAGE_SIZE;
+  /* This is the tightest window the floor is subtracted from anywhere: it is
+   * exactly KERNEL_IMAGE_SIZE and the placement runs to the end of it, so
+   * unlike the RAM-derived ceilings there is no slack between the topmost base
+   * and the limit. A floor above the true image would cut below a reachable
+   * base here before it did so anywhere else, which is why
+   * KASLD_MIN_IMAGE_SIZE is set an order of magnitude under the smallest
+   * image anyone ships rather than close to it. */
+  unsigned long min_image = evidence_image_size_min_or_floor(ev);
+  if (min_image >= X86_32_KERNEL_IMAGE_SIZE)
+    return 0;
+  unsigned long ceiling =
+      virt_page_offset + (X86_32_KERNEL_IMAGE_SIZE - min_image);
   if (ceiling <= VIRT_TEXT_MIN_DEFAULT_CONFIG)
     return 0;
 
@@ -48,6 +62,7 @@ int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
   snprintf(c->origin, ORIGIN_LEN, "x86_32_vmsplit_ceiling");
   return 1;
 #else
+  (void)ev;
   (void)est;
   (void)out;
   (void)out_max;
