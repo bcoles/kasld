@@ -558,8 +558,12 @@ append_text_truth() {
 #  13 plo 14 phi 15 pbits       the same on the physical axis
 #  16 coupled    yes where text tracks the direct map, so phys is not independent
 #  17 pverdict   18 rverdict    as phys_verdict / region_verdict report them
+#  19 vslots     the virtual window as a raw candidate count, which vbits is
+#                ceil(log2) of. A record written before this field carries 18
+#                fields and reads with a dash here.
 # ---------------------------------------------------------------------------
-REC_FIELDS=18
+REC_FIELDS=19
+REC_FIELDS_PREV=18
 
 # The index this boot takes in the ledger: one past the highest already recorded
 # for this (sweep, cell, profile).
@@ -605,6 +609,7 @@ extract_record() { # log cell profile sweep repeat
   _er_vlo=$(grep -am1 -oE '"virt_image_base_min": *"0x[0-9a-fA-F]+"' "$_er_log" | grep -oE '0x[0-9a-fA-F]+')
   _er_vhi=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$_er_log" | grep -oE '0x[0-9a-fA-F]+')
   _er_vbits=$(bits_of "$_er_log")
+  _er_vslots=$(slots_of "$_er_log")
   _er_plo=$(grep -am1 -oE '"phys_kaslr_text_min": *"0x[0-9a-fA-F]+"' "$_er_log" | grep -oE '0x[0-9a-fA-F]+')
   _er_phi=$(grep -am1 -oE '"phys_kaslr_text_max": *"0x[0-9a-fA-F]+"' "$_er_log" | grep -oE '0x[0-9a-fA-F]+')
   _er_pbits=$(phys_bits_of "$_er_log")
@@ -615,12 +620,12 @@ extract_record() { # log cell profile sweep repeat
   _er_pv=$(phys_verdict "$_er_log")
   _er_rv=$(region_verdict "$_er_log")
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$_er_sweep" "$_er_rep" "$_er_cell" "$_er_prof" "$_er_done" \
     "${_er_rel:--}" "$_er_src" "$_er_kaslr" "${_er_truth:--}" \
     "${_er_vlo:--}" "${_er_vhi:--}" "${_er_vbits:--}" \
     "${_er_plo:--}" "${_er_phi:--}" "${_er_pbits:--}" \
-    "$_er_coupled" "${_er_pv:--}" "${_er_rv:--}"
+    "$_er_coupled" "${_er_pv:--}" "${_er_rv:--}" "${_er_vslots:--}"
 }
 
 # Split one record into R_* for the readers below. A field count that does not
@@ -633,15 +638,22 @@ rec_read() { # record
   # a consumer appeared.
   R_sweep='' R_repeat='' R_cell='' R_profile='' R_done='' R_release=''
   R_source='' R_kaslr='' R_truth='' R_vlo='' R_vhi='' R_vbits='' R_plo=''
-  R_phi='' R_pbits='' R_coupled='' R_pverdict='' R_rverdict=''
-  [ "$(printf '%s' "$1" | awk -F'\t' '{print NF}')" = "$REC_FIELDS" ] || return 1
+  R_phi='' R_pbits='' R_coupled='' R_pverdict='' R_rverdict='' R_vslots=''
+  # A record from before vslots existed is read rather than refused: it is one
+  # field short at the END, so every field it does carry still lands correctly.
+  # Any other width is still a truncated or foreign line.
+  case "$(printf '%s' "$1" | awk -F'\t' '{print NF}')" in
+    "$REC_FIELDS" | "$REC_FIELDS_PREV") ;;
+    *) return 1 ;;
+  esac
   # shellcheck disable=SC2034  # the fields this shell does not name are read by
   # ledger_rows, in awk, by column position
   IFS="$(printf '\t')" read -r R_sweep R_repeat R_cell R_profile R_done \
     R_release R_source R_kaslr R_truth R_vlo R_vhi R_vbits R_plo R_phi \
-    R_pbits R_coupled R_pverdict R_rverdict <<EOF
+    R_pbits R_coupled R_pverdict R_rverdict R_vslots <<EOF
 $1
 EOF
+  : "${R_vslots:=-}"
 }
 
 # The verdict for the record in R_*: one word, then a detail. Computed from the
@@ -751,7 +763,10 @@ keep_live_log() { # log cell profile
   [ -f "$1" ] || return 0
   _kl_dir=$(dirname "$1")/logs
   _kl_rec=$(awk -F'\t' -v c="$2" -v p="$3" -v want="$REC_FIELDS" '
-    NF == want && $3 == c && $4 == p { k = $1 "-" p "-" $2; t = $9 }
+    # A record one field short predates vslots. Every field read here is well
+    # inside that, so it is accepted rather than passed over -- passing over it
+    # would file a log that IS its record boot under an unrecorded- name.
+    (NF == want || NF == want - 1) && $3 == c && $4 == p { k = $1 "-" p "-" $2; t = $9 }
     END { if (k != "") print k, t }' "$LEDGER" 2>/dev/null)
   _kl_key=${_kl_rec% *}
   _kl_truth=${_kl_rec#* }
@@ -1411,6 +1426,17 @@ bits_of() {
   printf '%s' "$_vbits"
 }
 
+# The same figure as a raw candidate count. Kept beside the bit count rather
+# than derived from it: vbits is ceil(log2) of this, so 2^vbits over-states it
+# by up to a factor of two, and a bar drawn to that length over-states with it.
+# There is no posture fallback as there is for the bits -- a run that could not
+# count has no count to report, and the reader records a dash.
+slots_of() { # log
+  awk '/"kaslr": *\{/{ink=1}
+       ink && /"(physical|inferred_physical|memory_kaslr)":/{ink=0}
+       ink && /"slots":/{gsub(/[^0-9]/,""); print; exit}' "$1"
+}
+
 # Physical-side KASLR residual entropy: the entropy_bits inside the phys sub-tree
 # ("physical" / "inferred_physical"), or empty when absent.
 phys_bits_of() {
@@ -1593,10 +1619,13 @@ EOF
 # Sweep ids are UTC stamps, so lexical order is chronological.
 ledger_current() {
   awk -F'\t' -v want="$REC_FIELDS" '
-    NF == want {
+    # A record one field short predates vslots. Pad it here rather than at every
+    # reader, so everything downstream sees one width.
+    NF == want || NF == want - 1 {
+      line = (NF == want - 1) ? $0 FS "-" : $0
       key = $3 FS $4
       if ($1 > latest[key]) latest[key] = $1
-      row[NR] = $0; k[NR] = key; sw[NR] = $1
+      row[NR] = line; k[NR] = key; sw[NR] = $1
     }
     END { for (i = 1; i <= NR; i++) if (i in row && sw[i] == latest[k[i]]) print row[i] }
   ' "$LEDGER"
@@ -1620,6 +1649,20 @@ ledger_rows() { # reads selected records on stdin
       if (lo != "-" && lo == hi) return 0
       if (bits == "-") return -1          # no figure at all
       return bits + 0
+    }
+    # The same figure unrounded. vbits is ceil(log2(vslots)), which over-states
+    # by up to a whole bit -- s390x counts 2^28+1 candidates and reports 29 --
+    # so a bar drawn to the integer is drawn too long. A pinned window is one
+    # candidate and so zero bits, matching eff().
+    function fbits(lo, hi, slots) {
+      if (lo != "-" && lo == hi) return 0
+      if (slots == "-" || slots + 0 <= 0) return -1
+      return log(slots + 0) / log(2)
+    }
+    function fnote(key, v) {
+      if (v < 0) { fnone[key] = 1; return }
+      if (!(key in flo_) || v < flo_[key]) flo_[key] = v
+      if (!(key in fhi_) || v > fhi_[key]) fhi_[key] = v
     }
     function note(key, v) {
       if (v < 0) { uncounted[key] = 1; return }
@@ -1646,6 +1689,7 @@ ledger_rows() { # reads selected records on stdin
       if ($17 != "NA") physreal[key] = 1
       note(key "\tV", eff($10, $11, $12))
       note(key "\tP", eff($13, $14, $15))
+      fnote(key, fbits($10, $11, $19))
     }
     END {
       for (i = 1; i <= nkeys; i++) {
@@ -1656,8 +1700,10 @@ ledger_rows() { # reads selected records on stdin
         else if (coupled[key])   p = "coupled"
         else if (!physreal[key]) p = "—"
         else                     p = residual(key "\tP")
-        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", f[1], f[2], release[key],
-          source[key], (off[key] ? "off" : "on"), v, p, boots[key]
+        if (off[key] || fnone[key] || !(key in flo_)) fr = "-"
+        else fr = sprintf("%.4f/%.4f", flo_[key], fhi_[key])
+        printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", f[1], f[2], release[key],
+          source[key], (off[key] ? "off" : "on"), v, p, boots[key], fr
       }
     }
   '
@@ -1752,7 +1798,16 @@ EOF
       vres=$(printf '%s' "$line" | cut -f6)
       pres=$(printf '%s' "$line" | cut -f7)
       [ -n "$variant" ] && rel="$rel ($variant)"
-      body="${body}| $arch_disp | $rel | $src | $scen | $kas | $vres | $pres |${nl}"
+      # TABLE_WITH_SLOTS appends the window as an unrounded bit count, which the
+      # chart draws bars from. It is off for the published table: that table
+      # states the rounded figure, and its columns are what check-matrix-summary
+      # reads.
+      if [ "${TABLE_WITH_SLOTS:-0}" = 1 ]; then
+        fres=$(printf '%s' "$line" | cut -f9)
+        body="${body}| $arch_disp | $rel | $src | $scen | $kas | $vres | $pres | $fres |${nl}"
+      else
+        body="${body}| $arch_disp | $rel | $src | $scen | $kas | $vres | $pres |${nl}"
+      fi
       rows=$((rows + 1))
     done
   done
@@ -1837,14 +1892,22 @@ cmd_chart() {
   # Kconfig default. build-kernel is the authority for what is applied; this
   # list says what the applying was needed for, and the two are kept in step.
   _chart_default_off=${CHART_DEFAULT_OFF-"mips mipsel mips64el ppc32 riscv64"}
-  cmd_table | awk -F'|' -v BASELINE="$_chart_baseline" -v DEFOFF="$_chart_default_off" '
+  TABLE_WITH_SLOTS=1 cmd_table | awk -F'|' -v BASELINE="$_chart_baseline" -v DEFOFF="$_chart_default_off" '
     BEGIN { L = 190; R = 872; AX = 168; TOP = 168; RH = 31; n = 0; noff = 0
             nd = split(DEFOFF, d, " "); for (i = 1; i <= nd; i++) defoff[d[i]] = 1 }
     # A residual cell as a pair of numbers: the lowest and the highest figure the
     # boots of that cell produced. "exact" is 0, "N bits" is N twice, and a span
     # "LO-HI bits" is both ends -- a cell whose boots disagreed, which is drawn as
-    # a bar to the high end with the disputed part of it set apart. -1 for anything
+    # a bar to the high end with the part above its low end set apart. -1 for anything
     # else, which is not plotted.
+    # The unrounded pair cmd_table carries under TABLE_WITH_SLOTS, as "lo/hi".
+    # A dash means the run could not count, and the integer is all there is.
+    function frac_end(s, which,   parts) {
+      gsub(/^ +| +$/, "", s)
+      if (s !~ /^[0-9.]+\/[0-9.]+$/) return -1
+      split(s, parts, "/")
+      return parts[which] + 0
+    }
     function bits_lo(s) { return bits_end(s, 1) }
     function bits_hi(s) { return bits_end(s, 2) }
     function bits_end(s, which,   parts) {
@@ -1860,6 +1923,10 @@ cmd_chart() {
     NF > 6 {
       a = $2; rel = $3; src = $4; scen = $5; k = $6
       v = bits_hi($7); vlo = bits_lo($7)
+      fv = frac_end($9, 2); fvlo = frac_end($9, 1)
+      # Where there is no count, the bar falls back to the rounded figure: too
+      # long by under a bit, which is what it has always been.
+      if (fv < 0) { fv = v; fvlo = vlo }
       gsub(/^ +| +$/, "", a); gsub(/^ +| +$/, "", rel); gsub(/^ +| +$/, "", src)
       gsub(/^ +| +$/, "", scen); gsub(/^ +| +$/, "", k)
       # cmd_table prints the speculative-narrowing table after the matrix, and its
@@ -1876,7 +1943,7 @@ cmd_chart() {
       # architecture where a release somehow appears twice.
       if (rel ~ /\(/ || a in seen) next
       seen[a] = 1
-      if (k == "on" && v >= 0) { arch[n] = a; val[n] = v; low[n] = vlo; n++ }
+      if (k == "on" && v >= 0) { arch[n] = a; val[n] = v; low[n] = vlo; fval[n] = fv; flow[n] = fvlo; n++ }
       else { off[noff] = a; noff++ }
     }
     END {
@@ -1893,6 +1960,8 @@ cmd_chart() {
           if (val[j] > val[i] || (val[j] == val[i] && arch[j] < arch[i])) {
             t = val[i]; val[i] = val[j]; val[j] = t
             t = low[i]; low[i] = low[j]; low[j] = t
+            t = fval[i]; fval[i] = fval[j]; fval[j] = t
+            t = flow[i]; flow[i] = flow[j]; flow[j] = t
             s = arch[i]; arch[i] = arch[j]; arch[j] = s
           }
       for (i = 0; i < noff; i++)
@@ -1900,12 +1969,16 @@ cmd_chart() {
           if (off[j] < off[i]) { s = off[i]; off[i] = off[j]; off[j] = s }
       MAXB = 5
       for (i = 0; i < n; i++) if (val[i] > MAXB) MAXB = val[i]
-      bandY = TOP + RH * n + 34
-      ny = bandY + (noff ? 30 : 4)
+      # bandY anchors the rule under the plot; the slots axis sits above it and
+      # the footer below. The gap once held a band naming the architectures
+      # that cannot randomise, which the footer now carries as a line of text,
+      # so the space it reserved is no longer spanned by anything.
+      bandY = TOP + RH * n + 40
+      ny = bandY + 4
       # A bar whose boots disagreed is the only reason to explain the faint part,
       # so the line saying what it means is drawn only when one is.
       anyspan = 0
-      for (i = 0; i < n; i++) if (val[i] != low[i]) anyspan = 1
+      for (i = 0; i < n; i++) if (fval[i] != flow[i]) anyspan = 1
       a2_present = 0
       for (i = 0; i < n; i++) if (arch[i] in defoff) a2_present = 1
       # The canvas follows the footer rather than a fixed figure: the footer
@@ -1938,23 +2011,42 @@ cmd_chart() {
         printf "  <text class=\"axis\" x=\"%.1f\" y=\"%d\" text-anchor=\"middle\">%d</text>\n", X(t), TOP-26, t
       }
       printf "  <text class=\"axis\" x=\"%d\" y=\"%d\" text-anchor=\"end\">bits remaining</text>\n", L-12, TOP-26
+      # The same ticks read as positions: a tick at t bits is exactly 2^t slots,
+      # so this scale is a relabelling of the axis rather than a second figure
+      # off the ledger. The BARS still carry the ilog2 rounding -- see the note.
+      # Every 10 bits, not every 5: a binary decade lands on a round magnitude
+      # (1, 1Ki, 1Mi, 1Gi), where the 5-bit ticks between them would read 32,
+      # 32Ki, 32Mi and carry no intuition. The GRIDLINES stay at 5, which is
+      # what a bar end is read against; this axis is for magnitude alone. A
+      # short chart falls back to 5 so it does not end up with two labels.
+      slotstep = MAXB >= 25 ? 10 : 5
+      for (t = 0; t <= MAXB; t += slotstep)
+        printf "  <text class=\"axis\" x=\"%.1f\" y=\"%d\" text-anchor=\"middle\">%s</text>\n", X(t), TOP+RH*n+4, slots_label(t)
+      printf "  <text class=\"axis\" x=\"%d\" y=\"%d\" text-anchor=\"end\">slots remaining</text>\n", L-12, TOP+RH*n+4
       for (i = 0; i < n; i++) {
         y = TOP + RH * i
         printf "  <text class=\"arch\" x=\"%d\" y=\"%d\" text-anchor=\"end\">%s</text>\n", AX, y+4, arch[i]
-        w = X(val[i]) - L; if (w < 2) w = 2
+        # Drawn to the UNROUNDED count, labelled with the rounded one. vbits is
+        # ceil(log2(slots)), so a bar drawn to it runs up to a whole bit long --
+        # s390x counts 2^28+1 candidates, which rounds to 29. The gap between
+        # where a bar stops and the figure beside it is that rounding.
+        w = X(fval[i]) - L; if (w < 2) w = 2
         # Where the boots of a cell disagreed, the bar reaches the highest figure
-        # any of them left and the disputed part of it -- between the lowest and
-        # the highest -- is drawn faintly. Solid is what survived every boot;
+        # any of them left and the part between the lowest and the highest is
+        # drawn faintly. Solid is what survived every boot;
         # faint is what survived some. A cell whose boots agreed has no faint part
         # and is the same bar it always was.
-        wlo = X(low[i]) - L; if (wlo < 2) wlo = 2
+        wlo = X(flow[i]) - L; if (wlo < 2) wlo = 2
         printf "  <rect x=\"%d\" y=\"%d\" width=\"%.1f\" height=\"18\" fill=\"#2e7d32\" opacity=\"0.85\" rx=\"2\"/>\n", L, y-9, wlo
-        if (val[i] != low[i])
+        # Disagreement is judged on the unrounded figures: two boots can differ
+        # and still round to one integer, and gating on the integer would drop
+        # the faint part that says they differed.
+        if (fval[i] != flow[i])
           printf "  <rect x=\"%.1f\" y=\"%d\" width=\"%.1f\" height=\"18\" fill=\"#2e7d32\" opacity=\"0.30\"/>\n", L + wlo, y-9, w - wlo
-        if (val[i] != low[i])
-          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d&#8211;%d</text>\n", L + w + 10, y+4, low[i], val[i]
+        if (fval[i] != flow[i])
+          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%.1f&#8211;%.1f</text>\n", L + w + 10, y+4, flow[i], fval[i]
         else
-          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%d</text>\n", L + w + 10, y+4, val[i]
+          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\">%.1f</text>\n", L + w + 10, y+4, fval[i]
       }
       printf "  <line x1=\"24\" y1=\"%d\" x2=\"936\" y2=\"%d\" stroke=\"#eceff1\" stroke-width=\"1\"/>\n", bandY-16, bandY-16
       offlist = ""
@@ -1983,14 +2075,24 @@ cmd_chart() {
       printf "  <text class=\"note\" x=\"24\" y=\"%d\">A long bar is not evidence of a strong kernel: it records that nothing reachable at this vantage narrowed the starting window,</text>\n", gy
       printf "  <text class=\"note\" x=\"24\" y=\"%d\">so it bounds what sound inference proves rather than what an attacker holding another route could reach.</text>\n", gy+17
       gy += 34
+      gy += 9
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">A figure here is the count its boots left, in bits and unrounded; the matrix states the same window rounded up to a whole bit.</text>\n", gy
+      gy += 17
       if (anyspan) {
         gy += 9
-        printf "  <text class=\"note\" x=\"24\" y=\"%d\">Where the boots of one machine disagreed, the bar reaches the highest figure any of them left and the disputed part is faint:</text>\n", gy
+        printf "  <text class=\"note\" x=\"24\" y=\"%d\">Where the boots of one machine disagreed, the bar reaches the highest figure any of them left:</text>\n", gy
         printf "  <text class=\"note\" x=\"24\" y=\"%d\">solid is what survived every boot, faint what survived some.</text>\n", gy+17
       }
       print "</svg>"
     }
     function X(b) { return L + (R - L) * b / MAXB }
+    # 2^b in reading units. v is a local (awk has no other way to say so).
+    function slots_label(b,   v) {
+      if (b < 10) return sprintf("%d", 2 ^ b)
+      if (b < 20) return sprintf("%dKi", 2 ^ (b - 10))
+      if (b < 30) return sprintf("%dMi", 2 ^ (b - 20))
+      return sprintf("%dGi", 2 ^ (b - 30))
+    }
   '
 }
 

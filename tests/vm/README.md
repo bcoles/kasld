@@ -93,7 +93,11 @@ generated this way.
 `tests/vm/run chart` renders one kernel line of those rows as an SVG bar chart,
 one bar per architecture, written to stdout — the committed copy is
 `docs/diagrams/residual-entropy-by-arch.svg`. It reads `cmd_table`'s output rather than
-the ledger, so the chart and the matrix cannot disagree.
+the ledger, so the chart and the matrix are drawn from the same rows. The two
+state a window differently: a bar carries the unrounded candidate count in bits
+and the matrix rounds the same window up to a whole bit, so a chart figure can
+read below its matrix cell. The axis is scaled in bits along the top and in the
+slot counts those bits stand for along the bottom.
 
 The chart plots a single kernel line at the default vantage, each architecture on
 its own upstream defconfig, so that the bars differ by architecture alone; the
