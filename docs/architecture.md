@@ -642,7 +642,7 @@ they have different implications for the inference engine:
 
 | State | Scalar fact(s) | Kernel position | Engine action |
 |---|---|---|---|
-| **Disabled** (user/build opt-out) | `SF_VIRT_KASLR_DISABLED` + `SF_PHYS_KASLR_DISABLED` | Compile-time default on each axis | `virt_kaslr_disabled_pin` pins `Q_VIRT_IMAGE_BASE` on arches that set `KASLR_DISABLED_PINS_VIRT_TEXT`; `phys_kaslr_disabled_pin` pins `Q_PHYS_IMAGE_BASE` on arches that set `KASLR_DISABLED_PINS_PHYS`; on x86_64 `directmap_kaslr_disabled_pin` also pins the direct-map bases |
+| **Disabled** (user/build opt-out) | `SF_VIRT_KASLR_DISABLED` + `SF_PHYS_KASLR_DISABLED` | Compile-time default on each axis, except where `SF_BOOT_HEADER_SYNTHESIZED` shows the physical placement was the loader's | `virt_kaslr_disabled_pin` pins `Q_VIRT_IMAGE_BASE` on arches that set `KASLR_DISABLED_PINS_VIRT_TEXT`; `phys_kaslr_disabled_pin` pins `Q_PHYS_IMAGE_BASE` on arches that set `KASLR_DISABLED_PINS_PHYS`; on x86_64 `directmap_kaslr_disabled_pin` also pins the direct-map bases. `SF_BOOT_HEADER_SYNTHESIZED` holds the physical pin below the sound floor, leaving the guaranteed physical window to the rest of the evidence |
 | **Direct map unrandomized** (x86_64 `CONFIG_KASAN`) | `SF_KASAN_ENABLED` | TEXT still randomized; `page_offset` / `vmalloc` / `vmemmap` at their L4/L5 defaults | `directmap_kaslr_disabled_pin` pins the three direct-map quantities — `kaslr_memory_enabled() = kaslr_enabled() && !CONFIG_KASAN`, so KASAN suppresses `RANDOMIZE_MEMORY` even when it is configured |
 | **Unsupported** (arch never had KASLR) | both `SF_*_KASLR_DISABLED` synthesized with origin `arch-no-kaslr` | Bootloader-determined | Inert for inference (these arches set neither pin flag); lights the renderer's "KASLR not supported" banner |
 | **Randomization failed** (boot stub tried, no entropy) | `SF_VIRT_KASLR_RANDOMIZATION_FAILED` + `SF_PHYS_KASLR_RANDOMIZATION_FAILED` | Firmware-/boot-stub-deterministic, NOT the link-time default | Does not pin. Drives the hardening-report entropy downgrade, `efi_loader_kernel_pick` lowest-survivor disambiguation, and the `s390_text_no_random` upper bound |
@@ -652,8 +652,10 @@ independent scalar facts because real kernels can disable one axis without the
 other. A handful of components detect a definitive opt-out and emit the pair —
 proc_cmdline (`nokaslr`), boot_config / proc_config (no `CONFIG_RANDOMIZE_BASE`),
 dmesg_kaslr_disabled, hibernation_nokaslr, riscv64_no_seed,
-loongarch_kexec_file_nokaslr, s390_kdump_nokaslr, and on x86 boot_params_facts —
-which differs in kind from the rest. Each of the others reads an expression of
+loongarch_kexec_file_nokaslr, s390_kdump_nokaslr, sysfs_kernel_notes_phys32_reloc
+(an image window of 512 MiB, which x86_64 uses only without
+`CONFIG_RANDOMIZE_BASE`), and on x86 boot_params_facts — which differs in kind
+from the rest. Each of the others reads an expression of
 intent: a command line, a config option, a log line. boot_params_facts reads
 `KASLR_FLAG` in `boot_params.hdr.loadflags`, which the boot stub clears on entry
 and sets only after randomizing, so it is the randomizer's own record of what it

@@ -11,7 +11,8 @@
 // pushes the floor back up via a constraint, at confidence reflecting how
 // well the value is known:
 //
-//   - SF_PHYSICAL_START present (parsed from /boot/config or /proc/config.gz):
+//   - SF_PHYSICAL_START present (parsed from /boot/config, /proc/config.gz or
+//     the PVH relocation note):
 //       C_LOWER_BOUND at the *learned* value, CONF_PARSED. Tight + correct.
 //   - SF_PHYSICAL_START absent: C_LOWER_BOUND at the compile-time default
 //       (VIRT_TEXT_MIN_DEFAULT_CONFIG), CONF_HEURISTIC. Same window as the

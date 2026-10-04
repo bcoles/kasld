@@ -112,5 +112,19 @@ int main(void) {
     kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
     kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
   }
+
+  /* Whether this header was synthesized rather than copied out of the image.
+   * It qualifies the KASLR-off scalars above rather than adding to them:
+   * neither path that synthesizes a header leaves the image at its compile-time
+   * physical address. The PVH entry runs no decompressor at all; the EFI stub
+   * relocates the image itself before running one, randomized or not. Emitted
+   * only for the positive case; an unreadable boot_params is not the opposite.
+   */
+  if (kasld_boot_params_hdr_synthesized() == 1) {
+    kasld_info(
+        "setup header is synthesized (no \"HdrS\"): the image's physical "
+        "address is the loader's");
+    kasld_emit_scalar(SF_BOOT_HEADER_SYNTHESIZED, 1, CONF_PARSED);
+  }
   return 0;
 }

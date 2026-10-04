@@ -2160,6 +2160,24 @@ enum kasld_scalar_fact {
                         /* unset option is the SF_*_KASLR_DISABLED signal,    */
                         /* and a config carrying neither token is no evidence */
                         /* either way (see kconfig_has_kaslr).                */
+  SF_BOOT_HEADER_SYNTHESIZED, /* 1 where boot_params was readable and      */
+  /* carries no "HdrS" magic, so its setup header was    */
+  /* built by whatever entered the kernel rather than    */
+  /* copied out of the image. Two paths do that: the     */
+  /* PVH entry point, where                              */
+  /* arch/x86/platform/pvh/enlighten.c zeroes the page   */
+  /* and fills a handful of fields, and the EFI stub.    */
+  /* Neither leaves the image at its compile-time        */
+  /* physical address: the PVH entry runs no             */
+  /* decompressor at all, and the stub relocates the     */
+  /* image itself before running one. So the address is  */
+  /* the loader's and a compile-time PHYSICAL base is    */
+  /* not entailed,                                       */
+  /* and phys_kaslr_disabled_pin keeps its pin below the */
+  /* sound floor. Says nothing about the VIRTUAL base,   */
+  /* which is the link address on both paths. Absence is */
+  /* not the opposite: a boot_params that could not be   */
+  /* read states nothing either way.                     */
   SF_VIRT_KASLR_RANDOMIZATION_FAILED, /* 1 if the boot stub attempted    */
   /* virtual KASLR but could not produce a random virt offset. Emitters: */
   /* arm64/riscv64 "lack of seed" and s390 "CPU has no PRNG" (current);  */
@@ -2197,6 +2215,14 @@ enum kasld_scalar_fact {
   SF_PHYSICAL_START,  /* CONFIG_PHYSICAL_START (kernel's LOAD_PHYSICAL_ADDR  */
                       /* / pref_address; x86). Used to raise the Q_*_TEXT   */
                       /* honest-top floors above their conservative default.*/
+                      /* An emitter may supply either the raw config value  */
+                      /* or LOAD_PHYSICAL_ADDR, which is that value rounded */
+                      /* UP to CONFIG_PHYSICAL_ALIGN. The kernel rounds an  */
+                      /* unaligned one up, so the rounded form is what the  */
+                      /* image honours and is the tighter of the two as a   */
+                      /* floor; consumers normalise with an ALIGN() that is */
+                      /* idempotent on it, so either spelling resolves the  */
+                      /* same.                                             */
   SF_KASAN_ENABLED,   /* 1 if CONFIG_KASAN=y. On x86_64 KASAN forces        */
                       /* kaslr_memory_enabled()=false (= kaslr_enabled() && */
                       /* !IS_ENABLED(CONFIG_KASAN)), so the direct map /    */
@@ -2284,6 +2310,7 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_KMSAN_ENABLED] = "kmsan_enabled",
     [SF_KASLR_RANDOMIZED] = "kaslr_randomized",
     [SF_KASLR_COMPILED_IN] = "kaslr_compiled_in",
+    [SF_BOOT_HEADER_SYNTHESIZED] = "boot_header_synthesized",
 };
 /* The [SF__COUNT] dimension keeps the table indexable for every SF_* (a missing
  * entry is a NULL hole, not out of bounds); it does NOT make the table

@@ -118,6 +118,10 @@ static void test_synthesized_header_states_nothing_build_time(void) {
   /* The same zeroes must not be read as an image size or a slot granularity. */
   TH_CHECK(strstr(cap, "image_size_min") == NULL);
   TH_CHECK(strstr(cap, "phys_kernel_align") == NULL);
+  /* Not specific to one entry path: the stub synthesizes a header too, and its
+   * placement is just as much the loader's. */
+  TH_CHECK(strstr(cap, "boot_header_synthesized conf=parsed value=0x1") !=
+           NULL);
 }
 
 /* The same synthesized header, with the image the fields really live in
@@ -150,6 +154,41 @@ static void test_synthesized_header_defers_to_the_image(void) {
   TH_CHECK(strstr(cap, "phys_kernel_align conf=parsed value=0x200000") != NULL);
 }
 
+/* A synthesized header whose KASLR flag is CLEAR, which is what a monitor that
+ * loads an uncompressed vmlinux and enters at the PVH entry point produces. No
+ * decompressor runs on that path, so the kernel builds its own boot_params:
+ * arch/x86/platform/pvh/enlighten.c zeroes the page and assigns only the
+ * protocol version, type_of_loader, the command-line pointer and the ramdisk
+ * fields. The magic is absent AND the flag is clear.
+ *
+ * The flag is the whole difference from the synthesized case above, and here it
+ * is an answer rather than an unwritten field: only the decompressor and the
+ * EFI stub ever set it, so a clear flag on a path where neither ran means the
+ * image was never randomized. The KASLR-off facts are therefore correct.
+ *
+ * The build-time fields must still go unread. An absent magic means they were
+ * never written, and taking them at face value would state a zero image size
+ * and a zero slot granularity -- both of which narrow, not widen. */
+static void test_synthesized_header_flag_clear_states_kaslr_off(void) {
+  memset(zp, 0, sizeof(zp));
+  put_le(zp + 0x206, 0x020c, 2); /* protocol 2.12, as the PVH path assigns */
+  zp[0x210] = 0xb0;              /* type_of_loader: PVH, not a boot loader */
+  /* loadflags at 0x211 stays clear: neither the decompressor nor the stub ran.
+   */
+  stage();
+  run_capture(bpfacts_main);
+
+  TH_CHECK(strstr(cap, "virt_kaslr_disabled conf=parsed value=0x1") != NULL);
+  TH_CHECK(strstr(cap, "phys_kaslr_disabled conf=parsed value=0x1") != NULL);
+  TH_CHECK(strstr(cap, "image_size_max") == NULL);
+  TH_CHECK(strstr(cap, "phys_kernel_align") == NULL);
+  /* The absent magic is itself a fact: no decompressor held the image at its
+   * compile-time physical address, so the phys pin must not treat one as
+   * entailed. */
+  TH_CHECK(strstr(cap, "boot_header_synthesized conf=parsed value=0x1") !=
+           NULL);
+}
+
 /* A header a boot loader really copied, from a kernel built without
  * CONFIG_RELOCATABLE. The inference is sound here and must survive: a kernel
  * that cannot be relocated cannot be randomized. */
@@ -162,6 +201,9 @@ static void test_copied_header_reports_non_relocatable(void) {
   TH_CHECK(strstr(cap, "virt_kaslr_disabled conf=parsed value=0x1") != NULL);
   TH_CHECK(strstr(cap, "phys_kaslr_disabled conf=parsed value=0x1") != NULL);
   TH_CHECK(strstr(cap, "phys_kernel_align conf=parsed value=0x200000") != NULL);
+  /* A header a loader copied out of the image: a decompressor ran, so the pin
+   * keeps its licence. */
+  TH_CHECK(strstr(cap, "boot_header_synthesized") == NULL);
 }
 
 /* A copied header from a relocatable kernel that the stub randomized: the
@@ -206,6 +248,7 @@ int main(void) {
   BEGIN_CATEGORY("setup-header validity");
   RUN(test_synthesized_header_states_nothing_build_time);
   RUN(test_synthesized_header_defers_to_the_image);
+  RUN(test_synthesized_header_flag_clear_states_kaslr_off);
   RUN(test_copied_header_reports_non_relocatable);
   RUN(test_copied_header_relocatable_is_silent);
   RUN(test_old_protocol_reads_no_later_field);

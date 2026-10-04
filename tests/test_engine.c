@@ -7584,6 +7584,79 @@ static void test_phys_kaslr_disabled_pin_learned_unaligned(void) {
 #endif
 }
 
+/* The same learned pin, with the setup header reported as synthesized. No
+ * decompressor ran on such a boot, and it is the decompressor that holds the
+ * image at LOAD_PHYSICAL_ADDR, so the value is a best guess rather than an
+ * entailment. The pin is kept -- it is still the right guess -- but drops below
+ * the sound floor to CONF_HEURISTIC, which is what keeps the GUARANTEED
+ * physical window at its honest top while the likely one stays precise. */
+static void test_phys_kaslr_disabled_pin_synthesized_header_is_a_guess(void) {
+#if KASLR_DISABLED_PINS_PHYS
+  struct engine e;
+  engine_init(&e);
+  struct estimate top_p;
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top_p);
+  unsigned long align = 0x200000ul;
+  unsigned long ps = 0x500000ul;
+  unsigned long aligned = 0x600000ul;
+  if (aligned < top_p.lo || aligned > top_p.hi)
+    return;
+  struct observation sig = mk_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
+  struct observation psf = mk_scalar(SF_PHYSICAL_START, ps, CONF_PARSED);
+  struct observation alf = mk_scalar(SF_PHYS_KERNEL_ALIGN, align, CONF_PARSED);
+  struct observation syn =
+      mk_scalar(SF_BOOT_HEADER_SYNTHESIZED, 1, CONF_PARSED);
+  evidence_add(&e.ev, &sig);
+  evidence_add(&e.ev, &psf);
+  evidence_add(&e.ev, &alf);
+  evidence_add(&e.ev, &syn);
+  const rule_fn rules[] = {rule_phys_kaslr_disabled_pin};
+  engine_run(&e, rules, 1);
+  int found = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q == Q_PHYS_IMAGE_BASE && c->op == C_EQUALS) {
+      found = 1;
+      TH_CHECK(c->value == aligned);       /* the guess is unchanged ... */
+      TH_CHECK(c->conf == CONF_HEURISTIC); /* ... its standing is not */
+    }
+  }
+  TH_CHECK(found);
+#else
+  (void)0;
+#endif
+}
+
+/* The signal alone, with no learned constants, is already a guess at the
+ * compile-time default, so a synthesized header cannot lower it further. The
+ * pin stays exactly where the un-gated case leaves it. */
+static void
+test_phys_kaslr_disabled_pin_synthesized_header_floor_is_stable(void) {
+#if KASLR_DISABLED_PINS_PHYS
+  struct engine e;
+  engine_init(&e);
+  struct estimate top_p;
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top_p);
+  unsigned long def = arch_default_phys_text_base();
+  if (def == 0 || def < top_p.lo || def > top_p.hi)
+    return;
+  struct observation sig = mk_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
+  struct observation syn =
+      mk_scalar(SF_BOOT_HEADER_SYNTHESIZED, 1, CONF_PARSED);
+  evidence_add(&e.ev, &sig);
+  evidence_add(&e.ev, &syn);
+  const rule_fn rules[] = {rule_phys_kaslr_disabled_pin};
+  engine_run(&e, rules, 1);
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q == Q_PHYS_IMAGE_BASE && c->op == C_EQUALS && c->value == def)
+      TH_CHECK(c->conf == CONF_HEURISTIC);
+  }
+#else
+  (void)0;
+#endif
+}
+
 /* A real phys-text leak (parsed) outranks the disabled pin (the assumed
  * default, now emitted at CONF_INFERRED) by confidence, so the engine resolves
  * Q_PHYS_IMAGE_BASE to the leak — deterministically, regardless of capture
@@ -10607,6 +10680,8 @@ int main(void) {
   RUN(test_directmap_kaslr_disabled_pin);
   RUN(test_phys_kaslr_disabled_pin);
   RUN(test_phys_kaslr_disabled_pin_learned_unaligned);
+  RUN(test_phys_kaslr_disabled_pin_synthesized_header_is_a_guess);
+  RUN(test_phys_kaslr_disabled_pin_synthesized_header_floor_is_stable);
   RUN(test_phys_kaslr_disabled_pin_defers_to_real_leak);
   RUN(test_phys_kaslr_disabled_pin_inert_on_decoupled);
 #if defined(__x86_64__)

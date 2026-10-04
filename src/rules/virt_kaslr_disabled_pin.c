@@ -18,7 +18,8 @@
 //
 // The pinned value depends on whether the base is a FACT or a GUESS:
 //   - When BOTH CONFIG_PHYSICAL_START and CONFIG_PHYSICAL_ALIGN are parsed
-//     (SF_PHYSICAL_START from /boot/config or /proc/config.gz;
+//     (SF_PHYSICAL_START from /boot/config, /proc/config.gz or the PVH
+//     relocation note;
 //     SF_PHYS_KERNEL_ALIGN from those or boot_params), the no-KASLR base is
 //     exactly VIRT_TEXT_PLAUSIBLE_MIN + LOAD_PHYSICAL_ADDR + IMAGE_BASE_OFFSET,
 //     where LOAD_PHYSICAL_ADDR = ALIGN(CONFIG_PHYSICAL_START,

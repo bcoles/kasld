@@ -83,6 +83,30 @@ __attribute__((unused)) static unsigned kasld_boot_params_hdr_version(void) {
 #endif
 }
 
+/* 1 where boot_params is readable and carries no "HdrS" magic -- the header was
+ * synthesized by whatever entered the kernel, not copied out of the image -- 0
+ * where the magic is present, and -1 where the file could not be read. The
+ * three states are distinct, and the version helper above cannot separate the
+ * first from the last: it answers 0 for both. */
+__attribute__((unused)) static int kasld_boot_params_hdr_synthesized(void) {
+#if defined(__x86_64__) || defined(__i386__)
+  int fd = kasld_open(KASLD_BOOT_PARAMS_PATH, O_RDONLY);
+  if (fd < 0)
+    return -1;
+  unsigned char magic[4] = {0};
+  ssize_t nm = pread(fd, magic, 4, KASLD_BOOT_PARAMS_HDR_MAGIC);
+  close(fd);
+  if (nm != 4)
+    return -1;
+  return (magic[0] == 'H' && magic[1] == 'd' && magic[2] == 'r' &&
+          magic[3] == 'S')
+             ? 0
+             : 1;
+#else
+  return -1;
+#endif
+}
+
 /* Exact kernel init_size from x86 boot_params, or 0 if unavailable. */
 __attribute__((unused)) static unsigned long kasld_read_boot_init_size(void) {
 #if defined(__x86_64__) || defined(__i386__)

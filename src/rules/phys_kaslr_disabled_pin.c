@@ -18,7 +18,11 @@
 //     on arches where phys placement is bootloader / DT / memstart-
 //     determined (arm64, riscv64, s390) or independently randomized. Even
 //     when SF_PHYS_KASLR_DISABLED is true on those arches, no pin fires
-//     because the address isn't predictable from compile-time data.
+//     because the address isn't predictable from compile-time data. On x86 the
+//     premise belongs to the decompressor, so it does not cover a PVH boot of
+//     an uncompressed vmlinux, where none runs and the monitor picks the
+//     physical address; the contract note in arch/x86_64.h states what carries
+//     it there.
 //
 // The learned ALIGN(SF_PHYSICAL_START, SF_PHYS_KERNEL_ALIGN) is a parsed fact,
 // pinned at CONF_INFERRED (correct for default AND non-default builds); the
@@ -77,6 +81,18 @@ int rule_phys_kaslr_disabled_pin(const struct evidence_set *ev,
     learned_ceiling =
         kasld_conf_min(CONF_INFERRED, kasld_conf_min(ps_conf, al_conf));
   }
+  /* A synthesized setup header says the physical address was the loader's: the
+   * PVH entry runs no decompressor at all, and the EFI stub relocates the image
+   * itself before running one. Nothing held it at LOAD_PHYSICAL_ADDR either
+   * way, so the learned value is the best guess rather than an entailment: keep
+   * it, below the sound floor, so it shapes the likely window and leaves the
+   * guaranteed one to whatever the rest of the evidence supports. The virtual
+   * pin is unaffected -- the link address holds on those paths. */
+  enum kasld_confidence syn_conf = CONF_UNKNOWN;
+  uint32_t syn_src = 0;
+  if (kasld_scalar_fact_value(ev, SF_BOOT_HEADER_SYNTHESIZED, &syn_conf,
+                              &syn_src))
+    learned_ceiling = kasld_conf_min(learned_ceiling, CONF_HEURISTIC);
   return kasld_emit_kaslr_disabled_pin(
       ev, est, out, out_max, SF_PHYS_KASLR_DISABLED, Q_PHYS_IMAGE_BASE,
       learned_base, learned_ceiling, ps_src, al_src,

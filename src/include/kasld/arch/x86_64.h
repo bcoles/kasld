@@ -306,9 +306,30 @@ static inline unsigned long arch_default_text_base(void) {
  * early when nokaslr / CONFIG_RANDOMIZE_BASE=n is in effect, so the kernel
  * stays at CONFIG_PHYSICAL_START (= PHYSICAL_START here, the compile-time
  * default). The physical_start_lower_bound rule already overrides this with
- * a learned SF_PHYSICAL_START at higher confidence when /boot/config or
- * /sys/kernel/boot_params/data is readable, so the heuristic here is the
- * lowest layer and yields cleanly to truth. */
+ * a learned SF_PHYSICAL_START at higher confidence when a kernel config or the
+ * PVH relocation note is readable, so the heuristic here is the
+ * lowest layer and yields cleanly to truth.
+ *
+ * That reasoning is the decompressor's, and one boot path has no decompressor:
+ * a monitor may load the uncompressed vmlinux and enter at the PVH entry point,
+ * where the physical placement is the monitor's choice and the kernel derives
+ * phys_base from wherever it finds itself running. The image then sits where
+ * the loader put it, which every known monitor takes from the ELF's PT_LOAD
+ * p_paddr
+ * -- itself LOAD_PHYSICAL_ADDR -- so on that path the contract holds by the
+ * loader's convention rather than by the kernel's own code. A CONFIG_PVH kernel
+ * advertises the freedom explicitly in XEN_ELFNOTE_PHYS32_RELOC (alignment,
+ * minimum address, maximum last byte), and a monitor acting on it would place
+ * the image outside this pin. What distinguishes the path at runtime is the
+ * ABSENCE of the setup-header magic: the kernel synthesizes its own boot_params
+ * there and never writes "HdrS", so every build-time field reads zero, which is
+ * the condition kasld_boot_params_hdr_version() already reports as 0.
+ * type_of_loader does NOT distinguish it -- on the compressed path that byte is
+ * written by the boot loader, and a loader may write the same value it writes
+ * for a PVH guest. The same absent-magic condition also covers an EFI stub boot
+ * that did not randomize, where the placement is likewise the loader's. The
+ * virtual pin above is unaffected, because that relocation moves phys_base
+ * alone. */
 #define KASLR_DISABLED_PINS_PHYS 1
 #define KASLD_ARCH_DEFAULT_PHYS_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_phys_text_base(void) {
