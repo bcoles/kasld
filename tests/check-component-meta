@@ -23,7 +23,7 @@
 # worth having, and requiring the key removes both.
 #
 # status: is checked differently, and the difference is the point. It stays
-# OPTIONAL -- 117 of 120 components are not gated and say nothing -- because the
+# OPTIONAL -- nearly every component is ungated and says nothing -- because the
 # default is right for nearly all of them, where source: had to be mandatory
 # since either default was wrong for half the tree.
 #
