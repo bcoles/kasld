@@ -302,12 +302,12 @@ loongarch64 15.4 against 12 — and the excess is uncertainty about the build, n
 entropy the kernel holds. The window has to span every layout and placement
 formula the architecture admits until evidence rules one out. On aarch64 the
 minimum offset differs between the pre-v5.4, v6.6 and v6.12 formulas. On
-loongarch64 `CONFIG_RANDOMIZE_BASE_MAX_OFFSET` is a build choice an
-unprivileged reader cannot see. riscv64 shows the same effect off the default
-vantage rather than on it: the chart's 9 bits matches its architectural figure,
-but a kernel booted `no4lvl` leaves 16, the window still having to reach down to
-the legacy linear-map base because nothing observable distinguishes that layout
-from the modern one.
+loongarch64 the firmware places the image before the kernel adds a slide of its
+own, and nothing observable states where. riscv64 shows the same effect off the
+default vantage rather than on it: the chart's 9 bits matches its architectural
+figure, but a kernel booted `no4lvl` leaves 16, the window still having to reach
+down to the legacy linear-map base because nothing observable distinguishes that
+layout from the modern one.
 
 Reading a cell. `source` is the kernel: `alpine` (a distro kernel) or `mainline`
 (a vanilla kernel.org build via `tests/vm/build-kernel`). `virt residual` and

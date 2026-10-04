@@ -351,7 +351,6 @@ R(boot_params_kaslr_align);
 R(kaslr_align_from_phys_base);
 R(s390_thread_size_align);
 R(arm64_efi_kimg_align);
-R(config_max_offset_ceiling);
 R(base_align_cross_validate);
 
 /* KASLR-off pin + learned floor */

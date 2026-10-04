@@ -71,7 +71,6 @@ static const rule_fn k_rules[] = {
     rule_kaslr_align_from_phys_base,
     rule_s390_thread_size_align,
     rule_arm64_efi_kimg_align,
-    rule_config_max_offset_ceiling,
     rule_base_align_cross_validate,
 
     /* KASLR-off pin */

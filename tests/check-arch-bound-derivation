@@ -113,14 +113,6 @@ RULES=$ROOT/src/rules
 #                              (an empty window, and a ceiling no better than the
 #                              floor) and never for the emitted value. A wrong
 #                              value there suppresses the constraint
-#   config_max_offset_ceiling  emits at CONF_PARSED from
-#                              VIRT_TEXT_MIN_DEFAULT_CONFIG, and is safe only
-#                              because SF_MAX_OFFSET is read from a Kconfig that
-#                              exists on MIPS and LoongArch alone, where
-#                              VIRT_TEXT_MIN_DEFAULT_CONFIG and
-#                              VIRT_TEXT_MIN_ANY_CONFIG are the same number.
-#                              Extending the rule to x86_64, aarch64, s390x or
-#                              riscv64 makes it unsound
 #   coupling_validate          filter, as arm64_coupling_validate
 #   image_base_resolved_grid_align  reads the grid PHASE, not the base:
 #                              KERNEL_VIRT_TEXT_DEFAULT reaches
@@ -186,7 +178,6 @@ RULES=$ROOT/src/rules
 #                              check-confidence-floor
 ALLOW="arm64_coupling_validate
 ceiling_from_image_size
-config_max_offset_ceiling
 coupling_validate
 image_base_resolved_grid_align
 loongarch64_coupling_validate
