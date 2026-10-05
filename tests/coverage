@@ -56,6 +56,8 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 # shellcheck source=tests/lib/qemu-target.sh
 . "$ROOT/tests/lib/qemu-target.sh"
+# shellcheck source=tests/lib/coverage-report.sh
+. "$ROOT/tests/lib/coverage-report.sh"
 CC=${CC:-cc}
 GCOV=${GCOV:-gcov}
 COV=$ROOT/build/coverage
@@ -168,28 +170,7 @@ done
 # executed, - for a line carrying no code, and a number otherwise.
 echo "----------------------------------------------------------------------"
 ( cd "$COV" && for g in ./*.gcno; do $GCOV -t "$g" 2>/dev/null; done ) |
-  awk -v label="$COV_LABEL" '
-  /^ *-: *0:Source:/ { f=$0; sub(/.*Source:/,"",f)
-                       keep = (f ~ /(^|\/)src\/.*\.c$/); next }
-  !keep { next }
-  {
-    split($0, p, ":")
-    cnt=p[1]; ln=p[2]+0
-    gsub(/[ \t]/,"",cnt)
-    if (ln == 0 || cnt == "-") next
-    key = f SUBSEP ln
-    if (!(key in seen)) { seen[key]=1; total[f]++ }
-    if (cnt != "#####" && !(key in hit)) { hit[key]=1; done[f]++ }
-  }
-  END {
-    for (f in total) {
-      bn=f; sub(/.*\//,"",bn)
-      printf "  %-34s %6.2f%%  of %4d lines\n", bn, 100*done[f]/total[f], total[f]
-      ex += done[f]; all += total[f]
-    }
-    if (all>0) printf "~TOTAL~  %-34s %6.2f%%  of %4d lines\n",
-                      "TOTAL (" label " unit tests)", 100*ex/all, all
-  }' | sort -k1,1 | sed 's/^~TOTAL~//'
+  coverage_report "$COV_LABEL unit tests"
 echo "----------------------------------------------------------------------"
 echo "coverage: built with $CC, reported via $GCOV; artifacts in $COV"
 

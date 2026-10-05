@@ -1,0 +1,59 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# coverage-union — the two coverage reports taken together.
+#
+# `make coverage` measures the host unit tests, which compile main() and the
+# engine bridge out under -DKASLD_TESTING. `make coverage-e2e` measures the real
+# binary, which has those but none of the unit paths. The two were already
+# documented as complementary rather than comparable, and nothing put them
+# together: a file can read 7% in one and 70% in the other, and neither figure
+# is the answer to "is this tested".
+#
+# This reports the union. A line either run executed is covered; a line neither
+# reached is the gap, and that is the only figure that answers the question. It
+# needs no new instrumentation -- both targets leave their gcov data behind, and
+# the reducer already keys lines by file and number, so feeding it both streams
+# unions them.
+#
+# Reads what is there; it does not run either target. The two differ in what
+# they compile, so a stale half would quietly misreport -- if either report is
+# older than the sources, re-run it first.
+#
+# Usage:  tests/coverage-union        (or: make coverage-union)
+#         make coverage && make coverage-e2e && make coverage-union
+# Env:    GCOV (default gcov)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/coverage-report.sh
+. "$ROOT/tests/lib/coverage-report.sh"
+
+GCOV=${GCOV:-gcov}
+UNIT=$ROOT/build/coverage
+E2E=$ROOT/build/coverage-e2e
+
+missing=
+for d in "$UNIT" "$E2E"; do
+  set -- "$d"/*.gcno
+  [ -f "$1" ] || missing="$missing $(basename "$d")"
+done
+if [ -n "$missing" ]; then
+  echo "coverage-union: no data for:$missing" >&2
+  echo "          run 'make coverage' and 'make coverage-e2e' first" >&2
+  exit 1
+fi
+if ! $GCOV --version >/dev/null 2>&1; then
+  echo "coverage-union: '$GCOV' not found" >&2
+  exit 1
+fi
+
+echo "----------------------------------------------------------------------"
+{
+  ( cd "$UNIT" && for g in ./*.gcno; do $GCOV -t "$g" 2>/dev/null; done )
+  ( cd "$E2E"  && for g in ./*.gcno; do $GCOV -t "$g" 2>/dev/null; done )
+} | coverage_report "unit + end-to-end"
+echo "----------------------------------------------------------------------"
+echo "coverage-union: $UNIT + $E2E, reported via $GCOV"

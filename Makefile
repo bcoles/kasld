@@ -1357,6 +1357,15 @@ coverage :
 coverage-e2e :
 	CC="$(CC)" $(TEST_DIR)/coverage-e2e
 
+# The two reports taken together. coverage hides main() and the engine bridge
+# behind -DKASLD_TESTING; coverage-e2e has those and none of the unit paths, so
+# neither figure alone says whether a file is tested. This reads the gcov data
+# both leave behind and reports the union; it runs neither, so a stale half
+# misreports and should be re-run first.
+.PHONY: coverage-union
+coverage-union :
+	$(Q)$(TEST_DIR)/coverage-union
+
 # CI entrypoint: the full host test suite. Deterministic, no qemu/cross needed;
 # `make` halts on the first failing test binary (each returns non-zero on
 # failure). For cross-arch coverage run `make test-cross` and `tests/replay`.
@@ -1854,6 +1863,7 @@ help:
 	@echo "      verify-zlib     Check cross builds link zlib where they need it"
 	@echo "      coverage        Host unit-test coverage report (gcov)"
 	@echo "      coverage-e2e    End-to-end coverage over x86 fixtures (gcov)"
+	@echo "      coverage-union  The two coverage reports unioned (gcov)"
 	@echo "      install         Install to PREFIX (default: /usr/local)"
 	@echo "      install-strip   Install, then strip the installed binaries"
 	@echo "      installcheck    Smoke-test the installed bin/kasld + libexec/kasld/"

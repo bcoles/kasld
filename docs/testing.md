@@ -966,6 +966,7 @@ compiler's own gcov; HTML appears only if `lcov` + `genhtml` are installed.
 ```sh
 make coverage          # host unit tests -> build/coverage/
 make coverage-e2e      # real binary over x86 fixtures -> build/coverage-e2e/
+make coverage-union    # the two above, unioned
 ```
 
 - `coverage` instruments the engine core + every rule + the `test_kasld` TU
@@ -974,6 +975,12 @@ make coverage-e2e      # real binary over x86 fixtures -> build/coverage-e2e/
   it live + over the x86_64/i686 fixtures, so it is the only report that
   reaches `main()`, the engine bridge, and the renderers. x86_64 host only
   (runs the binary natively).
+- `coverage-union` reports the two together. Neither alone answers whether a
+  file is tested — the unit report hides what `-DKASLD_TESTING` compiles out,
+  the end-to-end one has no unit paths, and a file can read 7% in one and 70%
+  in the other. A line either run executed is covered; a line neither reached
+  is the gap. It reads the gcov data the other two leave behind rather than
+  running them, so a stale half misreports and wants re-running first.
 
 For a clang toolchain, point at its gcov shim:
 
