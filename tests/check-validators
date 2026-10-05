@@ -105,6 +105,7 @@ numeric|extra/check-results|echo|deadbeef
 hex16|extra/check-results|echo|deadbeef
 is_hex|extra/ksymoff|exit|deadbeef
 is_dec|extra/ksymoff|exit|1234
+is_dec|extra/validate-bundle|exit|1234
 "
 
 n_checked=0
@@ -166,11 +167,45 @@ done
 
 # A validator added later must not escape the corpus. The marker sits at each
 # definition, so registering one is the same act as writing it.
-markers=$(cat "$ROOT/extra/check-results" "$ROOT/extra/ksymoff" |
-  grep -c '@arith-validator')
+#
+# Swept across extra/ rather than read from a list of the scripts that have one
+# today: a named pair holds the property for those two files and says nothing
+# about the directory, so a validator written into a third tool was invisible
+# here exactly when it most needed exercising.
+markers=$(cat "$ROOT"/extra/* 2>/dev/null | grep -c '@arith-validator')
 if [ "${markers:-0}" -ne "$n_checked" ]; then
   note "$markers @arith-validator markers but $n_checked exercised -- register the new one in this guard"
 fi
+
+# The other half of the same property: a tool that feeds input-derived values to
+# `$(( ))` and carries no validator at all. Counting markers cannot see that one
+# -- there is nothing to count -- so the operand is traced instead. A variable
+# used inside arithmetic that the script also assigns from a command
+# substitution came from outside the script: a file, a capture, an argument.
+#
+# `$(( ))` is an evaluator. Under a shell whose arithmetic understands array
+# subscripts -- bash, which is /bin/sh on several distributions -- a value of
+# the form `1+v[$(cmd)]` runs cmd, and naming a variable the script sets gets it
+# past `set -u`. Validating the operand is what makes the evaluation safe, so a
+# script doing this without a validator is reported whether or not a payload
+# reaching it is known today.
+for script in "$ROOT"/extra/*; do
+  [ -f "$script" ] || continue
+  head -n 1 "$script" | grep -q '^#!.*sh' || continue
+  grep -q '@arith-validator' "$script" && continue
+
+  # shellcheck disable=SC2016  # the literal '$((' is the pattern being matched
+  operands=$(grep -o '\$(([^)]*))' "$script" |
+    grep -o '[A-Za-z_][A-Za-z0-9_]*' | sort -u)
+  [ -n "$operands" ] || continue
+
+  for v in $operands; do
+    # `=$(` but not `=$((`: the second is arithmetic, not a command.
+    if grep -qE "^[[:space:]]*$v=\\\$\([^(]" "$script"; then
+      note "${script#"$ROOT"/}: \$$v reaches shell arithmetic and is assigned from a command substitution, with no @arith-validator in the script"
+    fi
+  done
+done
 
 if [ "$fail" -ne 0 ]; then
   exit 1

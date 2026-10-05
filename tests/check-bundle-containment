@@ -1,0 +1,128 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-bundle-containment — a restore writes inside the destination, or not at
+# all.
+#
+# extra/prepare-bundle restores each captured file to its true length from
+# sizes.txt, whose rows carry a length and a path. Both fields come from the
+# capture, which is the machine under investigation's own output, so a row is
+# untrusted input that names a file the restore will create and truncate. A row
+# that leaves the destination turns preparing a received bundle into a write
+# anywhere the invoking user can reach -- and truncating to zero destroys what
+# is already there.
+#
+# Three ways out exist and none of them looks unusual in a bundle:
+#
+#   ..            a traversal in the row itself.
+#   symlink leaf  the mirror carries a link where the file goes. The row reads
+#                 as an ordinary path; truncate follows the link.
+#   symlink dir   the mirror carries a link in place of a parent directory.
+#                 mkdir -p walks straight through it.
+#
+# The last two matter because the mirror keeps its symlinks deliberately -- cp -a
+# preserves them so /sys/class/<class>/<name> stays a link into /sys/devices,
+# the shape the components walk. The capture cannot be flattened to close this,
+# so the restore is what has to refuse.
+#
+# The legitimate restore is checked in the same run, because a containment
+# check that is too strict fails silently in the other direction: a size-only
+# row names a file the mirror does not carry at all (System.map and vmlinux are
+# captured as a length and nothing else), so refusing to create a file would
+# leave the tree short the bound those rows exist to carry.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+OWNER=extra/prepare-bundle
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+fail=0
+note() {
+  printf '%scheck-bundle-containment: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fail=1
+}
+
+[ -x "$ROOT/$OWNER" ] || {
+  note "$OWNER is missing or not executable"
+  exit 1
+}
+
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# An ordinary bundle, plus the files a hostile row would reach for. OUTSIDE sits
+# beside the destination rather than above the bundle, so nothing this guard
+# writes can land outside its own temporary directory.
+OUTSIDE=$TMP/outside
+mkdir -p "$OUTSIDE/dir"
+printf 'keep\n' > "$OUTSIDE/file"
+printf 'keep\n' > "$OUTSIDE/leaf"
+printf 'keep\n' > "$OUTSIDE/dir/file"
+
+stage_bundle() {
+  B=$1
+  mkdir -p "$B/sysroot/proc"
+  printf 'collect_version:  3\nuname_m_raw: x86_64\n' > "$B/meta.txt"
+  printf 'Linux version 0.0.0\n' > "$B/sysroot/proc/version"
+}
+
+# --- escaping rows must be refused -----------------------------------------
+B=$TMP/hostile
+stage_bundle "$B"
+# A traversal, counted from a destination one level below TMP.
+printf '0 /../outside/file\n'      > "$B/sizes.txt"
+printf '4096 /../outside/created\n' >> "$B/sizes.txt"
+# A link where the file goes, named by an ordinary-looking row.
+ln -s "$OUTSIDE/leaf" "$B/sysroot/proc/kcore"
+printf '0 /proc/kcore\n' >> "$B/sizes.txt"
+# A link in place of a parent directory, likewise.
+ln -s "$OUTSIDE/dir" "$B/sysroot/linked"
+printf '0 /linked/file\n' >> "$B/sizes.txt"
+
+"$ROOT/$OWNER" "$B" "$TMP/dest-hostile" >/dev/null 2>&1
+
+[ -s "$OUTSIDE/file" ] ||
+  note "a '..' row truncated a file outside the destination"
+[ -s "$OUTSIDE/leaf" ] ||
+  note "a symlink where the file goes let a row truncate outside the destination"
+[ -s "$OUTSIDE/dir/file" ] ||
+  note "a symlinked parent directory let a row truncate a file outside the destination"
+[ -e "$OUTSIDE/created" ] &&
+  note "a sizes.txt row created a file outside the destination"
+
+# --- the legitimate restore must still happen -------------------------------
+B=$TMP/ok
+stage_bundle "$B"
+mkdir -p "$B/sysroot/boot"
+# A header-prefix row: the mirror carries the first bytes, the row the true size.
+printf 'xxxx' > "$B/sysroot/boot/vmlinuz"
+printf '9870000 /boot/vmlinuz\n' > "$B/sizes.txt"
+# A size-only row: nothing in the mirror, and a directory that does not exist.
+printf '41234567 /boot/System.map\n' >> "$B/sizes.txt"
+printf '512 /deep/nested/file\n' >> "$B/sizes.txt"
+
+D=$TMP/dest-ok
+"$ROOT/$OWNER" "$B" "$D" >/dev/null 2>&1
+
+size_of() { wc -c < "$1" 2>/dev/null | tr -d ' '; }
+
+[ "$(size_of "$D/boot/vmlinuz")" = 9870000 ] ||
+  note "a header-prefix row did not restore its length (got $(size_of "$D/boot/vmlinuz"))"
+[ "$(size_of "$D/boot/System.map")" = 41234567 ] ||
+  note "a size-only row did not create its file at the captured length"
+[ "$(size_of "$D/deep/nested/file")" = 512 ] ||
+  note "a row whose directories are absent from the mirror did not restore"
+
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+printf '%scheck-bundle-containment: OK%s (3 escape routes refused; prefix, size-only and absent-directory rows restored)\n' \
+  "$GREEN" "$RESET"

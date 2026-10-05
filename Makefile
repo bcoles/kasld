@@ -1205,6 +1205,7 @@ lint :
 	    $(TEST_DIR)/check-live-probes \
 	    $(TEST_DIR)/check-fact-source \
 	    $(TEST_DIR)/check-bundle-prepare \
+	    $(TEST_DIR)/check-bundle-containment \
 	    $(TEST_DIR)/check-host-build \
 	    $(TEST_DIR)/check-env-switches \
 	    $(TEST_DIR)/check-json-partial-skip \

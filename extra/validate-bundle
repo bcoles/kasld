@@ -40,6 +40,17 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 
 die() { echo "$PROG: $*" >&2; exit 2; }
 
+# A figure read out of the bundle and then used in shell arithmetic has to be
+# proven a number first. `$(( ))` is an evaluator, not a conversion: under a
+# shell whose arithmetic understands array subscripts -- bash, which is /bin/sh
+# on several distributions -- a value of the form `1+v[$(cmd)]` runs cmd, and
+# naming a variable this script sets satisfies `set -u` on the way past. The
+# bundle is the machine under investigation's own output, so it is exactly the
+# input that must not be evaluated.
+#
+# @arith-validator
+is_dec() { case "$1" in ''|*[!0-9]*) return 1 ;; *) return 0 ;; esac; }
+
 PERTURB=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -210,14 +221,17 @@ run_kasld_sysroot() {
 # or EMPTY (no window resolved) / PARSE-ERROR (bad JSON).
 guaranteed_sig() {
   jq -e . "$1" >/dev/null 2>&1 || { printf 'PARSE-ERROR\n'; return; }
-  s=$(jq -r '[.layout.virt_image_base_min, .layout.virt_image_base_max,
+  # Prefixed, not `s`: the run summary keeps a skip counter of that name, and a
+  # helper that quietly reassigns it would feed a joined signature string to the
+  # arithmetic that totals the counters.
+  gs_sig=$(jq -r '[.layout.virt_image_base_min, .layout.virt_image_base_max,
               .layout.phys_kaslr_text_min, .layout.phys_kaslr_text_max,
               .kaslr.memory_kaslr.virt_page_offset_base.min,
               .kaslr.memory_kaslr.virt_page_offset_base.max]
              | map(if . == null then "." else tostring end) | join("|")' "$1")
-  case "$s" in
+  case "$gs_sig" in
     '.|.|.|.|.|.') printf 'EMPTY\n' ;;
-    *) printf '%s\n' "$s" ;;
+    *) printf '%s\n' "$gs_sig" ;;
   esac
 }
 
@@ -300,7 +314,7 @@ fake_meminfo() {
   fm_mg=$(awk '/^[[:space:]]*managed/ {s+=$2} END {print s+0}' \
     "$1/proc/zoneinfo" 2>/dev/null)
   fm_mem=65536
-  if [ -n "$fm_mt" ] && [ -n "$fm_mg" ] && [ "$fm_mg" -gt 0 ] 2>/dev/null; then
+  if is_dec "$fm_mt" && is_dec "$fm_mg" && [ "$fm_mg" -gt 0 ]; then
     # The granule in kB the capture actually reports, then the other one.
     if [ "$((fm_mt / fm_mg))" -eq 4 ]; then fm_g=64; else fm_g=4; fi
     fm_mem=$((fm_mg * fm_g))

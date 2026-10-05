@@ -107,14 +107,90 @@ fi
 # Restore each captured file to its true length. The bytes past the captured
 # prefix are zero: the length is the fact, and a parser that needs content finds
 # the header where it was.
+# Both fields of a row come from the capture, so neither is trusted. The length
+# reaches truncate and the path names a file this creates, so a path that leaves
+# the destination turns a restore into a write anywhere the invoking user can
+# reach. Three ways out exist, and a row carrying any of them reads as ordinary:
+# a `..` component in the path, a symlink where the file goes, and a symlink
+# standing in for one of its parent directories. The mirror keeps its symlinks
+# deliberately (see cp -a above), so the last two need nothing but an innocent
+# path -- the link does the leaving.
+#
+# Walking the path down from the destination refuses all three at once: with no
+# `..` in the row and no symlink on the way, a component cannot name anything
+# outside $DEST. CONTAINED_DEST is set to the destination path on success.
+contained_dest() {
+  cd_p=$1
+  CONTAINED_DEST=
+
+  # Absolute, and no `..` for any component. The trailing slash lets one pattern
+  # cover a `..` at the end of the path as well as in the middle.
+  case $cd_p in
+    /*) ;;
+    *) return 1 ;;
+  esac
+  case "$cd_p/" in
+    */../*) return 1 ;;
+  esac
+
+  cd_leaf=${cd_p##*/}
+  [ -n "$cd_leaf" ] || return 1
+
+  # Create the directory part a component at a time. A component that is already
+  # a symlink ends the row: following it is how a mirror escapes its own tree,
+  # and `mkdir -p` would walk straight through.
+  cd_cur=$DEST
+  cd_rest=${cd_p%/*}
+  cd_rest=${cd_rest#/}
+  while [ -n "$cd_rest" ]; do
+    cd_c=${cd_rest%%/*}
+    case $cd_rest in
+      */*) cd_rest=${cd_rest#*/} ;;
+      *) cd_rest= ;;
+    esac
+    [ -n "$cd_c" ] || continue
+    cd_cur=$cd_cur/$cd_c
+    if [ -h "$cd_cur" ]; then
+      return 1
+    fi
+    [ -d "$cd_cur" ] || mkdir "$cd_cur" 2>/dev/null || return 1
+  done
+
+  # The file itself, for the same reason: truncate follows a link.
+  if [ -h "$cd_cur/$cd_leaf" ]; then
+    return 1
+  fi
+
+  CONTAINED_DEST=$cd_cur/$cd_leaf
+  return 0
+}
+
 if [ -f "$BUNDLE/sizes.txt" ]; then
+  refused=0
   while read -r sz path; do
     if [ -z "$sz" ] || [ -z "$path" ]; then
       continue
     fi
-    mkdir -p "$DEST$(dirname "$path")" 2>/dev/null
-    truncate -s "$sz" "$DEST$path" 2>/dev/null
+    # A length that is not a plain decimal is not a length.
+    case $sz in
+      *[!0-9]*)
+        refused=$((refused + 1))
+        continue
+        ;;
+    esac
+    if ! contained_dest "$path"; then
+      refused=$((refused + 1))
+      continue
+    fi
+    truncate -s "$sz" "$CONTAINED_DEST" 2>/dev/null || refused=$((refused + 1))
   done < "$BUNDLE/sizes.txt"
+
+  # Said once, with a count: a bundle that trips this is either corrupt or
+  # hostile, and either way the operator is reading a tree that is short a fact.
+  if [ "$refused" -ne 0 ]; then
+    echo "$PROG: refused $refused sizes.txt row(s): a length that is not a number," \
+      "or a path that leaves the destination" >&2
+  fi
 fi
 
 # Name the architecture the capture came from, so the reader is chosen rather
