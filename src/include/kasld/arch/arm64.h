@@ -314,6 +314,42 @@ static inline int arm64_modern_layout_proven(unsigned long witness,
 // pre-flip case only, and SZ_2M covers every value the formula can produce.
 #define ARM64_PREFLIP_TEXT_OFFSET_MAX (2ul * MB)
 
+// How far _text can sit above KIMAGE_VADDR when NO seed placed it. Not a slide:
+// the kernel builds the displacement from two parts and only the high part
+// comes from the seed. The low bits below MIN_KIMG_ALIGN (SZ_2M,
+// arch/arm64/include/asm/boot.h) are copied from the image's PHYSICAL load
+// address so text can still be mapped with 2 MiB blocks. v4.8..v6.8 does it in
+// head.S, masking the physical address of the image with `MIN_KIMG_ALIGN - 1`
+// on entry; the masking is the invariant, while the symbol holding that address
+// (`__PHYS_OFFSET`, later renamed `KERNEL_START`) and the registers it moves
+// through both vary across the range. The later kernels in that range call the
+// result "physical misalignment" in their own comment. v6.9+ does it in
+// arch/arm64/kernel/pi/map_kernel.c (`kaslr_offset = pa_base % MIN_KIMG_ALIGN`,
+// commit 97a6f43bb049). arch/arm64/kernel/kaslr.c states the consequence from
+// the other side: a displacement "of less than MIN_KIMG_ALIGN means that no
+// seed was provided".
+//
+// So a no-seed base is KIMAGE_VADDR plus this residue, and the residue is zero
+// only where the image was loaded 2 MiB-aligned. Two admissible configurations
+// load it finer, which is why the term is carried rather than assumed away:
+//   * a non-EFI bootloader that ignores the 2 MiB requirement of
+//     Documentation/arch/arm64/booting.rst -- arch/arm64/kernel/setup.c warns
+//     FW_BUG "Kernel image misaligned at boot" and relocates ANYWAY, so the
+//     kernel runs rather than refusing;
+//   * an EFI boot whose physical seed succeeded while the FDT seed call did
+//     not, leaving efi_nokaslr clear so the stub keeps EFI_KIMG_ALIGN (64 KiB)
+//     while no seed property is written.
+// Where the seed is absent because the stub gave up (no EFI_RNG_PROTOCOL,
+// nokaslr, no CONFIG_RANDOMIZE_BASE) efi_nokaslr is set BEFORE the allocation,
+// efi_get_kimg_min_align() returns MIN_KIMG_ALIGN, and the residue really is 0
+// -- but that is three causes out of four, not a guarantee.
+//
+// Belongs in the no-KASLR CEILING only. The slid ceilings already absorb it:
+// the seed term is masked to ~(MIN_KIMG_ALIGN - 1) where it is applied, so
+// arm64_kaslr_offset_max() -- an exclusive top -- leaves exactly this much
+// headroom. Adding it there too would merely loosen them.
+#define ARM64_PHYS_GRAFT_MAX (2ul * MB)
+
 // Head gap _stext - _text: arm64 places .head.text (EFI header + early vectors)
 // before _stext, and .text is ALIGN(SEGMENT_ALIGN), so _stext = _text + 0x10000
 // wherever SEGMENT_ALIGN is SZ_64K. The engine solves the image base (_text);

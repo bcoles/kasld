@@ -73,6 +73,36 @@
  * v6.6 kaslr_early.c formula BIT(VA_BITS_MIN-3) + GENMASK(VA_BITS_MIN-3, 0)
  * (>= the v6.12 window). For VA_BITS_MIN=48 this is (1<<45)+(1<<46), so
  * KIMAGE_VADDR(48) + this == VIRT_TEXT_MAX_DEFAULT_CONFIG. */
+/* The no-SLIDE signal, in either of the two forms that establish it.
+ *
+ * SF_VIRT_KASLR_DISABLED is the opt-out: the boot stub skipped relocation
+ * altogether. SF_VIRT_KASLR_RANDOMIZATION_FAILED is the weaker statement that
+ * it relocated but applied no random offset, and on this architecture that has
+ * exactly one mechanism -- kaslr_early_init found neither an FDT seed nor
+ * RNDR and returned zero, leaving the displacement as the physical-placement
+ * residue alone. Both therefore bound the base by the same un-slid ceiling
+ * plus ARM64_PHYS_GRAFT_MAX.
+ *
+ * Neither licenses a PIN: the residue is unknown within that span, which is
+ * why this rule emits an upper bound and the generic pin-to-default rule is
+ * opted out here. Taking the randomization-failed form as an opt-out WOULD be
+ * unsound, since the image did move; it is sound as a ceiling because the
+ * distance it could have moved is bounded. */
+static uint32_t arm64_no_slide_signal(const struct evidence_set *ev,
+                                      enum kasld_confidence *conf) {
+  for (int i = 0; ev && i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_SCALAR || o->scalar_value == 0)
+      continue;
+    if (o->scalar_fact == SF_VIRT_KASLR_DISABLED ||
+        o->scalar_fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED) {
+      *conf = o->conf;
+      return o->id;
+    }
+  }
+  return 0;
+}
+
 static unsigned long arm64_kaslr_offset_max(unsigned long va_min) {
   return (1UL << (va_min - 3)) + (1UL << (va_min - 2));
 }
@@ -240,20 +270,18 @@ static int arm64_text_band_union(const struct evidence_set *ev,
    * so a real text leak still wins, and skipped where a leak has already raised
    * the floor past it. Same discipline as the pinned path's own cap. */
   {
-    uint32_t sig_id = 0;
     enum kasld_confidence sig_conf = CONF_UNKNOWN;
-    for (int i = 0; ev && i < ev->n_obs; i++) {
-      const struct observation *o = &ev->obs[i];
-      if (!o->valid || o->value_kind != OBS_SCALAR)
-        continue;
-      if (o->scalar_fact == SF_VIRT_KASLR_DISABLED && o->scalar_value != 0) {
-        sig_id = o->id;
-        sig_conf = o->conf;
-        break;
-      }
-    }
-    const unsigned long cap =
-        m_hi_unslid > p_hi_unslid ? m_hi_unslid : p_hi_unslid;
+    const uint32_t sig_id = arm64_no_slide_signal(ev, &sig_conf);
+    /* ARM64_PHYS_GRAFT_MAX: an un-slid base is not KIMAGE_VADDR exactly. The
+     * displacement's low bits come from the image's physical load address, not
+     * from the seed, so a no-seed kernel loaded finer than MIN_KIMG_ALIGN sits
+     * above the un-slid edge. See the header for the two configurations that
+     * load it finer; both run rather than refusing, so each band's top admits
+     * the residue -- the graft predates both layouts, so it applies to the
+     * pre-flip top as well as the modern one. */
+    const unsigned long p_top = p_hi_unslid + ARM64_PHYS_GRAFT_MAX;
+    const unsigned long m_top = m_hi_unslid + ARM64_PHYS_GRAFT_MAX;
+    const unsigned long cap = m_top > p_top ? m_top : p_top;
     const enum kasld_confidence sig_cap =
         sig_conf < CONF_INFERRED ? sig_conf : CONF_INFERRED;
     if (sig_id != 0 && n < out_max && cap >= est[Q_VIRT_IMAGE_BASE].lo) {
@@ -274,17 +302,21 @@ static int arm64_text_band_union(const struct evidence_set *ev,
      * most of the address space. Capping the ceiling alone leaves that distance
      * in the count and is worth under a bit; excluding it is worth ten.
      *
-     * Sound because a no-KASLR base is one layout's link-time KIMAGE_VADDR and
-     * nothing lies between them: the modern one is _PAGE_END + module_region,
-     * the pre-flip one VA_START + its own regions, and neither can land in the
-     * gap. Carried at the signal's confidence like the cap above, so a text
-     * leak still overrides it. */
-    if (sig_id != 0 && n < out_max && p_hi_unslid + 1ul < m_lo) {
+     * Sound because a no-KASLR base is one layout's link-time KIMAGE_VADDR
+     * PLUS the physical-placement residue, and nothing lies between the two
+     * bands once each carries that term: the modern one is _PAGE_END +
+     * module_region, the pre-flip one VA_START + its own regions, and neither
+     * can land in the gap. The hole therefore opens above the GRAFTED pre-flip
+     * top, not above the link-time one -- starting it a byte above
+     * p_hi_unslid would exclude a pre-flip image the bootloader placed off the
+     * MIN_KIMG_ALIGN grid. Carried at the signal's confidence like the cap
+     * above, so a text leak still overrides it. */
+    if (sig_id != 0 && n < out_max && p_top + 1ul < m_lo) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VIRT_IMAGE_BASE;
       c->op = C_EXCLUDE;
-      c->value = p_hi_unslid + 1ul;
+      c->value = p_top + 1ul;
       c->value2 = m_lo - 1ul;
       /* Where a read config shrank the shadow, this hole reaches addresses a
        * KASAN kernel could occupy, so it is no better than the fact that ruled
@@ -367,33 +399,28 @@ int rule_arm64_text_base(const struct evidence_set *ev,
     snprintf(c->origin, ORIGIN_LEN, "arm64_text_base");
   }
 
-  /* No-KASLR: the base is the link-time KIMAGE_VADDR(VA_BITS_MIN) exactly (no
-   * slide; IMAGE_BASE_OFFSET is 0 on arm64). The module-region size is unknown,
-   * so cap the base at the largest candidate (kimg_hi) — UPPER bound only,
-   * sound for the low old layout too. The floor (above, when unambiguous)
-   * already bounds below. Capped to the disabled signal's confidence (and to
-   * inferred), so a real text leak still wins. Skip if the cap falls below the
-   * current floor (e.g. a real leak already raised it). */
-  uint32_t sig_id = 0;
+  /* No-KASLR: the base did not SLIDE, but it is not KIMAGE_VADDR(VA_BITS_MIN)
+   * exactly either. The displacement's low bits below MIN_KIMG_ALIGN are copied
+   * from the image's physical load address rather than drawn from the seed, so
+   * a no-seed kernel loaded at a finer alignment sits that far above the
+   * un-slid edge; ARM64_PHYS_GRAFT_MAX bounds it and the header names the
+   * configurations that produce it. The module-region size is unknown, so cap
+   * at the largest candidate plus that residue — UPPER bound only, sound for
+   * the low old layout too. The floor (above, when unambiguous) already bounds
+   * below. Capped to the disabled signal's confidence (and to inferred), so a
+   * real text leak still wins. Skip if the cap falls below the current floor
+   * (e.g. a real leak already raised it). */
   enum kasld_confidence sig_conf = CONF_UNKNOWN;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_SCALAR)
-      continue;
-    if (o->scalar_fact == SF_VIRT_KASLR_DISABLED && o->scalar_value != 0) {
-      sig_id = o->id;
-      sig_conf = o->conf;
-      break;
-    }
-  }
+  const uint32_t sig_id = arm64_no_slide_signal(ev, &sig_conf);
   if (sig_id != 0 && n < out_max) {
     const struct estimate *vt = &est[Q_VIRT_IMAGE_BASE];
-    if (kimg_hi >= vt->lo) {
+    const unsigned long nokaslr_cap = kimg_hi + ARM64_PHYS_GRAFT_MAX;
+    if (nokaslr_cap >= vt->lo) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VIRT_IMAGE_BASE;
       c->op = C_UPPER_BOUND;
-      c->value = kimg_hi;
+      c->value = nokaslr_cap;
       c->conf = sig_conf < CONF_INFERRED ? sig_conf : CONF_INFERRED;
       c->derived_from[0] = sig_id;
       c->lineage_count = 1;

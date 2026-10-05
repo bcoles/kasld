@@ -6309,10 +6309,22 @@ static void test_arm64_text_band_union_admits_both_layouts(void) {
       if (out[i].op == C_UPPER_BOUND && out[i].value < cap)
         cap = out[i].value;
     }
-    /* The binding ceiling is the un-slid one, and it is INCLUSIVE of a kernel
-     * sitting exactly on it. */
-    TH_CHECK(cap == unslid);
+    /* The binding ceiling is the un-slid one plus the physical-placement
+     * residue, and it is INCLUSIVE of a kernel sitting exactly on it. A
+     * no-seed base is KIMAGE_VADDR only where the image was loaded 2 MiB
+     * aligned; the displacement's low bits are copied from the physical
+     * address, so a kernel loaded finer sits above the un-slid edge. */
+    TH_CHECK(cap == unslid + ARM64_PHYS_GRAFT_MAX);
     TH_CHECK(cap > preflip_text);
+    /* The exclusion the residue exists to prevent. A bootloader ignoring the
+     * 2 MiB requirement of the boot protocol is warned about and relocated
+     * ANYWAY (arch/arm64/kernel/setup.c), so the highest base the residue can
+     * produce is a base the kernel really runs at. Asserted against the
+     * un-slid edge as well, so the check fails if the term is dropped rather
+     * than passing on any sufficiently wide cap. */
+    const unsigned long grafted = unslid + ARM64_PHYS_GRAFT_MAX - 64ul * 1024;
+    TH_CHECK(grafted > unslid);
+    TH_CHECK(grafted <= cap);
     /* And the gap between the two un-slid bands is carved, over neither of
      * them: the pre-flip no-KASLR base and the modern band's floor both
      * survive. */
@@ -6365,18 +6377,52 @@ static void test_arm64_text_band_union_admits_both_layouts(void) {
         }
     }
     /* KASAN proven off: the hole starts above the shadow-free image REGION plus
-     * the largest TEXT_OFFSET, because pre-flip _text sits that far above
-     * KIMAGE_VADDR. A hole starting at the region base would swallow every
-     * v5.0..v5.3 kernel, which carries the BPF region and a non-zero default
-     * TEXT_OFFSET of 0x80000. */
+     * the largest TEXT_OFFSET -- because pre-flip _text sits that far above
+     * KIMAGE_VADDR -- plus the physical-placement residue, which the boot code
+     * grafts on whatever the layout. A hole starting at the region base would
+     * swallow every v5.0..v5.3 kernel, which carries the BPF region and a
+     * non-zero default TEXT_OFFSET of 0x80000; a hole omitting the residue
+     * would swallow one the bootloader placed off the MIN_KIMG_ALIGN grid. */
     const unsigned long preflip_v50_text = no_shadow + 0x80000ul;
-    TH_CHECK(hole_off == no_shadow + ARM64_PREFLIP_TEXT_OFFSET_MAX + 1ul);
+    TH_CHECK(hole_off == no_shadow + ARM64_PREFLIP_TEXT_OFFSET_MAX +
+                             ARM64_PHYS_GRAFT_MAX + 1ul);
     TH_CHECK(hole_off > preflip_v50_text);
+    /* ... including that kernel displaced by the largest residue. */
+    TH_CHECK(hole_off > preflip_v50_text + ARM64_PHYS_GRAFT_MAX);
     TH_CHECK(hole_absent > hole_off);
     TH_CHECK(hole_on > hole_off);
     /* An unread config gives exactly what a KASAN kernel gives -- absence is
      * not a negative. */
     TH_CHECK(hole_absent == hole_on);
+  }
+
+  /* The randomization-failed signal carries the SAME ceiling as the opt-out.
+   * On this architecture the only way the boot stub applies no random offset
+   * is that kaslr_early_init found neither an FDT seed nor RNDR, so either
+   * signal leaves the image within the physical residue of the un-slid edge.
+   * Asserted as equal to the opt-out's cap rather than merely present, so a
+   * later divergence between the two shows up here instead of silently
+   * widening or narrowing one of them. */
+  {
+    unsigned long cap_disabled = ~0ul, cap_failed = ~0ul;
+    for (int which = 0; which < 2; which++) {
+      engine_init(&e);
+      resolve_finset(&e.est[Q_VA_BITS], 48);
+      {
+        struct observation d =
+            mk_scalar(which == 0 ? SF_VIRT_KASLR_DISABLED
+                                 : SF_VIRT_KASLR_RANDOMIZATION_FAILED,
+                      1, CONF_PARSED);
+        evidence_add(&e.ev, &d);
+      }
+      n = rule_arm64_text_base(&e.ev, e.est, out, 4);
+      unsigned long *slot = (which == 0) ? &cap_disabled : &cap_failed;
+      for (int i = 0; i < n; i++)
+        if (out[i].op == C_UPPER_BOUND && out[i].value < *slot)
+          *slot = out[i].value;
+    }
+    TH_CHECK(cap_disabled != ~0ul); /* the opt-out really does cap */
+    TH_CHECK(cap_failed == cap_disabled);
   }
 
   /* Unresolved width as well -> nothing, rather than a band over a guess. */

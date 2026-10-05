@@ -8,27 +8,44 @@
 // sysroot state. The resolved facts feed virt_kaslr_disabled_pin and
 // phys_kaslr_disabled_pin.
 //
-// riscv64: arch/riscv/mm/init.c setup_vm() randomizes only when kaslr_seed !=
-// 0. On a non-EFI system whose FDT has no /chosen/kaslr-seed, the seed stays 0
-// and the kernel loads at KERNEL_LINK_ADDR (== KERNEL_VIRT_TEXT_DEFAULT) with
-// no KASLR. Guards mirror riscv64_no_seed_default precisely:
-//   EFI present                         -> skip (seed may come from EFI)
+// The FDT /chosen/kaslr-seed cell answers for an EFI boot as well as a
+// device-tree one, which is why neither branch consults /sys/firmware/efi. The
+// EFI stub is the writer: drivers/firmware/efi/libstub/fdt.c sets the property
+// only under `IS_ENABLED(CONFIG_RANDOMIZE_BASE) && !efi_nokaslr` and only when
+// efi_get_random_bytes() returned EFI_SUCCESS. So an absent cell on an EFI boot
+// is evidence about the STUB, not about the vantage: no randomness reached the
+// seed path. Presence of EFI itself says nothing either way, and testing for it
+// cost the whole EFI case for no soundness gain.
+//
+// riscv64: arch/riscv/mm/init.c setup_vm() computes
+// `virt_offset = (kaslr_seed % nr_pos) * PMD_SIZE` and then
+// `virt_addr = KERNEL_LINK_ADDR + virt_offset`, so a zero seed puts the kernel
+// at KERNEL_LINK_ADDR (== KERNEL_VIRT_TEXT_DEFAULT) EXACTLY. Nothing else feeds
+// the virtual offset -- the physical placement is a separate field and does not
+// reach it. Guards mirror riscv64_no_seed_default precisely:
 //   no /proc/device-tree                -> skip (FDT state unknown)
-//   /chosen/kaslr-seed present          -> skip (KASLR may be active)
+//   /chosen/kaslr-seed present and zero -> skip (consumed, or a zero supplied)
 //   'zkr' ISA extension present         -> skip (Zkr CSR may have seeded KASLR)
 // setup_vm() seeds from the Zkr `seed` CSR first and only falls back to the FDT
 // property when Zkr returns 0, so an absent FDT seed alone is not sufficient.
-// Only the property-absent + non-EFI + FDT-present + no-Zkr case asserts off.
 //
 // arm64: arch/arm64/kernel/pi/kaslr_early.c reads /chosen/kaslr-seed and zeroes
 // it in place (property kept), so the cell's VALUE carries the signal exactly
-// as on riscv64: a non-zero cell was never consumed and the kernel is at the
-// compile-time default, an absent cell means none was ever supplied, a zero
-// cell is ambiguous and stays inert. map_kernel.c leaves kaslr_offset = 0 in
-// both reporting cases (virtual KASLR off). The kernel falls back to RNDR when
-// it consumes no FDT seed, so the same riscv64 guards apply PLUS a
-// /proc/cpuinfo 'rng' (FEAT_RNG) check, and only the virtual axis is asserted
-// (arm64 physical placement is EFI/bootloader-determined).
+// as on riscv64: a non-zero cell was never consumed and the kernel did not
+// slide, an absent cell means none was ever supplied, a zero cell is ambiguous
+// and stays inert. The kernel falls back to RNDR when it
+// consumes no FDT seed, so the same guards apply PLUS a /proc/cpuinfo 'rng'
+// (FEAT_RNG) check, and only the virtual axis is asserted (arm64 physical
+// placement is EFI/bootloader-determined).
+//
+// arm64 differs from riscv64 in one way that does NOT reach this file: a zero
+// seed leaves the displacement's low bits set from the image's physical load
+// address, so the base is KIMAGE_VADDR plus a residue below MIN_KIMG_ALIGN
+// rather than KIMAGE_VADDR exactly. The residue is zero for every cause that
+// makes the stub give up -- efi_nokaslr is set before the allocation, so
+// efi_get_kimg_min_align() returns MIN_KIMG_ALIGN -- but not for a bootloader
+// that ignores the 2 MiB boot protocol. The consuming rule carries the term;
+// this file reports the signal, not the window.
 // ---
 // <bcoles@gmail.com>
 
@@ -131,11 +148,6 @@ __attribute__((unused)) static int kasld_cpu_feature_rng_present(void) {
 __attribute__((unused)) static unsigned long
 kasld_kaslr_disabled_text_default(void) {
 #if defined(__riscv) && __riscv_xlen == 64
-  if (kasld_access("/sys/firmware/efi", F_OK) == 0 || errno != ENOENT)
-    return 0; /* EFI present -> seed may be efi_kaslr_seed, so the FDT prop is
-                 moot; skip. Also skip when presence can't be determined (EACCES
-                 to a confined vantage): only a genuine ENOENT rules EFI out, so
-                 the verdict does not depend on privilege. */
   if (kasld_access("/proc/device-tree", F_OK) != 0)
     return 0; /* no FDT mounted: seed state unknown */
   if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0) {
@@ -164,12 +176,6 @@ kasld_kaslr_disabled_text_default(void) {
     return 0;
   return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 #elif defined(__aarch64__)
-  if (kasld_access("/sys/firmware/efi", F_OK) == 0 || errno != ENOENT)
-    return 0; /* EFI present -> its seed path is not confirmed visible in the
-                 FDT, so skip (conservative). Also skip when presence can't be
-                 determined (EACCES to a confined vantage): only a genuine
-                 ENOENT rules EFI out, matching the privilege-independent seed
-                 check below. */
   if (kasld_access("/proc/device-tree", F_OK) != 0)
     return 0; /* ACPI boot: no FDT signal */
   if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0) {
@@ -179,7 +185,9 @@ kasld_kaslr_disabled_text_default(void) {
        NON-ZERO value therefore proves the kernel never consumed it -- it
        returns before get_kaslr_seed on a nokaslr command line, and is not
        called at all without CONFIG_RANDOMIZE_BASE -- so no FDT-seed
-       randomization happened and the kernel sits at the compile-time default.
+       randomization happened and the kernel did not slide. Not the same as
+       sitting at the compile-time default: see the physical-residue note in
+       the file header.
        A zero cell is ambiguous (consumed-then-wiped, or a zero seed supplied)
        and stays inert; an unreadable cell reads back as zero here, which
        likewise stays inert. */

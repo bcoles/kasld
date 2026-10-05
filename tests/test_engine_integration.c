@@ -1638,18 +1638,26 @@ static void test_full_engine_arm64_va39_no_kaslr(void) {
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
   unsigned long pe39 = arm64_page_end_for(39ul);
-  TH_CHECK(vt->lo == pe39 + 0x8000000ul);  /* +128M (smallest region) */
-  TH_CHECK(vt->hi == pe39 + 0x80000000ul); /* +2G   (largest region)  */
+  TH_CHECK(vt->lo == pe39 + 0x8000000ul); /* +128M (smallest region) */
+  /* +2G (largest region), plus the physical-placement residue. A no-seed base
+   * is the un-slid edge only where the image was loaded MIN_KIMG_ALIGN-aligned:
+   * the displacement's low bits are copied from the physical address, and a
+   * bootloader that ignores the boot protocol's 2 MiB requirement is warned
+   * about and relocated ANYWAY, so that base is one the kernel really runs
+   * at. Stated via the constant so the two move together. */
+  TH_CHECK(vt->hi == pe39 + 0x80000000ul + ARM64_PHYS_GRAFT_MAX);
   /* Admits both a 128M-region (5.4..6.1) and a 2G-region no-KASLR text base. */
   TH_CHECK(vt->lo <= pe39 + 0x8000000ul && pe39 + 0x80000000ul <= vt->hi);
 #endif
 }
 
 /* 48-bit no-KASLR: the base is KIMAGE_VADDR(48), one of {_PAGE_END+128M, +256M,
- * +2G}. The window brackets the spread to [_PAGE_END+128M, _PAGE_END+2G] =
- * [0xffff800008000000, 0xffff800080000000]. The lower edge admits a 5.4..6.1
- * (128M-region) kernel's text — the bug this guards against pinned to the 2G
- * value (KERNEL_VIRT_TEXT_DEFAULT) and excluded the real low base. */
+ * +2G}, plus a physical-placement residue below MIN_KIMG_ALIGN. The window
+ * brackets the spread to [_PAGE_END+128M, _PAGE_END+2G+residue]. The lower edge
+ * admits a 5.4..6.1 (128M-region) kernel's text — the bug this guards against
+ * pinned to the 2G value (KERNEL_VIRT_TEXT_DEFAULT) and excluded the real low
+ * base; the upper edge admits an image the bootloader placed off the 2 MiB
+ * grid, which the kernel warns about and then runs anyway. */
 static void test_full_engine_arm64_va48_no_kaslr(void) {
 #if defined(__aarch64__)
   struct engine e;
@@ -1666,7 +1674,9 @@ static void test_full_engine_arm64_va48_no_kaslr(void) {
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
   TH_CHECK(vt->lo == 0xffff800008000000ul); /* _PAGE_END(48) + 128M */
-  TH_CHECK(vt->hi == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT); /* +2G */
+  /* +2G, plus the residue the displacement takes from the physical address. */
+  TH_CHECK(vt->hi ==
+           (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + ARM64_PHYS_GRAFT_MAX);
   /* Both the 128M-region truth and the 2G default sit inside the window. */
   TH_CHECK(vt->lo <= 0xffff800008000000ul && 0xffff800008000000ul <= vt->hi);
   TH_CHECK(vt->lo <= (unsigned long)KERNEL_VIRT_TEXT_DEFAULT &&
