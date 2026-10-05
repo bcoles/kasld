@@ -8,12 +8,12 @@
 // to seek and to index. The string-table index and each section's name offset
 // are the two that index rather than merely seek: e_shstrndx picks an entry in
 // the section table, and sh_name an offset into the string table, so a value
-// past the end of either reads memory that is not there. Both are bounds-checked
-// and neither check had a test.
+// past the end of either reads memory that is not there. Both are
+// bounds-checked and neither check had a test.
 //
-// The companion parse_meta() is fuzzed; this reader is not -- the harness for it
-// says so, taking the section payload as its input and starting after the walk.
-// So the walk is what this covers, and it covers it by malformed input: a
+// The companion parse_meta() is fuzzed; this reader is not -- the harness for
+// it says so, taking the section payload as its input and starting after the
+// walk. So the walk is what this covers, and it covers it by malformed input: a
 // well-formed binary exercises none of the refusals.
 //
 // Fixtures are built here rather than captured, because what is being tested is
@@ -78,7 +78,8 @@ static void build(void) {
   sh(1)->sh_name = 1 + sizeof(SEC_NAME) + sizeof(".shstrtab");
   sh(1)->sh_offset = STROFF;
   sh(1)->sh_size = 1;
-  /* 2: the section under test. Its name is at offset 1, past the leading NUL. */
+  /* 2: the section under test. Its name is at offset 1, past the leading NUL.
+   */
   sh(2)->sh_name = 1;
   sh(2)->sh_offset = PAYOFF;
   sh(2)->sh_size = sizeof(PAYLOAD) - 1;
@@ -131,7 +132,8 @@ static void test_absent_section_is_not_an_error(void) {
 }
 
 static void test_missing_file(void) {
-  TH_CHECK(extract_elf_section("/nonexistent/kasld/component", SEC_NAME) == NULL);
+  TH_CHECK(extract_elf_section("/nonexistent/kasld/component", SEC_NAME) ==
+           NULL);
 }
 
 /* Shorter than e_ident, and shorter than the header the class implies. */
