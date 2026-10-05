@@ -128,6 +128,155 @@ if errs:
 PY
 }
 
+# Markdown/JSON parity: the -H report renders in two formats from one
+# hardening_report, and only JSON was ever asserted. A markdown table that
+# dropped a component, carried the wrong gate's value, or lost a CVE would
+# show up nowhere. Cell name in $1, the JSON in $HF_JSON, the markdown in
+# $HF_MD.
+#
+# The two formats do not publish identical sets, and the comparisons follow the
+# emitters rather than assuming they do: JSON lists every gate while markdown
+# lists a gate only where it is active or bypassed, and markdown lists a
+# hardware channel only where it succeeded. Those two run one way. The rest are
+# set equalities, so a row appearing in neither format is still caught.
+check_markdown() {
+  python3 - "$1" <<'PY'
+import sys, os, json, re
+cell = sys.argv[1]
+errs = []
+try:
+    h = json.loads(os.environ["HF_JSON"])
+except Exception as e:
+    print("    %s: invalid JSON: %s" % (cell, e)); sys.exit(1)
+h = h.get("hardening", h)
+
+md = os.environ["HF_MD"]
+start = md.find("## Hardening Assessment")
+if start < 0:
+    print("    %s: markdown carries no hardening report" % cell); sys.exit(1)
+md = md[start:]
+
+sections, cur = {}, None
+for line in md.splitlines():
+    if line.startswith("### "):
+        cur = line[4:].strip()
+        sections[cur] = []
+    elif cur is not None:
+        sections[cur].append(line)
+
+
+def rows(name):
+    """Body rows of a section's table, as lists of cells. The header row and
+    the alignment row below it are not data."""
+    out, past_header = [], False
+    for line in sections.get(name, []):
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if set("".join(cells)) <= set(":- "):
+            past_header = True
+            continue
+        if past_header:
+            out.append(cells)
+    return out
+
+
+def bullets(name):
+    return [l[2:].strip() for l in sections.get(name, []) if l.startswith("- ")]
+
+
+def plain(s):
+    return s.replace("`", "")
+
+
+exp = h.get("exposure", {})
+m = re.search(r"\*\*(\d+) of (\d+)\*\* leak techniques succeeded", md)
+if not m:
+    errs.append("markdown states no exposure headline")
+elif (int(m.group(1)), int(m.group(2))) != (exp.get("succeeded"), exp.get("total")):
+    errs.append("exposure: markdown says %s of %s, json says %r of %r"
+                % (m.group(1), m.group(2), exp.get("succeeded"), exp.get("total")))
+
+gates = {g.get("gate"): g for g in h.get("active_defenses", [])}
+md_gates, lockdown_rows = {}, 0
+for r in rows("Active defenses"):
+    name = plain(r[0])
+    if name == "Kernel lockdown":
+        lockdown_rows += 1
+    else:
+        md_gates[name] = r
+if lockdown_rows != 1:
+    errs.append("active defenses: %d lockdown rows, expected exactly 1"
+                % lockdown_rows)
+for name, r in md_gates.items():
+    g = gates.get(name)
+    if g is None:
+        errs.append("markdown names gate %r, absent from json active_defenses"
+                    % name)
+        continue
+    if re.match(r"^-?[0-9]+$", r[1]) and int(r[1]) != g.get("value"):
+        errs.append("%s: markdown value %s, json value %r"
+                    % (name, r[1], g.get("value")))
+for name, g in gates.items():
+    if (g.get("active") or g.get("components_bypassed")) and name not in md_gates:
+        errs.append("json reports %r active or bypassed, markdown has no row"
+                    % name)
+
+avail = h.get("available_hardening", [])
+bl = bullets("Available hardening")
+if len(bl) != len(avail):
+    errs.append("available hardening: %d markdown bullets, %d json actions"
+                % (len(bl), len(avail)))
+for a in avail:
+    action = a.get("action", "")
+    if not any(plain(b).startswith(action) for b in bl):
+        errs.append("json action %r reaches no markdown bullet" % action)
+
+unpatched = h.get("patched_vulnerabilities", {}).get("possibly_unpatched", [])
+bl = bullets("Patched vulnerabilities")
+if len(bl) != len(unpatched):
+    errs.append("patched vulnerabilities: %d markdown bullets, %d json entries"
+                % (len(bl), len(unpatched)))
+for v in unpatched:
+    hit = [b for b in bl if b.split(" ")[0] == v.get("component")]
+    if not hit:
+        errs.append("possibly-unpatched %r reaches no markdown bullet"
+                    % v.get("component"))
+        continue
+    for k in ("cve", "patch"):
+        if v.get(k) and v[k] not in hit[0]:
+            errs.append("%s: markdown bullet omits %s %r"
+                        % (v.get("component"), k, v[k]))
+
+want = sorted((x.get("component"), x.get("config"),
+               x.get("discloses") or "disclosure not stated")
+              for x in h.get("compile_time_surface", []))
+got = sorted(tuple(r[:3]) for r in rows("Compile-time attack surface"))
+if want != got:
+    errs.append("compile-time surface: markdown %r, json %r" % (got, want))
+
+hw = h.get("hardware_side_channels", [])
+md_hw = set(b.split(" - ")[0] for b in bullets("Hardware side-channels"))
+for x in hw:
+    if x.get("succeeded") and x.get("component") not in md_hw:
+        errs.append("json hardware channel %r succeeded, markdown has no bullet"
+                    % x.get("component"))
+for name in md_hw - set(x.get("component") for x in hw):
+    errs.append("markdown names hardware channel %r, absent from json" % name)
+
+want = sorted((x.get("component"), x.get("discloses") or "not stated")
+              for x in h.get("no_mitigation", []))
+got = sorted(tuple(r[:2]) for r in rows("No known mitigation"))
+if want != got:
+    errs.append("no known mitigation: markdown %r, json %r" % (got, want))
+
+if errs:
+    for e in errs:
+        print("    %s: %s" % (cell, e))
+    sys.exit(1)
+PY
+}
+
 COMP=$(dirname "$BIN")/components
 fail=0
 n=0
@@ -144,6 +293,14 @@ for d in "$FIX"/*/; do
   if ! HF_JSON="$json" check "$cell"; then
     fail=1
   fi
+  md=$(KASLD_SYSROOT="$d/sysroot" KASLD_COMPONENT_DIR="$COMP" \
+    "$BIN" -q -H -m 2>/dev/null)
+  if [ -z "$md" ]; then
+    echo "    $cell: no markdown output"
+    fail=1
+  elif ! HF_JSON="$json" HF_MD="$md" check_markdown "$cell"; then
+    fail=1
+  fi
   n=$((n + 1))
 done
 
@@ -152,5 +309,5 @@ if [ "$fail" -ne 0 ]; then
     "$RED" "$RESET" >&2
   exit 1
 fi
-printf '%shardening-fixtures: OK%s (%s x86_64 fixtures, advisor invariants hold)\n' \
+printf '%shardening-fixtures: OK%s (%s x86_64 fixtures, advisor invariants hold; the markdown report and json agree)\n' \
   "$GREEN" "$RESET" "$n"

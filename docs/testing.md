@@ -236,7 +236,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-posture-diff` | behavioural test for `extra/posture-diff` |
 | `check-posture-summary` | behavioural test for `extra/posture-summary` |
 | `check-baseline` | the no-component baseline (`-s '*'`) renders in every output mode and exits with the no-results status, and a run that gathers evidence resolves a window *inside* it † |
-| `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run, agree on every candidate count and on the set each is measured against, and every region the readout lists evidence for is carried by the markdown report under its section name † |
+| `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run, agree on every candidate count and on the set each is measured against, and every region the readout lists evidence for is carried by the markdown report under its section name; the host runs are compared under `--verbose` as well, where the markdown report's per-result table and disposition list must agree with JSON † |
 | `check-render-color` | coloured output is byte-identical to plain output once the escape sequences are removed, and markdown, JSON and oneline carry no escapes at all † |
 | `check-wire-text` | a component cannot put an escape sequence on the terminal: a record whose `name`, or a disposition whose `gate` or `msg`, leaves printable ASCII is rejected, and the verbose echo of component output strips control bytes † |
 | `check-sysroot-containment` | a `KASLD_SYSROOT` too long to build a fact path with fails the read instead of falling back to the analysing host's own `/proc` and `/sys` † |
@@ -254,7 +254,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-arch-names` | every way of naming an architecture to KASLD agrees on one name. The arch header's basename is that name, and anything reaching a build, a fixture or a header from a machine string or a compiler triple converts into it. Three things hold the conversion and none of their drifts fails on its own: `tests/lib/arch-names.sh` does it, `extra/collect` carries an unavoidable private copy because it runs where this tree is absent, and the cross matrix supplies the triple spellings the table must resolve. The copy is compared by ANSWER rather than by text, since a capture recorded under a name nothing resolves reads as a foreign machine and is refused to the build that models it |
 | `check-macro-claims` | a comment stating a macro's value states the truth. Comments pin down an arch axis in passing — "the phys pin is inert (`KASLR_DISABLED_PINS_PHYS=0`)" — and nothing read them, so two components claimed `KASLR_DISABLED_PINS_VIRT_TEXT=1` for architectures whose header says `0`, each then naming the wrong rule as the consequence. Both compiled and passed every suite, because a comment is not compiled. The checkable macros, their values and the architecture a file is bound to are all derived — from `arch/*.h` and from `api.h`'s own dispatch chain — so a new axis or architecture is picked up without editing the guard. Only boolean axes are checked, since a size or address is written in prose with units and in hex; files with no arch gate, and gates whose candidate architectures disagree, are counted and reported rather than guessed at |
 | `check-fail-closed` | every component exits cleanly with `/proc` empty. A component reads files a container, a hardened host or a masked mount can all remove; reading nothing is ordinary and must exit cleanly, while dying on a signal is a read the component never checked — the failure a restricted vantage produces first. `KASLD_SYSROOT` points at an empty directory and each component binary runs directly. Cross targets are the point: ten components compile to a zero-byte file on x86_64, so a native-only sweep steps over them with `[ -x ]` and they had never been run with `/proc` missing on any host — four of those are the KASLR-off signal emitters, whose safety property is precisely that a failed read yields no signal. Where `make cross` has been run and qemu-user is present each target is swept under it, in parallel; absent toolchains and absent qemu binaries are named rather than failing the guard |
-| `hardening-fixtures` | the `-H` hardening advisor holds its structural invariants when driven over the captured x86_64 sysroots † |
+| `hardening-fixtures` | the `-H` hardening advisor holds its structural invariants when driven over the captured x86_64 sysroots, and its markdown report states the same gates, suggestions, components and CVEs as its JSON † |
 | `cli-flags` | the argument parser, chiefly short-flag bundling (`-fq` == `-f -q`), which `main()`'s option loop cannot be unit-tested for (`main` is compiled out under `-DKASLD_TESTING`). Same note on the name as above |
 
 `check-truncation` needs `i686-linux-gnu-gcc`, `check-shellcheck` needs
@@ -644,6 +644,17 @@ markdown report reports the extent observed per section over a wider set, so
 containment rather than equality is the invariant — a region the readout
 evidences must appear in the markdown table.
 
+The host runs are compared under `--verbose` as well. Verbose is a different
+renderer, not a longer one: the markdown report draws one row per result instead
+of one per group and adds a per-component disposition list no other mode prints.
+Those rows are checked for the column count their own header declares — an
+unescaped pipe in a cell shifts every column to its right — for an address
+rendered as one, and for an origin the run published a component for, while the
+disposition list is compared against the dispositions JSON carries. The cross
+sweep stays on the answer-first output: a foreign-arch verbose render costs an
+emulated run per format, and verbosity is not the axis those targets are there
+for.
+
 Compares text and markdown row for row — quantity, grade, range, search space
 and pitch, normalised so neither format's column padding nor its scaffolding
 counts — because a renderer that alters a displayed value or drops a grade
@@ -840,6 +851,15 @@ path that regressed before. Not named `check-*`: it exercises behaviour over
 fixtures rather than asserting a source invariant, but `make lint` runs it and
 it is part of that contract.
 
+Each fixture is rendered in both formats, and the markdown report must state
+what the JSON states: the same exposure counts, gate values, suggestions,
+compile-time surface, unmitigated components and CVEs. The two do not publish
+identical sets — JSON lists every gate where markdown lists only those active
+or bypassed, and markdown lists a hardware channel only where it succeeded —
+so those two comparisons run one way and the rest are set equalities. Only
+JSON was asserted before, so a markdown table that dropped a component or
+carried the wrong gate's value showed up nowhere.
+
 ---
 
 ## 2. End-to-end replay (`tests/replay`)
@@ -974,7 +994,10 @@ make coverage-union    # the two above, unioned
 - `coverage-e2e` instruments the real binary (no `-DKASLD_TESTING`) and runs
   it live + over the x86_64/i686 fixtures, so it is the only report that
   reaches `main()`, the engine bridge, and the renderers. x86_64 host only
-  (runs the binary natively).
+  (runs the binary natively). It sweeps every output mode, including the
+  markdown report's three distinct renderers (compact, `-v -m`, `-H -m`): a
+  mode the sweep omits reads as uncovered however thoroughly a guard drives
+  it.
 - `coverage-union` reports the two together. Neither alone answers whether a
   file is tested — the unit report hides what `-DKASLD_TESTING` compiles out,
   the end-to-end one has no unit paths, and a file can read 7% in one and 70%

@@ -79,9 +79,15 @@ for d in "$FIX"/x86_64/*/ "$FIX"/i686/*/; do
   "$ROOT/extra/prepare-bundle" "$d" "$sc/r" || { rm -rf "$sc"; continue; }
   # Exercise EVERY renderer so render.c is covered end-to-end, not just the
   # default text path: -v verbose text, -j JSON, -1 oneline, -m markdown,
-  # -c forced color (ANSI paths), and the -H hardening add-on over both text
-  # and JSON. Each is a distinct family of render.c branches.
-  for mode in "-v" "-j" "-1" "-m" "-c" "-H" "-j -H"; do
+  # -c forced color (ANSI paths), and the -H hardening add-on over text, JSON
+  # and markdown. Each is a distinct family of render.c branches.
+  #
+  # The markdown renderer has three of them, not one: the compact report, the
+  # verbose per-result table, and the hardening report. A mode the sweep omits
+  # reads as uncovered however thoroughly a guard drives it, which is how the
+  # verbose and hardening markdown paths came to look untested while
+  # check-render-parity and hardening-fixtures were asserting on them.
+  for mode in "-v" "-j" "-1" "-m" "-v -m" "-c" "-H" "-j -H" "-H -m"; do
     KASLD_SYSROOT="$sc/r" KASLD_COMPONENT_DIR="$COMP" \
       "$E2E/kasld" $mode >/dev/null 2>&1 && runs=$((runs+1))
   done

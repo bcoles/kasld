@@ -482,6 +482,136 @@ compare_one() {
   done
 }
 
+# The same target under --verbose. The checks above run the answer-first output
+# only, and verbose is a different renderer: markdown draws one row per result
+# instead of one per group, and adds a per-component disposition list that no
+# other mode prints. Neither had ever been rendered by a test, so a malformed
+# table or a dropped row in either was invisible.
+#
+# Host targets only. A cross target's verbose render costs an emulated run per
+# format for a renderer the host already covers, and the posture the cross sweep
+# reaches is a property of the resolution rather than of the verbosity.
+#
+# shellcheck disable=SC2086  # $q is an optional interpreter prefix, intentionally split
+compare_verbose() {
+  label=$1 q=$2 bin=$3 sysroot=$4
+  compdir=$(dirname "$bin")/components
+  run() {
+    KASLD_SYSROOT="$sysroot" KASLD_COMPONENT_DIR="$compdir" \
+      KASLD_EXEC_WRAPPER="$q" $q "$bin" -q -v "$@" 2>/dev/null
+  }
+  run    >"$TMP_TXT"
+  run -m >"$TMP_MDR"
+
+  # The Layout table is the answer, and verbose must not restate it differently
+  # from the readout beside it.
+  t=$(text_quantities <"$TMP_TXT")
+  m=$(md_quantities <"$TMP_MDR")
+  if [ "$t" != "$m" ]; then
+    note "$label [verbose]: text and markdown name different quantities"
+    printf '        text:     %s\n' "$(echo "$t" | tr '\n' ' ')"
+    printf '        markdown: %s\n' "$(echo "$m" | tr '\n' ' ')"
+    return
+  fi
+  tr_=$(text_rows <"$TMP_TXT")
+  mr=$(md_rows <"$TMP_MDR")
+  if [ "$tr_" != "$mr" ]; then
+    note "$label [verbose]: text and markdown report different rows"
+    printf '%s\n' "$tr_" >"$TMP_T"
+    printf '%s\n' "$mr" >"$TMP_M"
+    diff "$TMP_T" "$TMP_M" 2>/dev/null | head -6 | sed 's/^/        /'
+    return
+  fi
+
+  [ -n "$PY" ] || return 0
+  run -j >"$TMP_J"
+  out=$("$PY" - "$TMP_MDR" "$TMP_J" <<'PY'
+import json, re, sys
+
+md = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+try:
+    doc = json.load(open(sys.argv[2], encoding="utf-8", errors="replace"))
+except Exception:
+    sys.exit(0)                      # a non-JSON run is not this check's business
+bad = []
+
+
+def section(head):
+    """The lines under a '## head' heading, up to the next one."""
+    out, inside = [], False
+    for line in md.splitlines():
+        if line.startswith("## "):
+            inside = line[3:].strip() == head
+            continue
+        if inside:
+            out.append(line)
+    return out
+
+
+# Per-component dispositions. Printed by this renderer alone, and drawn from the
+# same component logs JSON publishes, so the two state the same set.
+want = sorted((c["name"], c["disposition"].get("category"),
+               c["disposition"].get("message") or "")
+              for c in doc.get("components", [])
+              if isinstance(c.get("disposition"), dict))
+got = []
+for line in section("Component dispositions"):
+    if not line.startswith("- "):
+        continue
+    m = re.match(r"- [*]{1,2}([^*]+)[*]{1,2} - ([A-Za-z0-9_]+)(?: \((.*)\))?$",
+                 line)
+    if not m:
+        bad.append("disposition line not in the documented shape: %r" % line)
+        continue
+    got.append((m.group(2), m.group(1), m.group(3) or ""))
+got.sort()
+if got != want:
+    bad.append("component dispositions: markdown %r, json %r" % (got, want))
+
+# The per-result Evidence table. Every row carries one cell per declared column
+# -- a cell holding an unescaped pipe would silently shift every column to its
+# right -- and the origin of each row is a component the run actually published.
+rows, header = [], None
+for line in section("Evidence"):
+    if not line.startswith("|"):
+        continue
+    cells = [c.strip() for c in line.strip().strip("|").split("|")]
+    if set("".join(cells)) <= set(":- "):
+        continue
+    if header is None:
+        header = cells
+        continue
+    rows.append(cells)
+if header is None:
+    bad.append("the verbose Evidence table has no header row")
+else:
+    known = set(c["name"] for c in doc.get("components", []))
+    for r in rows:
+        if len(r) != len(header):
+            bad.append("Evidence row has %d cells, header declares %d: %r"
+                       % (len(r), len(header), r))
+            continue
+        cell = dict(zip(header, r))
+        if not re.match(r"^`0x[0-9a-f]{8,16}`$", cell.get("Address", "")):
+            bad.append("Evidence row address not a rendered address: %r"
+                       % cell.get("Address"))
+        for origin in cell.get("Origin", "").split(","):
+            origin = origin.strip()
+            if origin and known and origin not in known:
+                bad.append("Evidence row names origin %r, which the run "
+                           "published no component for" % origin)
+    if doc.get("groups") and not rows:
+        bad.append("json reports %d evidence group(s), the verbose table has "
+                   "no rows" % len(doc["groups"]))
+
+if bad:
+    print("; ".join(bad))
+    sys.exit(1)
+sys.exit(0)
+PY
+  ) || { note "$label [verbose]: $out"; return; }
+}
+
 # The build subdirectory is named for the compiler's triple, so name the native
 # binary the same way the Makefile does. Running a candidate to see whether it
 # works does NOT identify it: a build for a narrower architecture runs fine here
@@ -496,6 +626,7 @@ BIN=$(host_kasld)
 }
 
 n=0
+nv=0
 host_arch=$(basename "$(dirname "$BIN")")
 host_arch=${host_arch%%-*}
 for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
@@ -506,13 +637,18 @@ for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
   x86_64:x86_64) ;;
   *) continue ;;
   esac
-  compare_one "$(basename "$(dirname "$sysroot")")" "" "$BIN" "$sysroot"
+  cell=$(basename "$(dirname "$sysroot")")
+  compare_one "$cell" "" "$BIN" "$sysroot"
+  compare_verbose "$cell" "" "$BIN" "$sysroot"
   n=$((n + 1))
+  nv=$((nv + 1))
 done
 
 # Baseline (no fixture): the widest state, and the one every arch can render.
 compare_one "baseline" "" "$BIN" "/nonexistent-sysroot"
+compare_verbose "baseline" "" "$BIN" "/nonexistent-sysroot"
 n=$((n + 1))
+nv=$((nv + 1))
 
 # The cross sweep is what reaches the KASLR-unsupported posture: no host fixture
 # produces it, and that posture is where the formats diverged.
@@ -572,5 +708,5 @@ if [ "$fail" -ne 0 ]; then
     "$RED" "$RESET" >&2
   exit 1
 fi
-printf '%scheck-render-parity: OK%s (%d runs; text/markdown agree row for row, readout and json agree on every count and baseline, json names nothing new, every evidenced region reaches markdown)\n' \
-  "$GREEN" "$RESET" "$n"
+printf '%scheck-render-parity: OK%s (%d runs, %d of them also verbose; text/markdown agree row for row, readout and json agree on every count and baseline, json names nothing new, every evidenced region reaches markdown, the verbose result table and disposition list agree with json)\n' \
+  "$GREEN" "$RESET" "$n" "$nv"
