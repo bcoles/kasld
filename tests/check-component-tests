@@ -54,7 +54,6 @@ COMP=$ROOT/src/components
 # failed to notice, so they are pre-existing debt now stated rather than new.
 UNTESTED="
 alsa_seq_ext_ptr
-arm64_no_seed
 bootconfig_facts
 bpf_verifier_ksym
 bpf_verifier_log

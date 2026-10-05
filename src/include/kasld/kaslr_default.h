@@ -21,13 +21,14 @@
 // Only the property-absent + non-EFI + FDT-present + no-Zkr case asserts off.
 //
 // arm64: arch/arm64/kernel/pi/kaslr_early.c reads /chosen/kaslr-seed and zeroes
-// it in place (property kept), so an absent property means no seed was supplied
-// and map_kernel.c leaves kaslr_offset = 0 (virtual KASLR off). When the FDT
-// seed is absent the kernel falls back to the RNDR instruction, so the same
-// riscv64 guards apply PLUS a /proc/cpuinfo 'rng' (FEAT_RNG) check: only the
-// property-absent + non-EFI + FDT-present + no-RNDR case asserts KASLR off, and
-// only the virtual axis (arm64 physical placement is
-// EFI/bootloader-determined).
+// it in place (property kept), so the cell's VALUE carries the signal exactly
+// as on riscv64: a non-zero cell was never consumed and the kernel is at the
+// compile-time default, an absent cell means none was ever supplied, a zero
+// cell is ambiguous and stays inert. map_kernel.c leaves kaslr_offset = 0 in
+// both reporting cases (virtual KASLR off). The kernel falls back to RNDR when
+// it consumes no FDT seed, so the same riscv64 guards apply PLUS a
+// /proc/cpuinfo 'rng' (FEAT_RNG) check, and only the virtual axis is asserted
+// (arm64 physical placement is EFI/bootloader-determined).
 // ---
 // <bcoles@gmail.com>
 
@@ -171,17 +172,33 @@ kasld_kaslr_disabled_text_default(void) {
                  check below. */
   if (kasld_access("/proc/device-tree", F_OK) != 0)
     return 0; /* ACPI boot: no FDT signal */
-  if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0 ||
-      errno != ENOENT)
-    return 0; /* present -> a seed existed, KASLR may be active. Or the node
-                 exists but is unreadable to this vantage: access() returns
-                 EACCES when an unprivileged caller cannot traverse to it (e.g.
-                 SELinux-confined shell on Android), which is NOT evidence of
-                 absence. Treating it as absent would make the KASLR-disabled
-                 verdict depend on the caller's privilege. Only a genuine ENOENT
-                 is the no-seed signal. */
+  if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0) {
+    /* Seed cell present. kaslr_early_init consumes it through get_kaslr_seed,
+       which zeroes the cell in place, and that already-wiped blob is what
+       setup_arch unflattens into /proc/device-tree. A cell still holding a
+       NON-ZERO value therefore proves the kernel never consumed it -- it
+       returns before get_kaslr_seed on a nokaslr command line, and is not
+       called at all without CONFIG_RANDOMIZE_BASE -- so no FDT-seed
+       randomization happened and the kernel sits at the compile-time default.
+       A zero cell is ambiguous (consumed-then-wiped, or a zero seed supplied)
+       and stays inert; an unreadable cell reads back as zero here, which
+       likewise stays inert. */
+    if (kasld_read_fdt_kaslr_seed() == 0)
+      return 0;
+  } else if (errno != ENOENT) {
+    return 0; /* cell present but untraversable to this vantage: access()
+                 returns EACCES when an unprivileged caller cannot traverse to
+                 it (e.g. an SELinux-confined shell on Android), which is NOT
+                 evidence of absence. Treating it as absent would make the
+                 KASLR-disabled verdict depend on the caller's privilege. Only
+                 a genuine ENOENT is the no-seed signal. */
+  }
   if (kasld_cpu_feature_rng_present())
-    return 0; /* RNDR may have seeded KASLR despite the absent FDT seed */
+    return 0; /* RNDR may have seeded KASLR despite no FDT seed being consumed.
+                 Kept on the visible-seed path too, though arm64 consults the
+                 FDT ahead of RNDR so a non-zero cell rules the instruction out
+                 as well: declining costs a narrowing, asserting wrongly costs
+                 soundness. */
   return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 #else
   return 0;
