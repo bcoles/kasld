@@ -128,6 +128,11 @@ drive engine      test_engine.c             $OBJS
 drive integration test_engine_integration.c $OBJS
 drive estimate    test_estimate.c           "$COV/estimate.o" "$COV/quantities.o"
 drive evidence    test_evidence.c           "$COV/evidence.o"
+# The ELF section reader. Its suite #includes src/meta.c, so the driver's own
+# object carries it and no separate meta.o is linked -- the reducer attributes
+# by source path, so the lines land on src/meta.c either way. Driven here
+# because a test the report does not build cannot move it.
+drive meta_elf    test_meta_elf.c
 
 # Orchestrator internals + environment + render + region_info: test_kasld.c is
 # ONE TU that #includes the sources under test directly, under -DKASLD_TESTING

@@ -936,6 +936,11 @@ $(TEST_FWMEMMAP_BIN): $(TEST_DIR)/test_sysfs_firmware_memmap.c $(SRC_DIR)/compon
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_firmware_memmap.c -o $@
 
+TEST_META_ELF_BIN := $(TEST_OBJ_DIR)/test_meta_elf
+$(TEST_META_ELF_BIN): $(TEST_DIR)/test_meta_elf.c $(META_SRC) $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_meta_elf.c -o $@
+
 TEST_XEN_NOTES_BIN := $(TEST_OBJ_DIR)/test_sysfs_kernel_notes_xen
 $(TEST_XEN_NOTES_BIN): $(TEST_DIR)/test_sysfs_kernel_notes_xen.c $(SRC_DIR)/components/sysfs_kernel_notes_xen.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
@@ -1146,6 +1151,7 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_ZFSDBG_BIN) \
   $(TEST_FWMEMMAP_BIN) \
   $(TEST_ZONEINFO_BIN) \
+  $(TEST_META_ELF_BIN) \
   $(TEST_XEN_NOTES_BIN) \
   $(TEST_PHYS32_RELOC_BIN) \
   $(TEST_MEMINFO_FACTS_BIN) \
