@@ -3403,6 +3403,120 @@ static void test_unprivileged_exec_keeps_its_environment(void) {
   TH_CHECK(getenv("KASLD_SYSROOT") != NULL); /* KASLD_ENV_BLOCK */
 }
 
+/* =========================================================================
+ * Wire-record REJECTION
+ *
+ * capture_result/_scalar/_constraint are the only code that consumes component
+ * stdout, which is attacker-influenced: a component is a separate binary whose
+ * output this process parses. The acceptance paths are covered above; the
+ * refusals were not, and they are where a malformed record is supposed to stop.
+ *
+ * Each refusal is also an entry in the discard ledger, and that is the half
+ * worth asserting. A bare "returned 0" cannot tell a rejected record from one
+ * that was never a record at all -- and the parsers draw exactly that
+ * distinction: a line that does not begin with the tag is prose off the shared
+ * pipe and is passed over silently, while a line that claimed to be a record
+ * and failed validation is a component reporting something this build does not
+ * accept, and is counted. Asserting the reason and the source pins which of the
+ * two happened.
+ * ========================================================================= */
+
+/* How many times (reason, source) has been recorded; 0 if never. The ledger
+ * aggregates by that pair, so this reads the count rather than the position. */
+static unsigned int discards_for(enum kasld_discard_reason reason,
+                                 const char *source) {
+  for (int i = 0; i < kasld_discard_count(); i++) {
+    const struct kasld_discard *d = kasld_discard_at(i);
+    if (d->reason == reason && strcmp(d->source, source) == 0)
+      return d->count;
+  }
+  return 0;
+}
+
+/* A line that is not a record at all is passed over, not counted. Prose shares
+ * the pipe with records, so counting it would report every component that logs
+ * as having emitted something invalid. */
+static void test_prose_is_not_a_rejection(void) {
+  kasld_discard_reset();
+  TH_CHECK(capture_scalar("checking /proc/meminfo ...", test_origin("t")) == 0);
+  TH_CHECK(capture_constraint("found nothing", test_origin("t")) == 0);
+  TH_CHECK(kasld_discard_total() == 0);
+}
+
+/* A line that claimed to be a scalar record and failed validation is counted
+ * against the component that produced it. */
+static void test_scalar_rejections_are_recorded(void) {
+  static const char *const bad[] = {
+      "S ",                                      /* no fields */
+      "S phys_memtotal conf=parsed",             /* no value */
+      "S not_a_real_fact conf=parsed value=0x1", /* unknown fact */
+      "S phys_memtotal conf=nonsense value=0x1", /* unknown confidence */
+      "S phys_memtotal conf=parsed value=zz",    /* unparsable value */
+  };
+  for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) {
+    kasld_discard_reset();
+    TH_CHECK(capture_scalar(bad[i], test_origin("scal")) == 0);
+    TH_CHECK(discards_for(DISCARD_PARSE, "scal") == 1);
+  }
+  /* The well-formed line is accepted, so the refusals above are the validation
+   * firing rather than the whole parser declining. */
+  kasld_discard_reset();
+  num_scalar_facts = 0;
+  TH_CHECK(capture_scalar("S phys_memtotal conf=parsed value=0x1000",
+                          test_origin("scal")) == 1);
+  TH_CHECK(kasld_discard_total() == 0);
+}
+
+/* Same for the constraint channel, which additionally carries inequality bounds
+ * only: an exact op is well formed and still not accepted here. */
+static void test_constraint_rejections_are_recorded(void) {
+  static const char *const bad[] = {
+      "C ",                                            /* no fields */
+      "C virt_page_offset >=",                         /* no value */
+      "C not_a_quantity >= conf=parsed value=0x1",     /* unknown quantity */
+      "C virt_page_offset ?? conf=parsed value=0x1",   /* unknown op */
+      "C virt_page_offset == conf=parsed value=0x1",   /* op not carried */
+      "C virt_page_offset >= conf=nonsense value=0x1", /* unknown conf */
+      "C virt_page_offset >= conf=parsed value=zz",    /* unparsable value */
+  };
+  for (unsigned i = 0; i < sizeof bad / sizeof *bad; i++) {
+    kasld_discard_reset();
+    TH_CHECK(capture_constraint(bad[i], test_origin("cons")) == 0);
+    TH_CHECK(discards_for(DISCARD_PARSE, "cons") == 1);
+  }
+  kasld_discard_reset();
+  num_constraint_facts = 0;
+  TH_CHECK(capture_constraint("C virt_page_offset >= conf=parsed value=0x1000",
+                              test_origin("cons")) == 1);
+  TH_CHECK(kasld_discard_total() == 0);
+}
+
+/* A full store is not a parse failure, and is counted against the store rather
+ * than the component: the record was valid and there was nowhere to put it. */
+static void test_full_stores_are_recorded_against_the_store(void) {
+  kasld_discard_reset();
+  num_scalar_facts = 0;
+  for (int i = 0; i < MAX_SCALAR_FACTS; i++)
+    TH_CHECK(capture_scalar("S phys_memtotal conf=parsed value=0x1000",
+                            test_origin("fill")) == 1);
+  TH_CHECK(capture_scalar("S phys_memtotal conf=parsed value=0x1000",
+                          test_origin("fill")) == 0);
+  TH_CHECK(discards_for(DISCARD_CAPACITY, DSRC_SCALARS) == 1);
+  TH_CHECK(discards_for(DISCARD_PARSE, "fill") == 0);
+
+  kasld_discard_reset();
+  num_constraint_facts = 0;
+  for (int i = 0; i < MAX_CONSTRAINT_FACTS; i++)
+    TH_CHECK(
+        capture_constraint("C virt_page_offset >= conf=parsed value=0x1000",
+                           test_origin("fill")) == 1);
+  TH_CHECK(capture_constraint("C virt_page_offset >= conf=parsed value=0x1000",
+                              test_origin("fill")) == 0);
+  TH_CHECK(discards_for(DISCARD_CAPACITY, DSRC_CONSTRAINT_FACTS) == 1);
+  num_scalar_facts = 0;
+  num_constraint_facts = 0;
+}
+
 int main(void) {
   th_sysroot_init("kasld");
   TEST_SUITE("test_kasld");
@@ -3425,6 +3539,10 @@ int main(void) {
   RUN(test_is_pow2_classifies_alignments);
 
   BEGIN_CATEGORY("Wire parser");
+  RUN(test_prose_is_not_a_rejection);
+  RUN(test_scalar_rejections_are_recorded);
+  RUN(test_constraint_rejections_are_recorded);
+  RUN(test_full_stores_are_recorded_against_the_store);
   RUN(test_parse_base_record);
   RUN(test_parse_interior_sample);
   RUN(test_parse_pos_extent);
