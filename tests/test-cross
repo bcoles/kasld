@@ -159,6 +159,12 @@ run_target() {
   cc="${triple}-gcc"; qemu=$(resolve_qemu "$qbin")
   st="$OUT/$triple.st"
   if ! command -v "$cc" >/dev/null 2>&1; then
+    # A target the caller NAMED did not run what was asked for, so it fails
+    # rather than skipping. One from the built-in set skips: no host is expected
+    # to carry every toolchain, and the sweep reports the scope it reached.
+    if [ "${named:-0}" = 1 ]; then
+      printf 'FAIL  %-30s (no toolchain: %s)\n' "$triple" "$cc"; echo fail >"$st"; return
+    fi
     printf 'SKIP  %-30s (no toolchain: %s)\n' "$triple" "$cc"; echo skip >"$st"; return
   fi
   if [ -z "$qemu" ]; then
@@ -276,6 +282,47 @@ riscv32-linux-musl riscv64-linux-musl s390x-ibm-linux-musl x86_64-linux-musl'
 if [ "$#" -eq 0 ]; then
   # shellcheck disable=SC2086
   set -- $default_triples
+  named=0
+else
+  named=1
+fi
+
+# A named target is checked before anything is compiled. Every toolchain triple
+# carries at least one '-' -- the built-in set above and the release matrix both
+# do throughout -- so a bare word is an architecture name or a typo rather than a
+# triple. Left to run, it reaches the toolchain check, skips, and the suite exits
+# 0: the cross suite is settled by exit status, so that reads as a pass for an
+# architecture nothing tested. target_triple_for names the triple an
+# The built-in set is what the correction comes from: a bare word that prefixes
+# one of those triples is the architecture half of it, which is the common case
+# of typing the architecture instead of its toolchain. target_triple_for is NOT
+# used here -- it maps a captured `uname -m` string, which spells several targets
+# differently from their toolchain (armv7l against armv7), so it answers a
+# different question.
+if [ "$named" = 1 ]; then
+  bad=0
+  for triple in "$@"; do
+    case $triple in
+    *-*) continue ;;
+    esac
+    bad=1
+    full=
+    for cand in $default_triples; do
+      case $cand in
+      "$triple"-*) full=$cand; break ;;
+      esac
+    done
+    if [ -n "$full" ]; then
+      printf '%s: %s is an architecture, not a toolchain triple -- did you mean %s?\n' \
+        "${0##*/}" "$triple" "$full" >&2
+    else
+      printf '%s: %s matches no toolchain triple\n' "${0##*/}" "$triple" >&2
+    fi
+  done
+  if [ "$bad" = 1 ]; then
+    printf 'usage: %s [triple ...]   (no arguments runs the built-in set)\n' "${0##*/}" >&2
+    exit 2
+  fi
 fi
 
 # Launch up to JOBS targets concurrently, each writing to its own .res/.st.
