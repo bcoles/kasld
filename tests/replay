@@ -259,6 +259,31 @@ EOF
   if [ "${KEEP:-0}" = 1 ]; then echo "      kept scratch sysroot: $sc"; else rm -rf "$sc"; fi
 }
 
+# A named fixture is checked before anything runs. The launch loop below
+# discards a non-directory, which is what the default glob needs -- it expands
+# to whatever is present -- but for an argument that silently discards the
+# request, and the sweep then reports 0 pass, 0 fail, 0 skip and exits 0: a run
+# that verified nothing, reading as a pass. An argument may itself be a glob, so
+# what is required is that it expand to at least one directory rather than that
+# it be one.
+if [ "$#" -gt 0 ]; then
+  bad=0
+  for fx in "$@"; do
+    hit=0
+    for d in $fx; do
+      [ -d "$d" ] && { hit=1; break; }
+    done
+    [ "$hit" = 1 ] && continue
+    bad=1
+    printf '%s: %s names no fixture directory\n' "${0##*/}" "$fx" >&2
+  done
+  if [ "$bad" = 1 ]; then
+    printf 'usage: %s [FIXTURE_DIR ...]   (no arguments sweeps %s)\n' \
+      "${0##*/}" "$FIXROOT" >&2
+    exit 2
+  fi
+fi
+
 # Launch up to JOBS fixtures concurrently, keyed by a launch index so the
 # summary prints in a stable order regardless of finish order. Barrier every
 # JOBS launches (POSIX sh has no `wait -n`).
