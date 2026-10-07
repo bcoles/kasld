@@ -212,13 +212,26 @@ static enum kasld_confidence lineage_entry_conf(const struct engine *e,
  *
  * An entry naming nothing this run holds is skipped rather than treated as
  * worthless, since capping to CONF_UNKNOWN would discard a claim over a stale
- * id. That is the permissive direction, so it is worth knowing what reaches it:
- * every lineage entry is an observation or covering id, both of which are in
- * the set before any rule runs, and no rule records a CONSTRAINT id. A rule
- * that began to do so could name one emitted later in the same pass, which is
- * not yet stored and so would not cap until the following pass -- by which time
- * the uncapped claim is already in an append-only store. Such a rule needs the
- * ordering settled here first. */
+ * id. That is the permissive direction, so it is worth knowing what reaches it.
+ * A lineage entry is an observation id, a covering id or a CONSTRAINT id;
+ * lineage_entry_conf resolves all three, and a rule deriving from another
+ * quantity records the third -- naming the constraint bound to the estimate
+ * edge it read. That is an ordinary pattern, not a hazard to be avoided.
+ *
+ * None of the three can be absent for want of having been stored yet. The
+ * first two are in the evidence set before any rule runs. The third reaches a
+ * rule only through est[q].lo_binding / hi_binding, the rule signature
+ * carrying no other route to an id, and those bindings are written by
+ * resolve_all -- which runs once after every rule in a pass, never between
+ * them. So a binding a rule can read names a constraint from an earlier pass,
+ * already in the store, and the cap lands on the pass that records the claim.
+ *
+ * What would break that is a resolve moved INSIDE the rule loop, not a
+ * registration order: `est` is frozen for the duration of a pass, so no rule
+ * can observe another's emission from the same one, whichever order they run
+ * in. A rule wanting the trust of an edge without reaching the store at all
+ * has it in est[q].lo_conf / hi_conf, which is materialized for that purpose.
+ */
 static void cap_conf_to_lineage(const struct engine *e, struct constraint *c) {
   enum kasld_confidence worst = c->conf;
 
