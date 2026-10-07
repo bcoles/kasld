@@ -93,6 +93,100 @@ kasld_scalar_fact_value(const struct evidence_set *ev,
   return 0;
 }
 
+/* A scalar fact's value together with whether it was present at all.
+ *
+ * kasld_scalar_fact_value() above skips a zero-valued observation, so it cannot
+ * tell "no such fact" from "the fact says zero". For most facts those mean the
+ * same thing. For a fact whose zero is itself an answer they do not, and a
+ * consumer that cannot distinguish them silently loses half the fact.
+ *
+ * Returns 1 when the fact was observed, writing its value, confidence and
+ * source id; 0 when it was absent, leaving all three cleared so a caller that
+ * ignores the return cannot pick up a stale lineage id. */
+static inline int kasld_scalar_fact_present(const struct evidence_set *ev,
+                                            enum kasld_scalar_fact fact,
+                                            unsigned long *value,
+                                            enum kasld_confidence *conf,
+                                            uint32_t *src) {
+  if (value)
+    *value = 0;
+  if (conf)
+    *conf = CONF_UNKNOWN;
+  if (src)
+    *src = 0;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_SCALAR || o->scalar_fact != fact)
+      continue;
+    if (value)
+      *value = o->scalar_value;
+    if (conf)
+      *conf = o->conf;
+    if (src)
+      *src = o->id;
+    return 1;
+  }
+  return 0;
+}
+
+#if MODULES_ANCHOR_IS_RUNTIME
+/* Which module-band arrangement the evidence proves, on an architecture whose
+ * anchor is a property of the kernel that booted rather than of this build.
+ *
+ * One answer for every consumer: two rules derive from the arrangement and the
+ * layout renderer draws the band from it, and three sites each deciding it
+ * would be three places for the decision to drift -- and the renderer drawing
+ * one arrangement while the engine bounded the other is the drift that shows.
+ * The arch supplies the tests; this gathers what they need and combines them.
+ *
+ * The module scan takes REGION_MODULE only, never REGION_MODULE_BAND, and must
+ * keep doing so: a band-classified address is one that merely FELL INSIDE the
+ * compile-time band, which on these arches spans the whole kernel address
+ * space, so a kernel .data address would read as a module and answer the
+ * arrangement question backwards. module_text_bound applies the same filter for
+ * the same reason, at greater length, and the two have to agree.
+ *
+ * The highest such address is the one to test, since the question is whether
+ * ANY module sits at or above the image.
+ *
+ * The image window is taken as two values rather than as the estimate array on
+ * purpose. A rule that bounds Q_VIRT_IMAGE_BASE and consults this is a
+ * self-edge, and check-self-edges finds those by reading the rule for an
+ * est[Q] read beside a write of the same Q -- so the read stays at the call
+ * site, where the guard can see it and the reviewed-allowlist entry stays
+ * honest. Hidden in here it would be a self-edge the guard cannot report. */
+static inline enum s390_layout_generation
+kasld_module_anchor_proven(const struct evidence_set *ev, unsigned long vt_lo,
+                           unsigned long vt_hi) {
+#if defined(__s390x__) || defined(__zarch__)
+  unsigned long sel = 0;
+  const int have_sel = kasld_scalar_fact_present(ev, SF_VIRT_KERNEL_IMAGE_BASE,
+                                                 &sel, NULL, NULL);
+  unsigned long vmod_hi = 0;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_ADDRESS ||
+        o->eff_type != KASLD_TYPE_VIRT || o->eff_region != REGION_MODULE)
+      continue;
+    unsigned long a = obs_anchor(o);
+    if (a > vmod_hi)
+      vmod_hi = a;
+  }
+
+  enum s390_layout_generation from_addr = S390_LAYOUT_UNPROVEN;
+  if (vmod_hi != 0)
+    from_addr = s390_layout_from_module_addr(vmod_hi, vt_lo, vt_hi);
+
+  return s390_layout_proven(s390_layout_from_config(have_sel, sel), from_addr);
+#else
+  (void)vt_lo;
+  (void)vt_hi;
+#error                                                                         \
+    "MOD_ANCHOR_RUNTIME on an arch with no arrangement witness here: supply the tests that establish which arrangement booted, or a band derived from the image can exclude the true base"
+#endif
+}
+#endif /* MODULES_ANCHOR_IS_RUNTIME */
+
 /* The observed kernel page size, or 0 when none is trustworthy.
  *
  * One answer to "is there a page size I may use", so consumers do not each
@@ -405,6 +499,7 @@ R(riscv64_page_offset_from_vmalloc_vmemmap);
 
 /* s390-specific rules */
 R(s390_va_bits_from_config);
+R(s390_module_ceiling_from_va_bits);
 R(s390_text_ceiling_from_va_bits);
 R(s390_text_from_belows);
 R(s390_text_segment_mod);

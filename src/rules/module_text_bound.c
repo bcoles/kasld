@@ -3,7 +3,7 @@
 // Rule: bound the kernel text base from leaked module-region addresses.
 //
 // On arches where the module area is placed relative to kernel text
-// (MODULES_RELATIVE_TO_TEXT: riscv64, s390) the band sits BELOW the image on
+// (MODULES_MAY_TRACK_TEXT: riscv64, s390) the band sits BELOW the image on
 // both, so a leaked module virtual address bounds the text base from both
 // sides.
 //
@@ -34,9 +34,26 @@
 // depend on which layout the target was built with — which is as well, since
 // nothing here can tell them apart.
 //
+// WHERE THE ANCHOR IS NOT A BUILD-TIME PROPERTY. riscv64 states the relation
+// unconditionally; s390 answers MOD_ANCHOR_RUNTIME, having also carried an
+// arrangement that puts the band at the top of the address space with the image
+// identity-mapped far below it. Both bounds above are then false, and the lower
+// one is false in the dangerous direction -- a module address near the top of
+// the address space would floor the text base terabytes above the true _text.
+// So the arrangement is established first and nothing is emitted until it is.
+//
+// Two witnesses answer it, and kasld_module_anchor_proven() holds both so this
+// rule and the two other consumers of the arrangement cannot disagree about it.
+// The parsed config answers outright. A known module address answers too, with
+// no config at all, because the two arrangements place the band on opposite
+// sides of the image -- which matters, since the vantage this rule serves is
+// one with a module leak and often nothing else. Together they also check each
+// other: a config describing a kernel other than the running one contradicts
+// the measured address, and the contradiction refuses rather than picks a side.
+//
 // Reads VIRT REGION_MODULE leaks ONLY -- never REGION_MODULE_BAND; see the
 // provenance note at the filter below. Aligns to the resolved
-// Q_VIRT_KASLR_ALIGN. Inert where MODULES_RELATIVE_TO_TEXT==0, and inert when
+// Q_VIRT_KASLR_ALIGN. Inert where MODULES_MAY_TRACK_TEXT==0, and inert when
 // no structurally-known module observation is present.
 // ---
 // <bcoles@gmail.com>
@@ -52,7 +69,7 @@
 int rule_module_text_bound(const struct evidence_set *ev,
                            const struct estimate *est, struct constraint *out,
                            int out_max) {
-#if MODULES_RELATIVE_TO_TEXT
+#if MODULES_MAY_TRACK_TEXT
   if (out_max < 1)
     return 0;
 
@@ -97,6 +114,19 @@ int rule_module_text_bound(const struct evidence_set *ev,
   }
   if (vmod_lo == ULONG_MAX)
     return 0;
+
+  /* Establish the arrangement before bounding from it (see the note above). */
+#if MODULES_ANCHOR_IS_RUNTIME
+  {
+    /* The est[Q_VIRT_IMAGE_BASE] read stays here, in the rule that bounds that
+     * same quantity, so the self-edge is visible where it is reviewed. */
+    unsigned long vt_lo = 0, vt_hi = 0;
+    (void)quantity_window(Q_VIRT_IMAGE_BASE, &est[Q_VIRT_IMAGE_BASE], &vt_lo,
+                          &vt_hi);
+    if (kasld_module_anchor_proven(ev, vt_lo, vt_hi) != S390_LAYOUT_UNCOUPLED)
+      return 0;
+  }
+#endif
 
   int n = 0;
 

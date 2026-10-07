@@ -207,9 +207,10 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
        * BPF-JIT / kprobe-OOL / ftrace-trampoline allocation, normally in the
        * module region; one outside it (a separate bpf/vmalloc region on some
        * configs) must be DROPPED, not tagged REGION_MODULE_BAND — that would
-       * feed module_text_bound a bogus text-base bound on
-       * MODULES_RELATIVE_TO_TEXT arches (riscv64/s390). Mirrors the window
-       * check perf_text_poke_leak already applies. */
+       * feed module_text_bound a bogus text-base bound on the arches whose
+       * module band can track the kernel image (riscv64 always, s390 on the
+       * arrangement that places the band against the image). Mirrors the
+       * window check perf_text_poke_leak already applies. */
       if (!(k->flags & KSYM_FLAG_UNREGISTER) && k->addr != 0 &&
           kasld_addr_is_module_band((unsigned long)k->addr)) {
         kasld_found("ksymbol: addr=0x%lx len=%u type=%u name=%s",

@@ -268,10 +268,13 @@ static int kcore_read_word(unsigned long addr, unsigned long *out) {
  * against. The two differ where the kernel's own spelling does.
  *
  * s390 publishes the module region base as a variable rather than computing it
- * from one: MODULES_VADDR is set in the boot decompressor below the loaded
- * image and declared extern for the rest of the kernel, so its value is a fact
- * read through kcore and needs no arithmetic -- unlike loongarch, where the
- * address is derived from vm_map_base below.
+ * from one: MODULES_VADDR is assigned in the boot decompressor and declared
+ * extern for the rest of the kernel, so its value is a fact read through kcore
+ * and needs no arithmetic -- unlike loongarch, where the address is derived
+ * from vm_map_base below. Where the decompressor puts it has changed across
+ * generations and the witness does not care: it reads the kernel's own answer
+ * rather than reconstructing the arrangement that produced it, which is what
+ * makes it a sound gate on every s390 kernel.
  *
  * It needs no architecture guard. MODULES_VADDR is a variable on s390 alone;
  * every other architecture defines it as a macro, so no symbol of that name

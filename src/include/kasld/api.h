@@ -234,7 +234,7 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  * Each arch header cites the kernel code its answer comes from. */
 /* MODULES_ANCHOR — what the module band's position is fixed to.
  *
- * Four alternatives, and they are alternatives: a band is anchored to exactly
+ * Five alternatives, and they are alternatives: a band is anchored to exactly
  * one thing. Encoding that as independent booleans meant the illegal
  * combinations had to be excluded by hand, and api.h grew a pairwise #error for
  * each pair anyone thought of — "cannot follow both PAGE_OFFSET and the text
@@ -253,6 +253,26 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *                            with text KASLR.
  *   MOD_ANCHOR_BRACKETS_TEXT a window centred on the image,
  * MODULES_BRACKET_TEXT wide either side.
+ *   MOD_ANCHOR_RUNTIME       the architecture has carried more than one of the
+ *                            above, and which one applies is a property of the
+ *                            kernel that booted rather than of this build.
+ *
+ * MOD_ANCHOR_RUNTIME is the one value that does not name a placement, and it
+ * deliberately does not name the alternatives either. An arch declaring it is
+ * saying only that the build cannot answer the question; which anchors are in
+ * play, and what evidence separates them, belong to that arch's header and to
+ * the rules that read it, because both are specific to the arch in a way an
+ * enum value cannot carry. The alternative encoding -- a set of admissible
+ * anchors, with "knowable at build time" derived from the set having one member
+ * -- does carry it, and was rejected: it gives up the exactly-one assertion
+ * below, which is what makes a typo'd or stale value fail to compile rather
+ * than silently expand to 0 and send every consumer down its else branch.
+ *
+ * A rule that can derive from an anchor must therefore gate on
+ * MODULES_MAY_TRACK_TEXT (may) rather than MODULES_RELATIVE_TO_TEXT (always),
+ * and establish the anchor from evidence before deriving. Narrowing on an
+ * unestablished anchor is the house bug class: the band it reports can exclude
+ * the true base outright rather than merely bound it loosely.
  *
  * The two long-standing booleans are DERIVED below rather than declared, so the
  * arch headers state the anchor once and every existing consumer keeps reading
@@ -261,6 +281,7 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
 #define MOD_ANCHOR_PAGE_OFFSET 2
 #define MOD_ANCHOR_TEXT 3
 #define MOD_ANCHOR_BRACKETS_TEXT 4
+#define MOD_ANCHOR_RUNTIME 5
 
 /* MODULES_BAND_STRENGTH — how much the COMPILE-TIME band is trusted to say
  * about Q_MODULE_BASE. An ordinal, not a set of flags: each level is strictly
@@ -594,18 +615,47 @@ __extension__ _Static_assert((unsigned long)PAGE_OFFSET <
 #endif
 #ifndef MODULES_ANCHOR
 #error                                                                         \
-    "arch header must define MODULES_ANCHOR (MOD_ANCHOR_FIXED / _PAGE_OFFSET / _TEXT / _BRACKETS_TEXT)"
+    "arch header must define MODULES_ANCHOR (MOD_ANCHOR_FIXED / _PAGE_OFFSET / _TEXT / _BRACKETS_TEXT / _RUNTIME)"
 #endif
 __extension__ _Static_assert(MODULES_ANCHOR == MOD_ANCHOR_FIXED ||
                                  MODULES_ANCHOR == MOD_ANCHOR_PAGE_OFFSET ||
                                  MODULES_ANCHOR == MOD_ANCHOR_TEXT ||
-                                 MODULES_ANCHOR == MOD_ANCHOR_BRACKETS_TEXT,
-                             "MODULES_ANCHOR must be one of the four "
+                                 MODULES_ANCHOR == MOD_ANCHOR_BRACKETS_TEXT ||
+                                 MODULES_ANCHOR == MOD_ANCHOR_RUNTIME,
+                             "MODULES_ANCHOR must be one of the five "
                              "MOD_ANCHOR_* answers");
-/* Derived, never declared: one anchor, so these cannot disagree. */
+/* Derived, never declared: one anchor, so these cannot disagree.
+ *
+ * RELATIVE_TO_TEXT is the unconditional claim and MAY_TRACK_TEXT the weaker one
+ * that admits a runtime anchor as well. They are a strengthening pair, not two
+ * independent switches: the first implies the second, both read the one axis,
+ * and neither can be set without it. A rule picks by what it does with the
+ * answer -- MAY_TRACK_TEXT to decide whether the code is reachable at all,
+ * RELATIVE_TO_TEXT to decide whether the anchor needs establishing first. */
 #define MODULES_RELATIVE_TO_TEXT (MODULES_ANCHOR == MOD_ANCHOR_TEXT)
+#define MODULES_ANCHOR_IS_RUNTIME (MODULES_ANCHOR == MOD_ANCHOR_RUNTIME)
+#define MODULES_MAY_TRACK_TEXT                                                 \
+  (MODULES_RELATIVE_TO_TEXT || MODULES_ANCHOR_IS_RUNTIME)
 #define MODULES_RELATIVE_TO_PAGE_OFFSET                                        \
   (MODULES_ANCHOR == MOD_ANCHOR_PAGE_OFFSET)
+
+/* MODULES_BELOW_TEXT_START — which end of the image the band's low edge tracks,
+ * on an arch that can track it at all. Set where MODULES_END is anchored to the
+ * image START, clear where it is anchored to the image END.
+ *
+ * Mandatory for exactly the arches MODULES_MAY_TRACK_TEXT admits, and declared
+ * here rather than left to each header because the failure is silent in the one
+ * direction that matters: absent, every read takes the image-END arm, and
+ * module_text_bound then derives its upper bound from the wrong end of the
+ * image at the sound floor -- an over-narrowing of the text base reached by
+ * omission rather than by a wrong value. -Wundef plus -Werror catches an absent
+ * macro in a REACHED #if, which is why this has never fired; the #error states
+ * the requirement where the axis is defined rather than relying on a warning
+ * flag the Makefile leaves to CI. */
+#if MODULES_MAY_TRACK_TEXT && !defined(MODULES_BELOW_TEXT_START)
+#error                                                                         \
+    "an arch whose module band may track the kernel image must define MODULES_BELOW_TEXT_START (1 = band anchored to the image START, 0 = to the image END)"
+#endif
 /* A typo'd or stale value would expand to 0 in an #if and silently match
  * nothing, so every consumer would fall to its else branch. Pin it to the three
  * declared answers. */

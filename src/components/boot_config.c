@@ -155,8 +155,9 @@ int main(void) {
 
   /* s390 image-base layout discriminator — see proc_config.c. CONFIG_S390=y
    * with CONFIG_KERNEL_IMAGE_BASE present (value > 0) selects the modern high
-   * separate-kernel-mapping layout; absent (value 0) selects the pre-v6.8
-   * identity-mapped layout. Consumed by s390_image_base_from_config. */
+   * separate-kernel-mapping layout; absent (value 0) selects the older
+   * identity-mapped layout. Consumed by s390_image_base_from_config and by the
+   * module-band rules, which read the same answer. */
   if (is_kconfig_set(fp, "CONFIG_S390")) {
     unsigned long s390_image_base = get_kconfig_kernel_image_base(fp);
     kasld_info("CONFIG_KERNEL_IMAGE_BASE: %#lx%s", s390_image_base,

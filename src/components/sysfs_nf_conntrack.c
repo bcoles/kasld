@@ -124,10 +124,10 @@ int main(void) {
   /* The leaked value is a `struct net *` (the per-namespace network struct):
    * init_net is static in the kernel image (.data/.bss), other namespaces are
    * kmalloc'd in the direct map. It is NEVER module memory, so do not tag it
-   * REGION_MODULE — on MODULES_RELATIVE_TO_TEXT arches (s390, riscv64) that
-   * would feed module_text_bound a bogus text-base bound from a non-module
-   * address. Classify by range; drop anything that is neither image nor direct
-   * map rather than mistag it. */
+   * REGION_MODULE — on the arches whose module band can track the kernel
+   * image (riscv64, s390) that would feed module_text_bound a bogus
+   * text-base bound from a non-module address. Classify by range; drop
+   * anything that is neither image nor direct map rather than mistag it. */
   /* Which of the two it is cannot be decided by range where the windows
    * overlap: the text window spans the linear map on every VMSPLIT arch and on
    * ppc64, and testing it first tagged a kmalloc'd pointer in lowmem as

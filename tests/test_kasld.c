@@ -2514,7 +2514,7 @@ static void test_engine_sync_module_band_rejects_out_of_union(void) {
   TH_CHECK(layout.modules_start <= layout.modules_end);
 }
 
-/* A projected module band must never collapse. On MODULES_RELATIVE_TO_TEXT
+/* A projected module band must never collapse. On MODULES_MAY_TRACK_TEXT
  * arches the band is derived by subtracting from the resolved text window; with
  * nothing yet proven the window sits at its honest top, and on an arch whose
  * IMAGE_BASE_OFFSET equals that floor (s390) both subtractions saturate and the
@@ -2619,8 +2619,11 @@ static void test_engine_sync_module_band_follows_page_offset(void) {
     TH_CHECK(layout.modules_end >= MODULES_END_FOR(win_hi));
     TH_CHECK(layout.modules_end > layout.modules_start);
   }
-#elif !MODULES_RELATIVE_TO_TEXT
-  /* A fixed band does not move with the linear map, and must not be touched. */
+#elif !MODULES_MAY_TRACK_TEXT
+  /* A fixed band does not move with the linear map, and must not be touched.
+   * Not asked of an arch whose band MAY track the image: there the band is kept
+   * static only while the arrangement is unestablished, which is a different
+   * property from being fixed and is not what this case is checking. */
   TH_CHECK(layout.modules_start == (unsigned long)MODULES_START);
   TH_CHECK(layout.modules_end == (unsigned long)MODULES_END);
 #endif

@@ -2975,13 +2975,19 @@ static void engine_sync_authoritative(const struct engine *e) {
   if (e->est[Q_MODULE_BASE].hi_binding)
     layout.virt_module_base_max = e->est[Q_MODULE_BASE].hi;
 
-#if MODULES_RELATIVE_TO_TEXT
+#if MODULES_MAY_TRACK_TEXT
   /* Modules region shifts with kernel text on this arch (riscv64, s390).
    * The static layout.modules_start/end loaded at init are the wide
    * validation range — useful to bound observations, but misleading as the
    * rendered/JSON modules location once the engine has narrowed the text
    * base. Project the band onto the resolved text window so the memory map
    * shows it in its actual neighborhood.
+   *
+   * Where the arch answers MOD_ANCHOR_RUNTIME the band shifts with text only
+   * under one of the arrangements it admits, so the projection is adopted only
+   * once that arrangement is established — drawing modules below the image on
+   * a kernel that puts them at the top of the address space would place the
+   * rendered band terabytes from where it is.
    *
    * Two cases, controlled by MODULES_BELOW_TEXT_START:
    *   - unset (riscv64, "Case A"): MODULES_END is anchored near the kernel
@@ -2996,7 +3002,19 @@ static void engine_sync_authoritative(const struct engine *e) {
    * being a meaningful (narrowed-or-pinned) value — the static band stays
    * when the engine has not narrowed text. */
 #define KASLD_MODULES_LEN (2ul * 1024 * 1024 * 1024)
-  if (vt->hi > vt->lo || vt->lo > (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG) {
+  int modules_track_text = 1;
+#if MODULES_ANCHOR_IS_RUNTIME
+  {
+    unsigned long avt_lo = 0, avt_hi = 0;
+    (void)quantity_window(Q_VIRT_IMAGE_BASE, &e->est[Q_VIRT_IMAGE_BASE],
+                          &avt_lo, &avt_hi);
+    modules_track_text = kasld_module_anchor_proven(&e->ev, avt_lo, avt_hi) ==
+                         S390_LAYOUT_UNCOUPLED;
+  }
+#endif
+  if (modules_track_text &&
+      (vt->hi > vt->lo ||
+       vt->lo > (unsigned long)VIRT_TEXT_MIN_DEFAULT_CONFIG)) {
 #if MODULES_BELOW_TEXT_START
     unsigned long band_end = vt->lo > (unsigned long)IMAGE_BASE_OFFSET
                                  ? vt->lo - (unsigned long)IMAGE_BASE_OFFSET

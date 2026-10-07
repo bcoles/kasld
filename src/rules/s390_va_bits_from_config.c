@@ -75,9 +75,55 @@
 // is `vsize > _REGION2_SIZE && kaslr_enabled()`, so a confirmed KASLR-off
 // signal falsifies it outright whatever the memory layout.
 //
-// Modern layout only. Both disjuncts describe code that arrived with
-// CONFIG_KERNEL_IMAGE_BASE itself; a kernel predating it lays memory out
-// differently and reports the knob absent as a zero, which gates this rule off.
+// THE IDENTITY-MAPPED GENERATIONS reach the same conclusion through the same
+// estimate, and only the 3-level one. Before the address spaces were uncoupled
+// the boot code chose its level by
+//
+//     IS_ENABLED(CONFIG_KASAN)
+//     || vmalloc_size > _REGION2_SIZE                       (some generations)
+//     || round_up(ident_map_size, _REGION3_SIZE) + vmemmap_size + MODULES_LEN
+//          + vmalloc_size + (MEMCPY_REAL_SIZE + ABS_LOWCORE_MAP_SIZE, later)
+//        > _REGION2_SIZE
+//
+// in arch/s390/boot/startup.c, and by a comparison of the same shape in
+// arch/s390/kernel/setup.c setup_memory_end() before that. No generation
+// carries a trigger outside those, which was checked tag by tag rather than
+// assumed from the newest.
+//
+// NO SECOND FORMULA, because the estimate above already BOUNDS this one. Term
+// for term: round_up(SZ_2G + max_mappable, rte) exceeds
+// round_up(ident_map_size, rte) since max_mappable is at least that and carries
+// SZ_2G on top; round_up(vmemmap_size, rte) exceeds vmemmap_size; MODULES_LEN
+// and the vmalloc term are the same quantity, and the vmalloc default is the
+// same VMALLOC_DEFAULT_SIZE in every generation that has one, the oldest
+// defaulting lower still. Against the only terms the older form has and the
+// newer does not
+// -- MEMCPY_REAL_SIZE, one page, and ABS_LOWCORE_MAP_SIZE, NR_CPUS lowcores,
+// which arch/s390/Kconfig caps at 512 and asm/lowcore.h aligns to 8 KiB, so
+// 4 MiB at the most -- the newer form carries FIXMAP_SIZE's granule, KASLR_LEN
+// and the KMSAN term, some 8 GiB. So an estimate that falls below the threshold
+// proves the older comparison falls below it too, and a second formula would be
+// a second thing to keep correct for no gain.
+//
+// TWO THINGS DO NOT CARRY ACROSS, and both are denied rather than adapted.
+//
+// KASAN proves nothing about the level there. The newer generations take the
+// 4-level limit whenever it is enabled, but arch/s390/kernel/setup.c chose
+// between the two on CONFIG_KASAN_S390_4_LEVEL_PAGING, and the generation after
+// it took vmax from kasan_vmax, which arch/s390/mm/kasan_init.c sets to either
+// limit. So a KASAN build is left unresolved rather than pinned 4-level, and
+// the 3-level conclusion still requires the flag READ and false -- that much is
+// common to every generation, since each falls through to the comparison.
+//
+// The KASLR-off shortcut does not apply either. The disjunct is conjoined with
+// kaslr_enabled() only in the modern form; the older comparison holds whatever
+// KASLR is doing, so there the estimate is the only route.
+//
+// A readable config is what separates the generations, via the same
+// SF_VIRT_KERNEL_IMAGE_BASE presence the layout rules read: the knob is
+// unconditional in arch/s390/Kconfig from the series that introduced it, so its
+// absence from a config that WAS read is the kernel's own statement of which
+// generation it is. No version number is read or compared.
 //
 // s390 only; inert elsewhere, and inert without a readable config.
 // ---
@@ -104,7 +150,7 @@ int rule_s390_va_bits_from_config(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  int have_base = 0, have_kasan = 0, have_pfn = 0, have_vmalloc = 0;
+  int have_kasan = 0, have_pfn = 0, have_vmalloc = 0;
   int kaslr_off = 0;
   unsigned long image_base = 0, kasan = 0, max_pfn = 0, vmalloc_size = 0;
   /* sizeof(struct page) enters only through the vmemmap term, which is rounded
@@ -118,17 +164,18 @@ int rule_s390_va_bits_from_config(const struct evidence_set *ev,
                         pfn_conf = CONF_UNKNOWN, vmalloc_conf = CONF_UNKNOWN,
                         kaslr_off_conf = CONF_UNKNOWN;
 
+  /* Through the shared accessor, not this loop: the selector's PRESENCE carries
+   * the identity-mapped answer and a zero-valued observation has to survive the
+   * read, and every other consumer of this fact reads it the same way -- so the
+   * confidence and lineage id they cap and cite cannot come from a different
+   * observation of it than this rule's. */
+  const int have_base = kasld_scalar_fact_present(
+      ev, SF_VIRT_KERNEL_IMAGE_BASE, &image_base, &base_conf, &base_src);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
       continue;
     switch (o->scalar_fact) {
-    case SF_VIRT_KERNEL_IMAGE_BASE:
-      have_base = 1;
-      image_base = o->scalar_value;
-      base_src = o->id;
-      base_conf = o->conf;
-      break;
     case SF_KASAN_ENABLED:
       have_kasan = 1;
       kasan = o->scalar_value;
@@ -163,22 +210,25 @@ int rule_s390_va_bits_from_config(const struct evidence_set *ev,
     }
   }
 
-  /* A zero is the knob's absence, which is the pre-uncoupled layout: the
-   * decision reproduced below is not the one that kernel makes. */
-  if (!have_base || image_base == 0)
+  /* Which generation's decision to reproduce. Without a readable config this
+   * cannot be answered and neither can the level. */
+  const enum s390_layout_generation gen =
+      s390_layout_from_config(have_base, image_base);
+  if (gen == S390_LAYOUT_UNPROVEN)
     return 0;
+  const int uncoupled = (gen == S390_LAYOUT_UNCOUPLED);
 
-  uint32_t src = 0;
+  uint32_t src = 0, kaslr_off_lineage = 0;
   enum kasld_confidence conf = CONF_UNKNOWN;
 
   /* Disjunct 2: the configured base puts the image's end above the 3-level
    * limit, so that limit cannot hold the image. Written as a subtraction so
    * the sum cannot overflow; S390_KERNEL_IMAGE_SIZE is far below the limit. */
-  if (image_base > (unsigned long)S390_ASCE_LIMIT_3LEVEL -
-                       (unsigned long)S390_KERNEL_IMAGE_SIZE) {
+  if (uncoupled && image_base > (unsigned long)S390_ASCE_LIMIT_3LEVEL -
+                                    (unsigned long)S390_KERNEL_IMAGE_SIZE) {
     src = base_src;
     conf = base_conf;
-  } else if (kasan != 0) {
+  } else if (uncoupled && kasan != 0) {
     /* Disjunct 1. The layout gate above is what makes this the right decision
      * to reproduce, so the config carries the conclusion jointly with the
      * KASAN flag and the weaker of the two bounds it. */
@@ -194,10 +244,17 @@ int rule_s390_va_bits_from_config(const struct evidence_set *ev,
     if (!have_kasan)
       return 0;
 
-    if (kaslr_off) {
+    /* On the identity-mapped generations an enabled KASAN leaves the level
+     * genuinely open -- the code there picks between the two limits by a
+     * separate condition this rule does not reproduce. See the header. */
+    if (!uncoupled && kasan != 0)
+      return 0;
+
+    if (uncoupled && kaslr_off) {
       conf =
           kasld_conf_min(kasld_conf_min(base_conf, kasan_conf), kaslr_off_conf);
       src = base_src;
+      kaslr_off_lineage = kaslr_off_src;
     } else {
       unsigned long page_size, ident, mappable, vmemmap, vmalloc_up, vsize;
 
@@ -262,7 +319,7 @@ int rule_s390_va_bits_from_config(const struct evidence_set *ev,
      * drops a constraint by its lineage, so a fact left off here would leave
      * this conclusion standing in a vantage that no longer supports it. */
     {
-      const uint32_t lin[] = {base_src, kasan_src, kaslr_off_src, pfn_src,
+      const uint32_t lin[] = {base_src, kasan_src, kaslr_off_lineage, pfn_src,
                               vmalloc_src};
       for (size_t li = 0; li < sizeof(lin) / sizeof(lin[0]); li++) {
         if (lin[li] == 0)

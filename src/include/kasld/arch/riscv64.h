@@ -156,8 +156,10 @@
 //
 // Explicit 0 rather than implicit-zero so -Wundef does not fire at the
 // `#if MODULES_BELOW_TEXT_START` sites in orchestrator.c +
-// rules/module_text_bound.c (those sites are gated on
-// MODULES_RELATIVE_TO_TEXT so they're only reachable on riscv64 + s390).
+// rules/module_text_bound.c (those sites are gated on MODULES_MAY_TRACK_TEXT
+// so they're only reachable on riscv64 + s390). api.h also requires the macro
+// of every arch that predicate admits, so the explicit 0 is now the answer to
+// an #error as well as the thing that keeps -Wundef quiet.
 #define MODULES_BELOW_TEXT_START 0
 #define MODULES_END_TO_TEXT_OFFSET 0x80000000ul /* 2 GiB */
 

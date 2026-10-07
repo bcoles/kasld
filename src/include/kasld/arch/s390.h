@@ -204,22 +204,153 @@
 //   = 0x80000000 + 0xFC000 + 0x100000 = 0x801FC000
 //
 // Runtime-determined; use wide bounds for validation.
-// Where the module band is anchored: placed relative to the kernel image, so it
-// slides with text KASLR.
-#define MODULES_ANCHOR MOD_ANCHOR_TEXT
+// Where the module band is anchored: not decidable from this build. s390 has
+// carried two arrangements and they place the band at opposite ends of the
+// address space, so the answer is a property of the kernel that booted.
+//
+//   image-relative   the boot decompressor sets
+//                    MODULES_END = round_down(kernel_start, _SEGMENT_SIZE),
+//                    putting the band immediately below the image wherever
+//                    KASLR places it. arch/s390/boot/startup.c.
+//   address-space    MODULES_END is the top of the kernel address space, or
+//   top              the abs-lowcore mapping just under it -- MODULES_END =
+//                    vmax, = _REGION1_SIZE/_REGION2_SIZE, or =
+//                    round_down(__abs_lowcore, _SEGMENT_SIZE) across the
+//                    generations that carried it, each lowered further by the
+//                    ultravisor and KASAN adjustments beside them. The image is
+//                    identity-mapped down in RAM, nowhere near the band.
+//
+// The arrangement changed when the physical and virtual address spaces were
+// uncoupled; before that the kernel ran identity-mapped (__va(x) = x) and the
+// band had no image to be placed against. Deriving the band from the image on
+// an address-space-top kernel does not merely report a loose window -- it
+// reports one that excludes the true base by terabytes.
+//
+// enum s390_layout_generation below is how a rule establishes which one booted.
+#define MODULES_ANCHOR MOD_ANCHOR_RUNTIME
 #define MODULES_START 0ul
 #define MODULES_END 0x20000000000000ul
 
-// Usable as a BOUND: the boot decompressor sets MODULES_END =
-// round_down(kernel_start, _SEGMENT_SIZE) and MODULES_VADDR = MODULES_END -
-// 2 GiB, so both stay within this window for any image placement, and a floor
-// of 0 cannot be too high whatever the layout.
+// Usable as a BOUND, and for the reason the band is this wide rather than any
+// reason about where the band sits: MODULES_END here is the 4-level address
+// space limit, which every arrangement's MODULES_END is at or below, and a
+// floor of 0 cannot be too high whatever the layout. The window holds the true
+// base under both arrangements above WITHOUT either of them being established,
+// which is what a compile-time band has to do.
 #define MODULES_BAND_STRENGTH MOD_BAND_BOUNDS
+// Which end of the image the band tracks WHEN it tracks the image at all; read
+// only once the image-relative arrangement is established.
 #define MODULES_BELOW_TEXT_START 1
 #define MODULES_END_TO_TEXT_OFFSET                                             \
   0x801FC000ul /* MODULES_LEN + (_SEGMENT_SIZE - IMAGE_ALIGN) +                \
                 * IMAGE_BASE_OFFSET                                            \
                 */
+
+/* Which generation of the s390 kernel memory layout the booted kernel built.
+ *
+ * One boot-time fact with several consequences, so it has one name rather than
+ * one per consumer. The physical and virtual kernel address spaces were
+ * uncoupled in a single upstream series, and before it:
+ *
+ *   - the kernel ran identity-mapped, __va(x) = x, with the image down in
+ *     physical RAM;
+ *   - the module band sat at the top of the address space rather than against
+ *     the image (see MODULES_ANCHOR);
+ *   - the boot code chose its paging level by a different formula, and under
+ *     KASAN by a separate one again that could land on either level.
+ *
+ * Every rule that needs any of those reads this one answer. Two of them would
+ * otherwise each restate the kernel's own condition, free to drift apart --
+ * the same reason s390_text_ceiling_from_va_bits reads the resolved paging
+ * level instead of re-deriving it.
+ *
+ * UNPROVEN is not a third generation: it is the honest answer wherever the
+ * evidence does not separate the two, and a rule whose derivation holds under
+ * only one of them must treat it as a refusal. */
+enum s390_layout_generation {
+  S390_LAYOUT_UNPROVEN = 0,
+  S390_LAYOUT_IDENTITY,
+  S390_LAYOUT_UNCOUPLED,
+};
+
+/* From the parsed kernel config, which answers it outright.
+ *
+ * CONFIG_KERNEL_IMAGE_BASE was added by the same series that uncoupled the
+ * address spaces, and the two cannot be separated: the knob's only consumers
+ * (__NO_KASLR_START_KERNEL / __NO_KASLR_END_KERNEL, asm/page.h) are read inside
+ * setup_kernel_memory_layout(), where one of them is assigned to kernel_start
+ * -- the variable the uncoupling introduced and the one MODULES_END is rounded
+ * down from. A tree carrying the knob without the image-relative band does not
+ * compile. The knob is also unconditional in arch/s390/Kconfig with a hex range
+ * floored at 0x100000, so a kernel that has it always reports a positive value
+ * and zero can only mean the config lacks the symbol.
+ *
+ * `present` distinguishes a config that was read and lacks the knob from no
+ * config at all, which is the whole content of the IDENTITY answer; a plain
+ * value cannot carry it. No version number is read or compared. */
+static inline enum s390_layout_generation
+s390_layout_from_config(int present, unsigned long selector) {
+  if (!present)
+    return S390_LAYOUT_UNPROVEN;
+  return selector ? S390_LAYOUT_UNCOUPLED : S390_LAYOUT_IDENTITY;
+}
+
+/* From an observed module address against the resolved image window, which
+ * answers it without a config at all -- the two arrangements put the band on
+ * opposite sides of the image, so one real module address decides between them.
+ *
+ * Image-relative: MODULES_END = round_down(kernel_start, _SEGMENT_SIZE) and
+ * kernel_start is IMAGE_BASE_OFFSET below the solved _text, so every module
+ * address is strictly below the image base. An address at or above the window's
+ * top is therefore at or above the true base and falsifies it.
+ *
+ * Identity-mapped: the band sits above the identity map by construction --
+ * the layout computation fits vmemmap, vmalloc and MODULES_LEN under vmax and
+ * puts the identity mapping below all of them -- and the image is inside that
+ * identity map. So every module address is above the image base, and one below
+ * the window's floor falsifies it.
+ *
+ * Both tests survive further narrowing: the window's floor only rises and its
+ * top only falls, so an answer proven on one pass cannot be withdrawn on the
+ * next. Neither test fires on a window that still spans the observation, which
+ * is the unresolved case and correctly says nothing. */
+static inline enum s390_layout_generation
+s390_layout_from_module_addr(unsigned long vmod, unsigned long vt_lo,
+                             unsigned long vt_hi) {
+  /* A window top of zero is no window: it is what a caller holds when the read
+   * that was meant to fill it did not. Taken at face value every module
+   * address is at or above it, so the test below would answer IDENTITY from the
+   * absence of a window rather than from evidence -- a failed read reported as
+   * a proof. No image-base window has a top of zero, so refusing one costs
+   * nothing and does not depend on how any caller initialises its locals. */
+  if (vmod == 0 || vt_hi == 0 || vt_hi < vt_lo)
+    return S390_LAYOUT_UNPROVEN;
+  if (vmod < vt_lo)
+    return S390_LAYOUT_UNCOUPLED;
+  if (vmod >= vt_hi)
+    return S390_LAYOUT_IDENTITY;
+  return S390_LAYOUT_UNPROVEN;
+}
+
+/* The answer two witnesses give together. Agreement answers; either one alone
+ * answers; disagreement does NOT pick a side.
+ *
+ * Disagreement means one witness is lying, and the likely liar is the config --
+ * a staged or stale /boot/config describing a kernel other than the running
+ * one. The module address is measured from the target and the image window it
+ * is judged against was narrowed by evidence, so a contradiction is the signal
+ * that the parsed layout cannot be trusted here. Refusing both is what keeps a
+ * mismatched config from flooring the text base at the top of the address
+ * space. */
+static inline enum s390_layout_generation
+s390_layout_proven(enum s390_layout_generation a,
+                   enum s390_layout_generation b) {
+  if (a == S390_LAYOUT_UNPROVEN)
+    return b;
+  if (b == S390_LAYOUT_UNPROVEN)
+    return a;
+  return a == b ? a : S390_LAYOUT_UNPROVEN;
+}
 
 // Virtual KASLR granularity: THREAD_SIZE (16 KiB on s390, PAGE_SIZE << 2).
 // Physical placement uses _SEGMENT_SIZE (1 MiB), but virtual text addresses

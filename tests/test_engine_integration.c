@@ -1804,6 +1804,128 @@ static void test_full_engine_s390_old_identity_map_sound(void) {
 #endif
 }
 
+/* The s390 module band sits at the top of the address space on every kernel
+ * before the physical and virtual address spaces were uncoupled, and just below
+ * the image after it. Deriving one arrangement's band on the other arrangement
+ * does not report a loose window but one that excludes the truth by terabytes,
+ * in both directions:
+ *
+ *   module base   derived from the image on an address-space-top kernel, the
+ *                 window tops out at the image base -- about 1 GiB on a kernel
+ *                 whose MODULES_VADDR is vmax - 2 GiB.
+ *   image base    a module address near vmax, read as "modules sit below the
+ *                 image", floors Q_VIRT_IMAGE_BASE just above it -- terabytes
+ *                 above an identity-mapped _text down in RAM.
+ *
+ * Both are staged here on the same evidence a real low-privilege run of such a
+ * kernel produces: a readable config WITHOUT CONFIG_KERNEL_IMAGE_BASE (the
+ * knob is unconditional in arch/s390/Kconfig and floored above zero, so its
+ * absence is the kernel's own statement that the band is not image-relative),
+ * and one module address where that arrangement puts it.
+ *
+ * The module observation is REGION_MODULE, not REGION_MODULE_BAND: only
+ * structurally-known module addresses reach module_text_bound, so a band-
+ * classified address would make the test pass for the wrong reason. */
+static void test_full_engine_s390_vas_top_module_band_sound(void) {
+#if defined(__s390x__)
+  const unsigned long vmax = 1ul << 42; /* 3-level ASCE limit */
+  const unsigned long modules_vaddr = vmax - (2ul << 30); /* - MODULES_LEN */
+  const unsigned long text = 0x375a8000ul; /* identity-mapped, in RAM */
+
+  struct engine e;
+  engine_init(&e);
+  /* Config readable, knob absent: the address-space-top arrangement. */
+  add_scalar(&e, SF_VIRT_KERNEL_IMAGE_BASE, 0x0);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_MODULE, modules_vaddr, 0,
+           "modules_vaddr");
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *mb = &e.est[Q_MODULE_BASE];
+  TH_CHECK(!estimate_is_bottom(mb, &quantities[Q_MODULE_BASE]));
+  TH_CHECK(mb->lo <= modules_vaddr && modules_vaddr <= mb->hi);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(vt->lo <= text && text <= vt->hi);
+#endif
+}
+
+/* The same arrangement with NO module leak at all, which is the vantage the
+ * published matrix actually runs: the module window is then whatever the engine
+ * DERIVES, with no observation to rescue it. module_base_from_text is the rule
+ * that answers here, and deriving the band from the image on an address-space-
+ * top kernel tops the window out at roughly the image base -- about 1 GiB,
+ * against a true MODULES_VADDR of vmax - 2 GiB.
+ *
+ * The image is narrowed by a text leak so the derivation has something to work
+ * from; an unnarrowed image base derives an unnarrowed band and the case would
+ * pass without testing anything. */
+static void test_full_engine_s390_vas_top_module_band_no_leak_sound(void) {
+#if defined(__s390x__)
+  const unsigned long vmax = 1ul << 42;
+  const unsigned long modules_vaddr = vmax - (2ul << 30);
+  const unsigned long text = 0x375a8000ul;
+
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_VIRT_KERNEL_IMAGE_BASE, 0x0);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, text, 0, "_stext");
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  TH_CHECK(vt->lo <= text && text <= vt->hi);
+  TH_CHECK(vt->hi < modules_vaddr); /* the image really is narrowed below it */
+
+  const struct estimate *mb = &e.est[Q_MODULE_BASE];
+  TH_CHECK(!estimate_is_bottom(mb, &quantities[Q_MODULE_BASE]));
+  TH_CHECK(mb->lo <= modules_vaddr && modules_vaddr <= mb->hi);
+#endif
+}
+
+/* The same shape on the other arrangement: a config that DOES carry the knob
+ * establishes the image-relative band, and the derivation must still run --
+ * the gate added for the address-space-top case must not have turned the
+ * relation off everywhere. A module address below the image, with the image
+ * narrowed by a text leak, has to leave both truths in their windows AND
+ * leave the module window strictly tighter than the compile-time band, which
+ * is what says the rule still fired. */
+static void test_full_engine_s390_image_relative_band_still_derives(void) {
+#if defined(__s390x__)
+  const unsigned long text = 0x21e134b0000ul; /* a real v6.10+ KASLR draw */
+  const unsigned long modules_vaddr =
+      ((text - (unsigned long)IMAGE_BASE_OFFSET) & ~0xFFFFFul) - (2ul << 30);
+
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, text, 0, "_stext");
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_MODULE, modules_vaddr, 0,
+           "modules_vaddr");
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *mb = &e.est[Q_MODULE_BASE];
+  TH_CHECK(!estimate_is_bottom(mb, &quantities[Q_MODULE_BASE]));
+  TH_CHECK(mb->lo <= modules_vaddr && modules_vaddr <= mb->hi);
+  TH_CHECK(mb->hi < (unsigned long)MODULES_END);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  TH_CHECK(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  TH_CHECK(vt->lo <= text && text <= vt->hi);
+#endif
+}
+
 /* Property test: over a seeded family of valid x86_64 layouts and a random
  * subset of the faithful leaks each would produce, the resolved window of every
  * quantity must still contain the truth — in the all-signals (likely) window
@@ -3505,6 +3627,9 @@ int main(void) {
   RUN(test_full_engine_arm64_va39_kaslr_window);
   RUN(test_full_engine_arm64_old_layout_sound);
   RUN(test_full_engine_s390_old_identity_map_sound);
+  RUN(test_full_engine_s390_vas_top_module_band_sound);
+  RUN(test_full_engine_s390_vas_top_module_band_no_leak_sound);
+  RUN(test_full_engine_s390_image_relative_band_still_derives);
   RUN(test_full_engine_i686_kaslr_shape);
   RUN(test_full_engine_robust_to_outlier);
   RUN(test_full_engine_ppc_kernel_end_tightens);

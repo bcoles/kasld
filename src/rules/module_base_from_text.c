@@ -19,9 +19,11 @@
 //
 //   module_base >= image_base_lo - MODULES_END_TO_TEXT_OFFSET
 //
-// and the module region lies BELOW the image on both arches -- riscv64 has
-// MODULES_END = _start, s390 has MODULES_END = round_down(kernel_start,
-// _SEGMENT_SIZE) -- so the image base bounds it from above:
+// and the module region lies BELOW the image wherever this relation holds at
+// all -- riscv64 has MODULES_END = _start, and s390, on the arrangement that
+// places the band against the image, has MODULES_END =
+// round_down(kernel_start, _SEGMENT_SIZE) -- so the image base bounds it from
+// above:
 //
 //   module_base <= image_base_hi
 //
@@ -32,7 +34,29 @@
 // Widening is the safe direction for a bound, and the coarse form already
 // removes most of the band.
 //
-// Inert where MODULES_RELATIVE_TO_TEXT == 0, and inert until the image base is
+// WHERE THE ANCHOR IS NOT A BUILD-TIME PROPERTY. An arch may answer
+// MOD_ANCHOR_RUNTIME, meaning it has carried more than one arrangement and the
+// build cannot tell which one booted. Both bounds above are then conditional on
+// an arrangement that may not be the one in force, and emitting either on the
+// wrong one does not report a loose window but one that excludes the true base
+// -- on s390 the two arrangements sit at opposite ends of the address space.
+// So the anchor is established from evidence first, and nothing is emitted
+// until it is.
+//
+// Nothing is emitted rather than something demoted to the likely window. The
+// sibling module_base_from_text_bracket does demote, because there the
+// unestablished case makes its floor merely loose. Here the unestablished case
+// makes both edges wrong, and there is no reason to prefer one arrangement:
+// both are in service, on kernels a run cannot date.
+//
+// kasld_module_anchor_proven() is the one answer, shared with module_text_bound
+// and with the layout renderer, so a band bounded here cannot be drawn in the
+// other arrangement's place. It reaches its conclusion from a parsed config or
+// from a known module address, whichever the vantage has -- this rule earns its
+// keep where there is no module address at all, and then the config is the only
+// witness left.
+//
+// Inert where MODULES_MAY_TRACK_TEXT == 0, and inert until the image base is
 // narrowed from its honest top -- an unnarrowed text base would derive an
 // unnarrowed module base and say nothing.
 // ---
@@ -46,10 +70,22 @@
 int rule_module_base_from_text(const struct evidence_set *ev,
                                const struct estimate *est,
                                struct constraint *out, int out_max) {
-#if MODULES_RELATIVE_TO_TEXT
-  (void)ev;
+#if MODULES_MAY_TRACK_TEXT
   if (out_max < 1)
     return 0;
+
+  /* Establish the anchor before deriving from it (see the note above). */
+#if MODULES_ANCHOR_IS_RUNTIME
+  {
+    unsigned long avt_lo = 0, avt_hi = 0;
+    (void)quantity_window(Q_VIRT_IMAGE_BASE, &est[Q_VIRT_IMAGE_BASE], &avt_lo,
+                          &avt_hi);
+    if (kasld_module_anchor_proven(ev, avt_lo, avt_hi) != S390_LAYOUT_UNCOUPLED)
+      return 0;
+  }
+#else
+  (void)ev;
+#endif
 
   const struct estimate *vt = &est[Q_VIRT_IMAGE_BASE];
   struct estimate top;
@@ -74,8 +110,9 @@ int rule_module_base_from_text(const struct evidence_set *ev,
     snprintf(c->origin, ORIGIN_LEN, "module_base_from_text");
   }
 
-  /* Ceiling: the module region sits below the image on both arches, so the
-   * image base caps it. Only from a lowered upper edge, for the same reason. */
+  /* Ceiling: with the anchor established the module region sits below the
+   * image, so the image base caps it. Only from a lowered upper edge, for the
+   * same reason. */
   if (vt->hi < top.hi && vt->hi && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));

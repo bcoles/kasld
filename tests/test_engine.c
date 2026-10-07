@@ -4312,6 +4312,68 @@ static void test_s390_image_base_from_config_inert_without_fact(void) {
 #endif
 }
 
+/* The s390 layout-generation predicates, which three consumers read: both
+ * module-band rules and the layout renderer. Tested directly because they are
+ * the whole of the arrangement decision, and a wrong answer from any of them
+ * either derives a band from the wrong arrangement or silently gives up a
+ * correct derivation.
+ *
+ * The degenerate-window case is the one that needs a test rather than a
+ * reading: a caller holds a zero window exactly when the read meant to fill it
+ * failed, and every module address is trivially at or above zero -- so without
+ * the guard the predicate answers IDENTITY from the absence of a window. */
+static void test_s390_layout_generation_predicates(void) {
+#if defined(__s390__) || defined(__zarch__)
+  const unsigned long vt_lo = 0x20000000000ul, vt_hi = 0x30000000000ul;
+
+  /* No window: no witness, whichever side the address would fall on. */
+  TH_CHECK(s390_layout_from_module_addr(0x3ff80000000ul, 0, 0) ==
+           S390_LAYOUT_UNPROVEN);
+  TH_CHECK(s390_layout_from_module_addr(1ul, 0, 0) == S390_LAYOUT_UNPROVEN);
+  /* Inverted, and no address at all. */
+  TH_CHECK(s390_layout_from_module_addr(0x25000000000ul, vt_hi, vt_lo) ==
+           S390_LAYOUT_UNPROVEN);
+  TH_CHECK(s390_layout_from_module_addr(0, vt_lo, vt_hi) ==
+           S390_LAYOUT_UNPROVEN);
+
+  /* Below every admissible image base: the band is against the image. */
+  TH_CHECK(s390_layout_from_module_addr(vt_lo - 1ul, vt_lo, vt_hi) ==
+           S390_LAYOUT_UNCOUPLED);
+  /* At or above every admissible image base: the band is at the top. */
+  TH_CHECK(s390_layout_from_module_addr(vt_hi, vt_lo, vt_hi) ==
+           S390_LAYOUT_IDENTITY);
+  TH_CHECK(s390_layout_from_module_addr(0x3ff80000000ul, vt_lo, vt_hi) ==
+           S390_LAYOUT_IDENTITY);
+  /* Inside the window: the window still spans it, so nothing is proven. */
+  TH_CHECK(s390_layout_from_module_addr(vt_lo + 1ul, vt_lo, vt_hi) ==
+           S390_LAYOUT_UNPROVEN);
+
+  /* The config selector. Presence carries the identity answer; a value cannot.
+   */
+  TH_CHECK(s390_layout_from_config(0, 0) == S390_LAYOUT_UNPROVEN);
+  TH_CHECK(s390_layout_from_config(0, 0x3FFE0000000ul) == S390_LAYOUT_UNPROVEN);
+  TH_CHECK(s390_layout_from_config(1, 0) == S390_LAYOUT_IDENTITY);
+  TH_CHECK(s390_layout_from_config(1, 0x3FFE0000000ul) ==
+           S390_LAYOUT_UNCOUPLED);
+
+  /* Combining. Either witness alone answers; agreement answers; disagreement
+   * refuses rather than picking a side, which is what keeps a config
+   * describing another kernel from overriding a measured address. */
+  TH_CHECK(s390_layout_proven(S390_LAYOUT_UNPROVEN, S390_LAYOUT_UNPROVEN) ==
+           S390_LAYOUT_UNPROVEN);
+  TH_CHECK(s390_layout_proven(S390_LAYOUT_UNCOUPLED, S390_LAYOUT_UNPROVEN) ==
+           S390_LAYOUT_UNCOUPLED);
+  TH_CHECK(s390_layout_proven(S390_LAYOUT_UNPROVEN, S390_LAYOUT_IDENTITY) ==
+           S390_LAYOUT_IDENTITY);
+  TH_CHECK(s390_layout_proven(S390_LAYOUT_IDENTITY, S390_LAYOUT_IDENTITY) ==
+           S390_LAYOUT_IDENTITY);
+  TH_CHECK(s390_layout_proven(S390_LAYOUT_UNCOUPLED, S390_LAYOUT_IDENTITY) ==
+           S390_LAYOUT_UNPROVEN);
+  TH_CHECK(s390_layout_proven(S390_LAYOUT_IDENTITY, S390_LAYOUT_UNCOUPLED) ==
+           S390_LAYOUT_UNPROVEN);
+#endif
+}
+
 /* s390_va_bits_from_config reproduces setup_kernel_memory_layout()'s choice of
  * ASCE limit from parsed config facts. It can only ever prove the 4-level
  * limit: that needs any one disjunct, while 3-level needs all three false
@@ -4389,9 +4451,10 @@ static void test_s390_va_bits_from_config_default_base_inert(void) {
 #endif
 }
 
-/* SOUNDNESS: a zero base is the knob's ABSENCE -- the layout that predates it,
- * whose boot code makes a different decision. The rule must not reproduce this
- * decision there, even with KASAN set. */
+/* SOUNDNESS: a zero base is the knob's ABSENCE, the identity-mapped
+ * generations. There an enabled KASAN leaves the level genuinely open -- that
+ * code picks between the two limits by a condition of its own -- so the rule
+ * must not pin 4-level from the flag the way it does on the modern layout. */
 static void test_s390_va_bits_from_config_preuncoupled_inert(void) {
 #if defined(__s390__) || defined(__zarch__)
   struct engine e;
@@ -4435,6 +4498,76 @@ static void test_s390_va_bits_from_config_small_guest_proves_3level(void) {
   unsigned long v = 0;
   TH_CHECK(
       estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 42ul);
+#endif
+}
+
+/* The identity-mapped generations reach the 3-level conclusion through the
+ * same estimate: it bounds their comparison term for term, so an estimate
+ * below the limit proves their comparison is below it too. Same 1 GiB guest as
+ * the modern case, with the knob absent instead of present. */
+static void test_s390_va_bits_from_config_preuncoupled_proves_3level(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct engine e;
+  engine_init(&e);
+  struct observation b = mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0ul, CONF_PARSED);
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 0ul, CONF_PARSED);
+  struct observation pf = mk_scalar(SF_PHYS_MAX_PFN, 0x40000ul, CONF_PARSED);
+  struct observation ps = mk_scalar(SF_PAGE_SIZE, 0x1000ul, CONF_PARSED);
+  struct observation vm = mk_scalar(SF_CMDLINE_VMALLOC, 0ul, CONF_PARSED);
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &k);
+  evidence_add(&e.ev, &pf);
+  evidence_add(&e.ev, &ps);
+  evidence_add(&e.ev, &vm);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  engine_run(&e, rules, 1);
+  unsigned long v = 0;
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+  TH_CHECK(v == 42ul);
+#endif
+}
+
+/* SOUNDNESS: the KASLR-off shortcut is modern-only. The size comparison is
+ * conjoined with kaslr_enabled() in the modern form, so a KASLR-off signal
+ * falsifies that disjunct outright and the estimate is not needed; the
+ * identity-mapped comparison holds whatever KASLR is doing. With the signal
+ * present and the estimate's inputs absent, the modern layout pins 42 and
+ * these generations must stay inert. */
+static void test_s390_va_bits_from_config_preuncoupled_kaslr_off_inert(void) {
+#if defined(__s390__) || defined(__zarch__)
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 0ul, CONF_PARSED);
+  struct observation d = mk_scalar(SF_VIRT_KASLR_DISABLED, 1ul, CONF_PARSED);
+  const rule_fn rules[] = {rule_s390_va_bits_from_config};
+  unsigned long v;
+
+  /* The identity-mapped generations: inert. */
+  struct engine e;
+  engine_init(&e);
+  struct observation b0 =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0ul, CONF_PARSED);
+  evidence_add(&e.ev, &b0);
+  evidence_add(&e.ev, &k);
+  evidence_add(&e.ev, &d);
+  engine_run(&e, rules, 1);
+  v = 0;
+  TH_CHECK(
+      !estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
+
+  /* The same evidence on the modern layout DOES conclude, which is what makes
+   * the inertness above a denial rather than a missing input. */
+  struct engine e2;
+  engine_init(&e2);
+  struct observation b1 =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  evidence_add(&e2.ev, &b1);
+  evidence_add(&e2.ev, &k);
+  evidence_add(&e2.ev, &d);
+  engine_run(&e2, rules, 1);
+  v = 0;
+  TH_CHECK(
+      estimate_finset_value(&quantities[Q_VA_BITS], &e2.est[Q_VA_BITS], &v));
   TH_CHECK(v == 42ul);
 #endif
 }
@@ -4551,6 +4684,51 @@ static void test_s390_va_bits_from_config_kaslr_off_proves_3level(void) {
   TH_CHECK(
       estimate_finset_value(&quantities[Q_VA_BITS], &e.est[Q_VA_BITS], &v));
   TH_CHECK(v == 42ul);
+#endif
+}
+
+/* s390_module_ceiling_from_va_bits turns the same resolved paging level into
+ * the module-base ceiling. The point of this rule is that it needs no anchor
+ * established: the module region is the top thing in the address space under
+ * both arrangements s390 has carried, so its base is a whole MODULES_LEN below
+ * the limit either way. On a vantage that cannot establish which arrangement
+ * booted, module_base_from_text declines and this is the only bound left. */
+static void test_s390_module_ceiling_from_va_bits(void) {
+#if defined(__s390__) || defined(__zarch__)
+  const unsigned long modules_len = 2ul * 1024 * 1024 * 1024;
+  struct estimate top;
+  quantities[Q_MODULE_BASE].init_top(&top);
+
+  const rule_fn rules[] = {rule_va_bits_from_scalar,
+                           rule_s390_module_ceiling_from_va_bits};
+
+  /* 3-level resolved: the ceiling drops from the architectural top to
+   * _REGION2_SIZE - MODULES_LEN, and still admits the true base a 3-level
+   * address-space-top kernel produces (vmax - MODULES_LEN exactly). */
+  struct engine e;
+  engine_init(&e);
+  struct observation v = mk_scalar(SF_VIRT_ADDR_BITS, 42ul, CONF_PARSED);
+  evidence_add(&e.ev, &v);
+  engine_run(&e, rules, 2);
+  TH_CHECK(e.est[Q_MODULE_BASE].hi == S390_ASCE_LIMIT_3LEVEL - modules_len);
+  TH_CHECK(e.est[Q_MODULE_BASE].hi < top.hi);
+  TH_CHECK(S390_ASCE_LIMIT_3LEVEL - modules_len <= e.est[Q_MODULE_BASE].hi);
+  /* And the image-relative arrangement's base, which sits far lower. */
+  TH_CHECK(0x21e133b0000ul <= e.est[Q_MODULE_BASE].hi);
+
+  /* 4-level resolved: a near no-op that cannot exclude the high placements. */
+  struct engine e2;
+  engine_init(&e2);
+  struct observation v2 = mk_scalar(SF_VIRT_ADDR_BITS, 53ul, CONF_PARSED);
+  evidence_add(&e2.ev, &v2);
+  engine_run(&e2, rules, 2);
+  TH_CHECK(0x1be166ead68000ul <= e2.est[Q_MODULE_BASE].hi); /* recorded boot */
+
+  /* Unresolved: inert, and the window stands at the top admitting both. */
+  struct engine e3;
+  engine_init(&e3);
+  engine_run(&e3, rules, 2);
+  TH_CHECK(e3.est[Q_MODULE_BASE].hi == top.hi);
 #endif
 }
 
@@ -9273,7 +9451,7 @@ static void test_image_floor_from_init_size(void) {
   }
 }
 
-/* MODULES_RELATIVE_TO_TEXT (riscv64/s390): a VIRT module leak bounds the text
+/* MODULES_MAY_TRACK_TEXT (riscv64/s390): a VIRT module leak bounds the text
  * base. The exact value is arch-specific (two cases); assert the monotone
  * invariant — the rule narrows within the window and never widens. */
 static void test_module_text_bound(void) {
@@ -9285,10 +9463,21 @@ static void test_module_text_bound(void) {
   struct observation m = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, vmod,
                                 LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   evidence_add(&e.ev, &m);
+  /* The arrangement witness, so the derivation runs on every arch the
+   * predicate admits. On one whose anchor is a boot-time property the rules
+   * decline until it is established, and without this the case below would
+   * assert inertness there and stop testing the relation. Inside the gate
+   * because the value is a 64-bit address: the predicate admits only 64-bit
+   * arches, and outside it the literal is unrepresentable on a 32-bit one. */
+#if MODULES_MAY_TRACK_TEXT
+  struct observation wit =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  evidence_add(&e.ev, &wit);
+#endif
   const rule_fn rules[] = {rule_kaslr_align_arch_default,
                            rule_module_text_bound};
   engine_run(&e, rules, 2);
-#if MODULES_RELATIVE_TO_TEXT
+#if MODULES_MAY_TRACK_TEXT
   TH_CHECK(e.est[Q_VIRT_IMAGE_BASE].lo >= top.lo &&
            e.est[Q_VIRT_IMAGE_BASE].hi <=
                top.hi); /* narrowed-or-equal, never wider */
@@ -9532,7 +9721,7 @@ static void test_module_text_bound_ignores_range_classified(void) {
 }
 
 /* The lower bound, hoisted out of the upper-bound #if: on both
- * MODULES_RELATIVE_TO_TEXT arches the module band ENDS at the image start, so a
+ * MODULES_MAY_TRACK_TEXT arches the module band ENDS at the image start, so a
  * module address floors the text base. Emitted on s390 (Case B) but discarded
  * on riscv64 (Case A) until the split. A module placed 64 MiB below a chosen
  * text base must raise the floor to at-or-below that base (contains the truth)
@@ -9540,7 +9729,7 @@ static void test_module_text_bound_ignores_range_classified(void) {
  * runs under tests/test-cross; the inert case is covered by
  * test_module_text_bound. */
 static void test_module_text_bound_floor_from_high_edge(void) {
-#if MODULES_RELATIVE_TO_TEXT
+#if MODULES_MAY_TRACK_TEXT
   struct engine e;
   engine_init(&e);
   struct estimate top;
@@ -9552,6 +9741,14 @@ static void test_module_text_bound_floor_from_high_edge(void) {
   struct observation m = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, vmod,
                                 LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   evidence_add(&e.ev, &m);
+  /* The arrangement witness, so the derivation runs on every arch the
+   * predicate admits. On one whose anchor is a boot-time property the rules
+   * decline until it is established, and without this the case below would
+   * assert inertness there and stop testing the relation. Needs no gate of its
+   * own: this whole case is already inside one. */
+  struct observation wit =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  evidence_add(&e.ev, &wit);
   const rule_fn rules[] = {rule_kaslr_align_arch_default,
                            rule_module_text_bound};
   engine_run(&e, rules, 2);
@@ -9699,10 +9896,21 @@ static void test_module_base_from_text(void) {
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, t, LO_SET,
                                 POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
+  /* The arrangement witness, so the derivation runs on every arch the
+   * predicate admits. On one whose anchor is a boot-time property the rules
+   * decline until it is established, and without this the case below would
+   * assert inertness there and stop testing the relation. Inside the gate
+   * because the value is a 64-bit address: the predicate admits only 64-bit
+   * arches, and outside it the literal is unrepresentable on a 32-bit one. */
+#if MODULES_MAY_TRACK_TEXT
+  struct observation wit =
+      mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0x3FFE0000000ul, CONF_PARSED);
+  evidence_add(&e.ev, &wit);
+#endif
   const rule_fn rules[] = {rule_text_pin_from_observation,
                            rule_module_base_from_text};
   engine_run(&e, rules, 2);
-#if MODULES_RELATIVE_TO_TEXT
+#if MODULES_MAY_TRACK_TEXT
   /* Narrowed from the band, and capped by the image base -- the region sits
    * below the image on every arch this applies to. */
   TH_CHECK(e.est[Q_MODULE_BASE].lo > mtop.lo ||
@@ -10745,11 +10953,15 @@ int main(void) {
   RUN(test_s390_image_base_from_config_modern_pin_when_kaslr_off);
   RUN(test_s390_image_base_from_config_identity_ceiling);
   RUN(test_s390_image_base_from_config_inert_without_fact);
+  RUN(test_s390_layout_generation_predicates);
   RUN(test_s390_va_bits_from_config_base_forces_4level);
   RUN(test_s390_va_bits_from_config_kasan_forces_4level);
   RUN(test_s390_va_bits_from_config_default_base_inert);
   RUN(test_s390_va_bits_from_config_preuncoupled_inert);
+  RUN(test_s390_va_bits_from_config_preuncoupled_proves_3level);
+  RUN(test_s390_va_bits_from_config_preuncoupled_kaslr_off_inert);
   RUN(test_s390_va_bits_from_config_no_config_inert);
+  RUN(test_s390_module_ceiling_from_va_bits);
   RUN(test_s390_text_ceiling_from_va_bits);
   RUN(test_s390_va_bits_from_config_small_guest_proves_3level);
   RUN(test_s390_va_bits_from_config_estimate_is_an_upper_bound);

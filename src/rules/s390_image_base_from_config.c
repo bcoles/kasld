@@ -76,20 +76,20 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  int have_sel = 0;
   unsigned long image_base = 0, max_pfn = 0, memtotal = 0, page_size = 0;
   uint32_t sel_src = 0, kaslr_off_id = 0;
   enum kasld_confidence kaslr_off_conf = CONF_UNKNOWN;
+  /* Presence and value both matter and the plain scalar reader cannot carry
+   * both: a config that was read and LACKS the knob is the whole content of the
+   * identity-mapped answer, and it reaches here as a zero that the skip-zero
+   * reader would discard as absent. */
+  int have_sel = kasld_scalar_fact_present(ev, SF_VIRT_KERNEL_IMAGE_BASE,
+                                           &image_base, NULL, &sel_src);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
       continue;
     switch (o->scalar_fact) {
-    case SF_VIRT_KERNEL_IMAGE_BASE:
-      have_sel = 1;
-      image_base = o->scalar_value;
-      sel_src = o->id;
-      break;
     case SF_VIRT_KASLR_DISABLED:
       if (o->scalar_value != 0) {
         kaslr_off_id = o->id;
@@ -119,7 +119,7 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
   c->lineage_count = 1;
   snprintf(c->origin, ORIGIN_LEN, "s390_image_base_from_config");
 
-  if (image_base > 0) {
+  if (s390_layout_from_config(have_sel, image_base) == S390_LAYOUT_UNCOUPLED) {
     /* Modern layout. The configured base describes the KASLR-off placement
      * only, so without that signal there is nothing here to narrow with: the
      * randomizing branch can put the image below this value. See the header. */

@@ -28,9 +28,22 @@ RULES=$ROOT/src/rules
 # Reviewed self-edges. Each reads est[Q] and writes Q; all are either pure
 # gate/filter/selector reads (sound by construction) or value-determining with
 # a soundness test. Keep alphabetical.
+#
+# module_text_bound is the gate kind, and the gate is one-sided on purpose: it
+# reads the Q_VIRT_IMAGE_BASE window only to ask which side of the image a
+# module address falls on, which decides whether the architecture's band is
+# anchored to the image at all. Both tests it makes -- observation below the
+# window's floor, observation at or above its top -- follow from the window
+# CONTAINING the truth and not from how tight it is, so they stay correct under
+# any pre-narrowing a sound rule can produce, and a narrowing pass can only turn
+# an unproven answer into a proven one, never reverse a proven one. The bounds
+# it then emits are computed from the module observation, never from the window
+# it read. test_full_engine_s390_vas_top_module_band_sound and its image-
+# relative sibling cover both answers.
 ALLOW="arm64_text_base
 image_base_grid_align
 image_base_resolved_grid_align
+module_text_bound
 phys_hole_filter
 phys_virt_synth
 randomize_memory_page_offset
