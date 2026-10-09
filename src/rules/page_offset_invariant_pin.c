@@ -4,7 +4,9 @@
 //
 // On some arches the kernel's direct-map / VAS origin is a hard architectural
 // constant that cannot vary by config, paging mode, or randomization:
-//   MIPS (mips32/mips64) — PAGE_OFFSET is CKSEG0, fixed by the ISA.
+//   MIPS (mips32/mips64) — the modelled base is the KSEG0/CKSEG0 segment
+//     base, fixed by the ISA. A configuration whose kernel composes a
+//     different PAGE_OFFSET is declared out of scope in the arch header.
 //   ppc64 — book3s64 linear-mapping base 0xc000000000000000, not configurable.
 //   loongarch64 — the linear-mapping base is a fixed ISA constant.
 //   riscv32 — PAGE_OFFSET is fixed (no per-mode SATP variability as on rv64).

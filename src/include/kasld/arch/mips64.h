@@ -16,7 +16,17 @@
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/addrspace.h#L68
 #define PAGE_OFFSET 0xffffffff80000000ul
-// CKSEG0 is fixed by the MIPS ISA — virt_page_offset cannot vary at runtime.
+// The CKSEG0 segment base, fixed by the MIPS ISA, and the value the image
+// projection rides: a mips64 kernel links its text at CKSEG0 plus a load
+// offset, so virt_page_offset cannot vary at runtime.
+//
+// The kernel composes its own PAGE_OFFSET differently on 64-bit, as
+// CAC_BASE + PHYS_OFFSET, where CAC_BASE is an XKPHYS window selected from
+// the CP0 cache-coherency attribute at runtime
+// (arch/mips/include/asm/mach-generic/spaces.h). An address in that window
+// is a direct PHYSICAL mapping rather than evidence about this base, and is
+// decoded to its physical address at the observation boundary, so it never
+// reaches the engine as a direct-map virtual address.
 #define PAGE_OFFSET_INVARIANT 1
 // CKSEG0, fixed by the MIPS ISA. Note this sits far ABOVE
 // KERNEL_VIRT_VAS_START (0x8000000000000000) -- the kernel address space
@@ -44,8 +54,17 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/page.h#L199
 // PAGE_OFFSET is fixed by the CKSEG0 hardware mapping, so the compile-time
 // direct-map formula is exact (DIRECTMAP_STATIC) and text tracks the directmap.
-// LINEAR_MAP_ANCHOR: PAGE_OFFSET is CAC_BASE + PHYS_OFFSET, so the anchor
-// is the compile-time PHYS_OFFSET (0), not a runtime DRAM discovery.
+// LINEAR_MAP_ANCHOR: the anchor is 0 on every configuration in scope, and
+// stays 0 however the platform's PHYS_OFFSET is set or derived. __va carries
+// + PAGE_OFFSET - PHYS_OFFSET with PAGE_OFFSET = CAC_BASE + PHYS_OFFSET, so
+// PHYS_OFFSET cancels and __va(0) is CAC_BASE; __pa masks -- XPHYSADDR below
+// CKSEG0, CPHYSADDR from it -- so it cannot depend on PHYS_OFFSET at all, and
+// returns 0 at the base of either window. That covers a platform that shifts
+// PHYS_OFFSET (mach-ip22 sets 0x08000000, mach-ip28 and mach-ip30
+// 0x20000000) and one where it is a boot-time quantity
+// (CONFIG_MIPS_AUTO_PFN_OFFSET, which MIPS_GENERIC_KERNEL selects, makes it
+// PFN_PHYS of the extern ARCH_PFN_OFFSET).
+// arch/mips/include/asm/page.h ___pa / __va
 // arch/mips/include/asm/mach-generic/spaces.h PAGE_OFFSET / PHYS_OFFSET
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1

@@ -25,7 +25,24 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L33
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/addrspace.h#L98
 #define PAGE_OFFSET 0x80000000ul
-// CKSEG0 is fixed by the MIPS32 ISA — virt_page_offset cannot vary at runtime.
+// The KSEG0 segment base, which the MIPS32 ISA fixes at 0x80000000, and the
+// whole of the projection constant. __va carries + PAGE_OFFSET - PHYS_OFFSET
+// and PAGE_OFFSET is CAC_BASE + PHYS_OFFSET, so PHYS_OFFSET cancels and
+// __va(x) is x + CAC_BASE; __pa masks with CPHYSADDR, which cannot depend on
+// PHYS_OFFSET at all. virt_page_offset therefore cannot vary at runtime
+// whatever PHYS_OFFSET holds -- including where it is derived at boot, since
+// CONFIG_MIPS_AUTO_PFN_OFFSET makes it PFN_PHYS of the extern ARCH_PFN_OFFSET.
+// arch/mips/include/asm/page.h ___pa / __va
+//
+// CONFIG_EVA is out of scope, and is a separate matter: under it
+// mach-malta/spaces.h defines PAGE_OFFSET as 0 with PHYS_OFFSET 0x80000000
+// before including the generic header, whose #ifndef PAGE_OFFSET then leaves
+// that value standing. The cancellation still holds as arithmetic -- 32-bit
+// CAC_BASE + PHYS_OFFSET wraps to that same 0 -- but RAM begins at physical
+// 0x80000000 and __va places it at virtual 0, so the linear map begins at
+// virtual 0 and its anchor is PHYS_OFFSET rather than 0. EVA is also the one
+// configuration on which __pa subtracts rather than masks. The bracket below
+// excludes that base.
 #define PAGE_OFFSET_INVARIANT 1
 // KSEG0, fixed by the MIPS ISA.
 #define PAGE_OFFSET_CANDIDATES {0x80000000ul}
@@ -51,10 +68,14 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/page.h#L199
 // PAGE_OFFSET is fixed by the KSEG0 hardware mapping, so the compile-time
 // direct-map formula is exact (DIRECTMAP_STATIC) and text tracks the directmap.
-// LINEAR_MAP_ANCHOR: PAGE_OFFSET is CAC_BASE + PHYS_OFFSET, so the anchor
-// is PHYS_OFFSET itself — a compile-time constant (0 on the generic
-// platform KASLD models; a platform overriding ARCH_PFN_OFFSET is out of
-// scope, and would be a different constant, still not a DRAM discovery).
+// LINEAR_MAP_ANCHOR: the anchor is 0 on every configuration in scope, and
+// stays 0 however the platform's PHYS_OFFSET is set or derived. __va(0) is
+// CAC_BASE by the cancellation above, and the CPHYSADDR mask __pa applies
+// returns 0 at the segment base. That covers a platform that shifts
+// PHYS_OFFSET (mach-ip22 and mach-pic32 set 0x08000000) and one where it is
+// a boot-time quantity (CONFIG_MIPS_AUTO_PFN_OFFSET, which
+// MIPS_GENERIC_KERNEL selects, makes it PFN_PHYS of the extern
+// ARCH_PFN_OFFSET).
 // arch/mips/include/asm/mach-generic/spaces.h PAGE_OFFSET / PHYS_OFFSET
 #define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1
