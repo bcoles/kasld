@@ -40,6 +40,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 
 #ifndef KASLD_PATH_MAX
@@ -183,6 +184,17 @@ __attribute__((unused)) static int kasld_access(const char *path, int mode) {
     return -1;
   }
   return access(p, mode);
+}
+
+__attribute__((unused)) static ssize_t
+kasld_getxattr(const char *path, const char *name, void *value, size_t size) {
+  char buf[KASLD_PATH_MAX];
+  const char *p = kasld_resolve(path, buf, sizeof(buf));
+  if (!p) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  return getxattr(p, name, value, size);
 }
 
 /* opendir() through the sysroot. Entry names are returned as-is (relative to

@@ -106,6 +106,7 @@ retired_check 'compile-time default, no slide' 'the engine-resolved base'
 retired_check 'base not pinned to a single default' 'the engine-resolved range'
 retired_check 'assumes default config' 'the engine-resolved base'
 retired_check '(default for arch)' 'the engine-resolved base'
+retired_check 'Restrict dmesg fallback files to root' 'Restrict kernel log copies to root'
 # The readout is a table: one row per (quantity, basis), the candidate count in
 # its own headed column. The two grades are one word each.
 retired_check 'narrowed to ~' 'a Candidates count on the row'

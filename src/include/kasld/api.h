@@ -2901,7 +2901,10 @@ typedef int make_iso_compilers_happy;
  *            reads only whether the key is present. The technique also reads a
  *            log-file fallback, not only a restricted syscall, so the report
  *            can distinguish a syscall restriction (dmesg_restrict) from a
- *            file-permission fix.
+ *            file-permission fix. A technique that read this path past an
+ *            active dmesg_restrict is credited as exempt where the account's
+ *            own access granted it, and as a bypass where every account can
+ *            read it.
  */
 #define KASLD_META(text)                                                       \
   __attribute__((                                                              \

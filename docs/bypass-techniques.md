@@ -135,6 +135,35 @@ present from 2017-2019 caused the `/var/log/dmesg` log file to be generated
 with world-readable permissions (`644`) and may still be world-readable on
 some systems.
 
+Where `systemd-journald` runs, the same kernel records are also kept in the
+journal: `/var/log/journal` when storage is persistent, `/run/log/journal` when
+it is volatile. `kernel.dmesg_restrict` does not govern these — it gates only
+direct reads of the ring buffer (`syslog(2)`, `/dev/kmsg`, `/proc/kmsg`), and
+journald reads `/dev/kmsg` as root. The journal files carry a read ACL for the
+`adm` group — and for `wheel` where systemd was built to add it — applied by
+`systemd-tmpfiles` and reapplied on every boot:
+
+```
+$ getfacl -p /var/log/journal/*/system.journal
+# file: /var/log/journal/<machine-id>/system.journal
+# owner: root
+# group: systemd-journal
+user::rw-
+group::r-x	#effective:r--
+group:adm:r-x	#effective:r--
+mask::r--
+other::---
+```
+
+A member of a granted group can therefore read the whole kernel log with
+`journalctl -k` on a host where `kernel.dmesg_restrict = 1` denies `dmesg`
+outright. Where no `/var/log/dmesg` is written, the journal is the only copy
+outside the ring buffer.
+
+KASLD reports both journal trees among its readable-source rows but does not
+read them: the journal is a binary format whose records may be individually
+compressed, and it retains prior boots, each with its own KASLR offset.
+
 ### debugfs
 
 Various areas of [debugfs](https://en.wikipedia.org/wiki/Debugfs)

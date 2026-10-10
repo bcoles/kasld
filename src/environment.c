@@ -39,6 +39,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -188,24 +189,26 @@ static void oracle_access_from_capture(struct kasld_vantage *v) {
       continue;
     const char *path = line + 12;
     for (int i = 0; i < KASLD_N_ORACLES; i++)
-      if (v->oracle_access[i] == ORACLE_UNKNOWN &&
-          strcmp(path, v->oracle_path[i]) == 0)
+      if (v->oracle_access[i] == ORACLE_UNKNOWN && v->oracle_probe[i][0] &&
+          strcmp(path, v->oracle_probe[i]) == 0)
         v->oracle_access[i] = ORACLE_DENIED;
   }
   fclose(f);
 }
 
 const struct kasld_oracle kasld_oracles[KASLD_N_ORACLES] = {
-    {"/proc/kallsyms", NULL, 0},
-    {"/proc/kcore", NULL, 0},
-    {"/proc/iomem", NULL, 0},
-    {"/proc/modules", NULL, 0},
-    {"/var/log/dmesg", NULL, 0},
-    {"/var/log/kern.log", NULL, 0},
-    {"/var/log/syslog", NULL, 0},
-    {"/sys/kernel/debug", "debugfs", 0},
-    {"/boot/System.map-", "/boot/System.map", 1},
-    {"/boot/config-", "/boot/config", 1},
+    {"/proc/kallsyms", NULL, ORACLE_PROBE_PATH, 0},
+    {"/proc/kcore", NULL, ORACLE_PROBE_PATH, 0},
+    {"/proc/iomem", NULL, ORACLE_PROBE_PATH, 0},
+    {"/proc/modules", NULL, ORACLE_PROBE_PATH, 0},
+    {"/var/log/dmesg", NULL, ORACLE_PROBE_PATH, 1},
+    {"/var/log/kern.log", NULL, ORACLE_PROBE_PATH, 1},
+    {"/var/log/syslog", NULL, ORACLE_PROBE_PATH, 1},
+    {"/var/log/journal", NULL, ORACLE_PROBE_SYSTEM_JOURNAL, 1},
+    {"/run/log/journal", NULL, ORACLE_PROBE_SYSTEM_JOURNAL, 1},
+    {"/sys/kernel/debug", "debugfs", ORACLE_PROBE_PATH, 0},
+    {"/boot/System.map-", "/boot/System.map", ORACLE_PROBE_RELEASE, 0},
+    {"/boot/config-", "/boot/config", ORACLE_PROBE_RELEASE, 0},
 };
 
 /* Held-cap → the kasld leak it unlocks. Bit numbers are the stable capability
@@ -215,12 +218,12 @@ const struct kasld_oracle kasld_oracles[KASLD_N_ORACLES] = {
  * table exists: `readproc` decides whether /proc/<pid> entries of other tasks
  * are visible at all under hidepid, and `radio` owns /proc/cmdline at 0440. */
 const struct kasld_group_gate kasld_group_gates[KASLD_N_GROUP_GATES] = {
-    {0, "root", "everything DAC-gated"},
-    {4, "adm", "/var/log/dmesg past dmesg_restrict"},
-    {1001, "radio", "/proc/cmdline (Android, 0440 root:radio)"},
-    {1007, "log", "the Android log sources"},
-    {3009, "readproc", "other tasks' /proc entries under hidepid"},
-    {3012, "readtracefs",
+    {0, "root", 1, "everything DAC-gated"},
+    {4, "adm", 0, "/var/log/dmesg past dmesg_restrict"},
+    {1001, "radio", 1, "/proc/cmdline (Android, 0440 root:radio)"},
+    {1007, "log", 1, "the Android log sources"},
+    {3009, "readproc", 1, "other tasks' /proc entries under hidepid"},
+    {3012, "readtracefs", 1,
      "tracefs printk_formats / available_filter_functions_addrs"},
 };
 
@@ -408,7 +411,8 @@ static void resolve_group_names(struct kasld_vantage *v) {
     if (v->group_names[i][0])
       continue;
     for (int g = 0; g < KASLD_N_GROUP_GATES; g++)
-      if (kasld_group_gates[g].gid == v->groups[i])
+      if (kasld_group_gates[g].gid_is_abi &&
+          kasld_group_gates[g].gid == v->groups[i])
         snprintf(v->group_names[i], sizeof(v->group_names[i]), "%s",
                  kasld_group_gates[g].name);
   }
@@ -459,6 +463,208 @@ static void parse_groups(const char *s, int cut, struct kasld_vantage *v) {
   v->groups_truncated = cut || total > KASLD_N_GROUPS;
 }
 
+/* The machine ID journald names its directory by: 32 lowercase hex digits.
+ * Returns 0 where /etc/machine-id holds anything else, which includes the
+ * "uninitialized" a first boot writes before one is assigned. */
+static int read_machine_id(char out[33]) {
+  char line[64];
+  if (read_proc_line("/etc/machine-id", line, sizeof line) != 0 ||
+      strlen(line) != 32)
+    return 0;
+  for (int i = 0; i < 32; i++)
+    if (!((line[i] >= '0' && line[i] <= '9') ||
+          (line[i] >= 'a' && line[i] <= 'f')))
+      return 0;
+  memcpy(out, line, 33);
+  return 1;
+}
+
+/* A journal row whose machine ID could not be read. The file holding the
+ * records cannot be named, so the row claims nothing -- unless the tree itself
+ * is absent on a live run, which leaves no journal there to read. */
+static enum oracle_access journal_without_machine_id(const char *tree) {
+  struct stat st;
+  if (kasld_fact_source() != KASLD_FACTS_LIVE)
+    return ORACLE_UNKNOWN;
+  if (kasld_stat(tree, &st) != 0 && (errno == ENOENT || errno == ENOTDIR))
+    return ORACLE_ABSENT;
+  return ORACLE_UNKNOWN;
+}
+
+/* One entry of a POSIX access ACL, and the tags and read bit of its format. */
+struct acl_entry {
+  unsigned int tag;
+  unsigned int perm;
+  unsigned long id;
+};
+#define KASLD_ACL_USER 0x02
+#define KASLD_ACL_GROUP_OBJ 0x04
+#define KASLD_ACL_GROUP 0x08
+#define KASLD_ACL_MASK 0x10
+#define KASLD_ACL_READ 0x04
+#define KASLD_ACL_MAX 64
+
+/* Decode a system.posix_acl_access value: a 4-byte version (2), then 8-byte
+ * entries of a 2-byte tag, a 2-byte permission set and a 4-byte id, all
+ * little-endian whatever the host's own order. Returns the entry count, or -1
+ * for a value that is not one. */
+static int acl_decode(const unsigned char *b, size_t n, struct acl_entry *out,
+                      int max) {
+  if (n < 4 || (n - 4) % 8 != 0)
+    return -1;
+  unsigned long ver = b[0] | (unsigned long)b[1] << 8 |
+                      (unsigned long)b[2] << 16 | (unsigned long)b[3] << 24;
+  size_t count = (n - 4) / 8;
+  if (ver != 2 || count > (size_t)max)
+    return -1;
+  for (size_t k = 0; k < count; k++) {
+    const unsigned char *e = b + 4 + 8 * k;
+    out[k].tag = e[0] | (unsigned int)e[1] << 8;
+    out[k].perm = e[2] | (unsigned int)e[3] << 8;
+    out[k].id = e[4] | (unsigned long)e[5] << 8 | (unsigned long)e[6] << 16 |
+                (unsigned long)e[7] << 24;
+  }
+  return (int)count;
+}
+
+/* Whether this account holds `gid` for the kernel's group check, which tests
+ * the filesystem gid and the supplementary groups. The vantage records the
+ * effective gid, which differs from the filesystem gid only after setfsgid(2).
+ */
+static int holds_gid(const struct kasld_vantage *v, unsigned long gid) {
+  if (gid == v->egid)
+    return 1;
+  for (int i = 0; i < v->ngroups; i++)
+    if (v->groups[i] == gid)
+      return 1;
+  return 0;
+}
+
+/* Settle the route the kernel's check takes for this account through a file
+ * of this owner, group, mode and access ACL (`nacl` 0 for none), given whether
+ * every directory above it is searchable by every account.
+ *
+ * The order is the kernel's: the owner's bits decide for the owner, an entry
+ * naming the account decides for it, the groups decide whenever the account
+ * holds one that matches -- the other class is never consulted after a
+ * matching group denies -- and the other class decides for the rest. A read
+ * the class it lands in does not grant came through a capability. With an ACL
+ * every group entry is limited by the mask. The kernel identifies the owner
+ * by the filesystem uid; the vantage records the effective uid, which differs
+ * only after setfsuid(2). */
+static void route_from_dac(const struct kasld_vantage *v, unsigned int mode,
+                           unsigned long uid, unsigned long gid,
+                           const struct acl_entry *acl, int nacl,
+                           int ancestors_world, struct kasld_oracle_reach *r) {
+  const int cap = (int)(sizeof r->grant / sizeof r->grant[0]);
+  int matched = 0;
+
+  memset(r, 0, sizeof *r);
+  r->world = (mode & S_IROTH) && ancestors_world;
+  if (uid == v->euid) {
+    r->route = ORACLE_ROUTE_SELF;
+    return;
+  }
+  if (nacl == 0) {
+    if (holds_gid(v, gid)) {
+      matched = 1;
+      if (mode & S_IRGRP)
+        r->grant[r->ngrant++] = gid;
+    }
+  } else {
+    unsigned int mask = KASLD_ACL_READ;
+    for (int k = 0; k < nacl; k++) {
+      if (acl[k].tag == KASLD_ACL_MASK)
+        mask = acl[k].perm;
+      if (acl[k].tag == KASLD_ACL_USER && acl[k].id == v->euid) {
+        r->route = ORACLE_ROUTE_SELF;
+        return;
+      }
+    }
+    for (int k = 0; k < nacl; k++) {
+      unsigned long id;
+      if (acl[k].tag == KASLD_ACL_GROUP_OBJ)
+        id = gid;
+      else if (acl[k].tag == KASLD_ACL_GROUP)
+        id = acl[k].id;
+      else
+        continue;
+      if (!holds_gid(v, id))
+        continue;
+      matched = 1;
+      if (!(acl[k].perm & mask & KASLD_ACL_READ))
+        continue;
+      int seen = 0;
+      for (int j = 0; j < r->ngrant; j++)
+        seen |= r->grant[j] == id;
+      if (!seen && r->ngrant < cap)
+        r->grant[r->ngrant++] = id;
+    }
+  }
+  if (r->ngrant > 0)
+    r->route = ORACLE_ROUTE_GROUP;
+  else if (!matched && r->world)
+    r->route = ORACLE_ROUTE_WORLD;
+  else
+    r->route = ORACLE_ROUTE_SELF;
+}
+
+/* Whether every directory above `path` grants search to every account: 1 or
+ * 0, or -1 where one of them could not be examined. */
+static int ancestors_world(const char *path) {
+  char dir[KASLD_ORACLE_PATH_MAX];
+  struct stat st;
+  snprintf(dir, sizeof dir, "%s", path);
+  for (char *slash = strrchr(dir, '/'); slash; slash = strrchr(dir, '/')) {
+    int top = slash == dir;
+    if (top)
+      dir[1] = '\0';
+    else
+      *slash = '\0';
+    if (kasld_stat(dir, &st) != 0)
+      return -1;
+    if (!S_ISDIR(st.st_mode) || !(st.st_mode & S_IXOTH))
+      return 0;
+    if (top)
+      break;
+  }
+  return 1;
+}
+
+/* Settle a readable source's reach from its own metadata. Whether any
+ * account can read it depends on the file alone; the route this account takes
+ * also needs the account's whole identity, and is left UNKNOWN without it, as
+ * it is where any of the metadata cannot be read -- a partial reading can name
+ * a route the kernel did not take. */
+static void oracle_route(const struct kasld_vantage *v, const char *path,
+                         int identity_known, struct kasld_oracle_reach *r) {
+  unsigned char raw[4 + 8 * KASLD_ACL_MAX];
+  struct acl_entry acl[KASLD_ACL_MAX];
+  struct stat st;
+  int nacl = 0;
+
+  memset(r, 0, sizeof *r);
+  if (!path[0] || kasld_stat(path, &st) != 0)
+    return;
+  int anc = ancestors_world(path);
+  if (anc < 0)
+    return;
+  if (!identity_known) {
+    r->world = (st.st_mode & S_IROTH) && anc;
+    return;
+  }
+  ssize_t n = kasld_getxattr(path, "system.posix_acl_access", raw, sizeof raw);
+  if (n >= 0) {
+    nacl = acl_decode(raw, (size_t)n, acl, KASLD_ACL_MAX);
+    if (nacl < 0)
+      return;
+  } else if (errno != ENODATA && errno != ENOTSUP) {
+    return;
+  }
+  route_from_dac(v, (unsigned int)st.st_mode, (unsigned long)st.st_uid,
+                 (unsigned long)st.st_gid, acl, nacl, anc, r);
+}
+
 void kasld_gather_vantage(struct kasld_vantage *v) {
   memset(v, 0, sizeof(*v));
   v->container = detect_container();
@@ -477,14 +683,24 @@ void kasld_gather_vantage(struct kasld_vantage *v) {
    * kasld_env_snapshot(), and every format has to answer from one moment. A
    * run with no identity probes the bare prefix, which is not a file. */
   const char *release = kasld_env.have_uts ? kasld_env.uts.release : "";
+  char machine_id[33];
+  int have_machine_id = read_machine_id(machine_id);
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
-    if (kasld_oracles[i].release_suffixed)
-      snprintf(v->oracle_path[i], sizeof v->oracle_path[i], "%s%s",
-               kasld_oracles[i].path, release);
-    else
-      snprintf(v->oracle_path[i], sizeof v->oracle_path[i], "%s",
-               kasld_oracles[i].path);
-    if (kasld_access(v->oracle_path[i], R_OK) == 0)
+    const struct kasld_oracle *o = &kasld_oracles[i];
+    snprintf(v->oracle_path[i], sizeof v->oracle_path[i], "%s%s", o->path,
+             o->probe == ORACLE_PROBE_RELEASE ? release : "");
+    if (o->probe != ORACLE_PROBE_SYSTEM_JOURNAL) {
+      snprintf(v->oracle_probe[i], sizeof v->oracle_probe[i], "%s",
+               v->oracle_path[i]);
+    } else if (have_machine_id) {
+      snprintf(v->oracle_probe[i], sizeof v->oracle_probe[i],
+               "%s/%s/system.journal", o->path, machine_id);
+    } else {
+      v->oracle_probe[i][0] = '\0';
+      v->oracle_access[i] = journal_without_machine_id(o->path);
+      continue;
+    }
+    if (kasld_access(v->oracle_probe[i], R_OK) == 0)
       v->oracle_access[i] = ORACLE_READABLE;
     else if (kasld_fact_source() != KASLD_FACTS_LIVE)
       v->oracle_access[i] =
@@ -517,6 +733,14 @@ void kasld_gather_vantage(struct kasld_vantage *v) {
   }
   if (v->ngroups > 0)
     resolve_group_names(v);
+
+  if (kasld_fact_source() == KASLD_FACTS_LIVE) {
+    int identity_known = v->have_ids && v->ngroups >= 0 && !v->groups_truncated;
+    for (int i = 0; i < KASLD_N_ORACLES; i++)
+      if (v->oracle_access[i] == ORACLE_READABLE)
+        oracle_route(v, v->oracle_probe[i], identity_known,
+                     &v->oracle_reach[i]);
+  }
 
   /* Mandatory access control. Three unprivileged reads, none of which is
    * available everywhere: securityfs carries the authoritative LSM list but is

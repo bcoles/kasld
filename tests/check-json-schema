@@ -53,6 +53,12 @@
 # brings the two back level there, so the bit ratio IS published, and the two
 # gates are separate exactly so each states what it can.
 #
+# A dmesg_restrict exemption through a group is unexercised because no replay
+# can establish one. It rests on how the account reaches the fallback log file
+# -- the file's owner, mode and ACL against the account's groups -- and a
+# capture carries none of the target's modes or ACLs, so a replay credits a
+# capability or leaves the route unsettled. Only a live run emits it.
+#
 # Usage: tests/check-json-schema   (also run by `make lint`)
 # ---
 # <bcoles@gmail.com>
@@ -247,6 +253,9 @@ derived.[].section
 derived.[].type
 derived.[].via
 environment.groups_truncated
+hardening.active_defenses.[].exemption.groups
+hardening.active_defenses.[].exemption.groups.[].gid
+hardening.active_defenses.[].exemption.groups.[].name
 hardening.confirmed_mitigations.[].component
 hardening.confirmed_mitigations.[].gate
 hardening.confirmed_mitigations.[].message

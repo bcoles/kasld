@@ -148,6 +148,13 @@ struct hr_gate {
   int n_blocked_names;
   const char *bypassed_names[HR_NAME_MAX];
   int n_bypassed_names;
+  /* Succeeded through a privilege this account holds that the gate does not
+   * restrict -- for dmesg_restrict, a capability or a group the log copies
+   * grant read to -- so neither blocked nor a way around it. What it went
+   * through is the report's log_route. */
+  int exempt;
+  const char *exempt_names[HR_NAME_MAX];
+  int n_exempt_names;
   /* Components enabling this gate would actually SILENCE: succeeded and gated
    * with no fallback source (a fallback-bypassing leak survives the sysctl).
    * The exclude set for the counterfactual posture projection. */
@@ -192,8 +199,27 @@ struct hr_nomit {
   const char *discloses;
 };
 
+/* How this run read the kernel log while dmesg_restrict was active.
+ *
+ * The sysctl governs the ring buffer and nothing else. An account holding
+ * CAP_SYSLOG is not subject to it, and the copies of the log on disk answer to
+ * their own modes and ACLs, which grant root and the log-reader groups read by
+ * design. So only a copy every account can read is a way around the sysctl;
+ * reading through the account's own privilege is an exemption it was meant to
+ * leave. */
+enum hr_log_route {
+  HR_LOG_UNSETTLED = 0, /* not established, so not credited either way */
+  HR_LOG_CAPABILITY,    /* the ring buffer, through a capability held */
+  HR_LOG_GROUP,         /* /var/log/dmesg, through this account's groups */
+  HR_LOG_SELF,          /* /var/log/dmesg, through this account's own access */
+  HR_LOG_WORLD,         /* /var/log/dmesg, which every account can read */
+};
+
 struct hardening_report {
   int succeeded, total; /* exposure: non-detection components */
+  /* Of `succeeded`, those that went through a privilege this account holds
+   * rather than past a defense (hr_gate.exempt, summed over the gates). */
+  int exempt;
 
   /* KASLR posture. rand_detectors[] is the raw set of randomization-failure
    * witnesses (independent of the prioritised posture state, which json uses);
@@ -211,24 +237,41 @@ struct hardening_report {
   int n_gate_suggestions;
   int suggest_lockdown, lockdown_impact;
   int lockdown_suggest_mode; /* enum lockdown_mode the suggestion recommends */
-  int suggest_dmesg_fallback, dmesg_fallback_count; /* text-only suggestion */
+
+  /* How the dmesg components read the log past an active dmesg_restrict, and
+   * what it went through: the capability, or the groups granting
+   * /var/log/dmesg. */
+  enum hr_log_route log_route;
+  const char *log_route_cap;
+  unsigned long log_route_gid[KASLD_N_GROUPS + 1];
+  int n_log_route_gid;
+
+  /* Copies of the kernel log every account can read, as indices into
+   * kasld_oracles[]. dmesg_restrict governs only the ring buffer, so such a
+   * copy opens the records to every account whatever the sysctl says. It is
+   * flagged from any vantage; it silences only the leaks this run took
+   * through it. */
+  int suggest_world_log;
+  int world_log_copy[KASLD_N_ORACLES];
+  int n_world_log_copies;
 
   /* Projected posture: current guaranteed residual entropy, and the
    * ceiling if ALL suggestions are applied together. has_projection is 0 when
    * the engine is compiled out (projected rows are then suppressed). The
-   * lockdown and dmesg-fallback suggestions carry their own projected pair
+   * lockdown and world-readable-log suggestions carry their own projected pair
    * because they are not gate_suggestions[] entries. */
   int has_projection;
   int cur_vbits, cur_pbits;
   int all_vbits, all_pbits;
   int all_impact; /* distinct components silenced by applying every suggestion
                    */
-  /* Leave-one-out for the lockdown and dmesg-fallback suggestions (they are not
-   * gate_suggestions[] entries). skip_* / silences mirror hr_suggestion. */
+  /* Leave-one-out for the lockdown and world-readable-log suggestions (they
+   * are not gate_suggestions[] entries). skip_* / silences mirror
+   * hr_suggestion. */
   int lockdown_has_projection, lockdown_silences;
   int lockdown_skip_vbits, lockdown_skip_pbits;
-  int dmesg_fallback_has_projection, dmesg_fallback_silences;
-  int dmesg_fallback_skip_vbits, dmesg_fallback_skip_pbits;
+  int world_log_has_projection, world_log_silences;
+  int world_log_skip_vbits, world_log_skip_pbits;
 
   int vuln_total;
   struct hr_vuln vulns[HR_VULNS_MAX]; /* succeeded (possibly unpatched) */

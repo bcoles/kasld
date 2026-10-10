@@ -30,7 +30,7 @@
   "properties": {
     "schema_version": {
       "description": "Format version of this document, MAJOR.MINOR. Not the tool's version.",
-      "const": "1.1"
+      "const": "1.2"
     },
     "version": {
       "description": "The kasld binary's version. A `-dev` suffix is not unique to a commit.",
@@ -128,7 +128,7 @@
         "capabilities": { "type": ["string", "null"] },
         "no_new_privs": { "type": ["boolean", "null"] },
         "readable_oracles": {
-          "description": "The leak sources probed for readability, keyed by path. The /boot System.map and config paths include the running kernel release, so the key set is not fixed. `readable` is false for all three non-readable states; `status` says which.",
+          "description": "The leak sources probed for readability, keyed by path. The /boot System.map and config paths include the running kernel release, so the key set is not fixed. A systemd journal row is keyed by its tree, not by the system journal file probed inside it, whose path carries the machine ID. `readable` is false for all three non-readable states; `status` says which.",
           "type": "object",
           "propertyNames": { "pattern": "^/" },
           "additionalProperties": {
@@ -609,7 +609,9 @@
               "active",
               "components_gated",
               "components_blocked",
-              "components_bypassed"
+              "components_bypassed",
+              "components_exempt",
+              "exemption"
             ],
             "properties": {
               "gate": { "type": "string" },
@@ -619,7 +621,53 @@
               "active": { "type": "boolean" },
               "components_gated": { "type": "array", "items": { "type": "string" } },
               "components_blocked": { "type": "array", "items": { "type": "string" } },
-              "components_bypassed": { "type": "array", "items": { "type": "string" } }
+              "components_bypassed": { "type": "array", "items": { "type": "string" } },
+              "components_exempt": {
+                "description": "Components that succeeded through a privilege this account holds that the gate does not restrict, so neither blocked nor a way around it: for kernel.dmesg_restrict, a capability that reads the ring buffer, or a group or access of the account's own that the log copies grant read to. Disjoint from components_blocked and components_bypassed.",
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "exemption": {
+                "description": "What components_exempt went through, or null when it is empty: the capability that reads the ring buffer, the groups granting the fallback log file (each by gid, with the name the analysed tree gives it, or null where nothing named it), or the account's own access to that file.",
+                "oneOf": [
+                  { "type": "null" },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "capability"],
+                    "properties": {
+                      "kind": { "const": "capability" },
+                      "capability": { "type": "string" }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "groups"],
+                    "properties": {
+                      "kind": { "const": "group" },
+                      "groups": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": ["gid", "name"],
+                          "properties": {
+                            "gid": { "type": "integer" },
+                            "name": { "type": ["string", "null"] }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind"],
+                    "properties": { "kind": { "const": "account" } }
+                  }
+                ]
+              }
             }
           }
         },

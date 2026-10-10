@@ -16,15 +16,182 @@
 #include <string.h>
 
 /* Enforcement surfaces for the two suggestions that are not gate_suggestions[]
- * entries (those carry their own .surface): kernel lockdown is an LSM, and the
- * dmesg fallback-file restriction is a filesystem-permissions change. Named
- * once here so the text, JSON, and markdown renderers agree on the label. */
+ * entries (those carry their own .surface): kernel lockdown is an LSM, and a
+ * kernel log copy every account can read is a filesystem-permissions fix.
+ * Named once here so the text, JSON, and markdown renderers agree on the
+ * label. */
 #define HR_SURFACE_LOCKDOWN "lsm"
-#define HR_SURFACE_DMESG_FALLBACK "file_permissions"
+#define HR_SURFACE_WORLD_LOG "file_permissions"
+#define HR_ACTION_WORLD_LOG "Remove world read from kernel log copies"
+/* Why such a copy matters whatever dmesg_restrict is set to, said the same way
+ * in every format. */
+#define HR_WORLD_LOG_WHY "dmesg_restrict does not govern log files"
 /* Kernel lockdown and a MAC policy are both LSMs but are different levers —
  * one is a boot-time mode, the other a policy an administrator writes — so
  * they carry distinct surfaces rather than sharing "lsm". */
 #define HR_SURFACE_MAC "mac"
+
+/* The file the dmesg components fall back to when the ring buffer refuses
+ * them: what an exemption or a bypass of dmesg_restrict went through. */
+#define HR_DMESG_FALLBACK_PATH "/var/log/dmesg"
+
+/* Capability bits (linux/capability.h) that let an account read the ring
+ * buffer past dmesg_restrict. CAP_SYS_ADMIN did too until the kernel stopped
+ * accepting it, which no version number can be trusted to say. */
+#define HR_CAP_SYS_ADMIN 21
+#define HR_CAP_SYSLOG 34
+
+static int hr_oracle_index(const char *path) {
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    if (strcmp(kasld_oracles[i].path, path) == 0)
+      return i;
+  return -1;
+}
+
+/* The name the vantage resolved for `gid`, or NULL where nothing named it --
+ * as for a group served by a directory service rather than /etc/group, or a
+ * tree with no group database. */
+static const char *hr_group_name(unsigned long gid) {
+  const struct kasld_vantage *v = &kasld_env.vantage;
+  for (int i = 0; i < v->ngroups; i++)
+    if (v->groups[i] == gid)
+      return kasld_group_name(v, i);
+  return NULL;
+}
+
+/* Append "adm", "adm and wheel" or "adm, wheel and gid 1234" for these gids:
+ * each by the name the vantage resolved for it, by number where nothing named
+ * it. */
+static void hr_append_groups(char *out, size_t sz, const unsigned long *gid,
+                             int n) {
+  for (int k = 0; k < n; k++) {
+    const char *name = hr_group_name(gid[k]);
+    size_t len = strlen(out);
+    const char *sep = k == 0 ? "" : k == n - 1 ? " and " : ", ";
+    if (name)
+      snprintf(out + len, sz - len, "%s%s", sep, name);
+    else
+      snprintf(out + len, sz - len, "%sgid %lu", sep, gid[k]);
+  }
+}
+
+/* Room for a group list: every group the account holds, each by its name or
+ * as "gid N", with its separator. */
+#define HR_GROUPS_TEXT_MAX (72 * (KASLD_N_GROUPS + 1))
+
+/* Settle how the dmesg components read the log past an active dmesg_restrict.
+ *
+ * A capability that exempts the account settles it outright: the components
+ * try the ring buffer first. Otherwise the buffer refused them and they read
+ * the fallback file, so its reach decides -- and a copy every account can read
+ * is a way around the sysctl even for an account that also holds a group
+ * granting it, because every other account reads it too. CAP_SYS_ADMIN is
+ * credited only where the file was not readable, leaving the buffer as the one
+ * way the reads could have gone; elsewhere the kernel decides whether it still
+ * counts, and the file's reach is what can be observed. */
+static void hr_settle_log_route(struct hardening_report *r) {
+  const struct kasld_vantage *v = &kasld_env.vantage;
+  int f = hr_oracle_index(HR_DMESG_FALLBACK_PATH);
+
+  r->log_route = HR_LOG_UNSETTLED;
+  if (v->have_caps && (v->cap_eff >> HR_CAP_SYSLOG & 1)) {
+    r->log_route = HR_LOG_CAPABILITY;
+    r->log_route_cap = "CAP_SYSLOG";
+    return;
+  }
+  if (f >= 0 && v->oracle_access[f] == ORACLE_READABLE) {
+    const struct kasld_oracle_reach *rc = &v->oracle_reach[f];
+    if (rc->world) {
+      r->log_route = HR_LOG_WORLD;
+    } else if (rc->route == ORACLE_ROUTE_GROUP) {
+      r->log_route = HR_LOG_GROUP;
+      memcpy(r->log_route_gid, rc->grant,
+             sizeof rc->grant[0] * (size_t)rc->ngrant);
+      r->n_log_route_gid = rc->ngrant;
+    } else if (rc->route == ORACLE_ROUTE_SELF) {
+      r->log_route = HR_LOG_SELF;
+    }
+    return;
+  }
+  if (v->have_caps && (v->cap_eff >> HR_CAP_SYS_ADMIN & 1)) {
+    r->log_route = HR_LOG_CAPABILITY;
+    r->log_route_cap = "CAP_SYS_ADMIN";
+  }
+}
+
+/* Whether a component that got past an active dmesg_restrict did so through
+ * the account's own privilege. Through a capability every one did, the ring
+ * buffer being where the components look first; through the file only those
+ * that read it can have. */
+static int hr_log_exempt(const struct hardening_report *r,
+                         const struct component_log *cl) {
+  switch (r->log_route) {
+  case HR_LOG_CAPABILITY:
+    return 1;
+  case HR_LOG_GROUP:
+  case HR_LOG_SELF:
+    return meta_get(&cl->meta, "fallback") != NULL;
+  default:
+    return 0;
+  }
+}
+
+/* What the exempt components read, and why the account could: "read the ring
+ * buffer with CAP_SYSLOG", "read /var/log/dmesg as a member of adm". A group
+ * row appears only where no capability was held, so it need not say that the
+ * ring buffer refused. */
+static void hr_exemption_text(const struct hardening_report *r, char *out,
+                              size_t sz) {
+  out[0] = '\0';
+  switch (r->log_route) {
+  case HR_LOG_CAPABILITY:
+    snprintf(out, sz, "read the ring buffer with %s", r->log_route_cap);
+    break;
+  case HR_LOG_GROUP:
+    snprintf(out, sz, "read %s as a member of ", HR_DMESG_FALLBACK_PATH);
+    hr_append_groups(out, sz, r->log_route_gid, r->n_log_route_gid);
+    break;
+  case HR_LOG_SELF:
+    snprintf(out, sz, "read %s by this account's own access",
+             HR_DMESG_FALLBACK_PATH);
+    break;
+  default:
+    break;
+  }
+}
+
+/* A gate row's bypassed count, with what those that could have read the
+ * fallback file went through. Only the dmesg components declare one, so any
+ * other gate prints the bare count. */
+static void hr_print_bypassed(const struct hardening_report *r, int bypassed,
+                              int nfallback) {
+  if (nfallback == 0)
+    printf("%d bypassed", bypassed);
+  else if (r->log_route == HR_LOG_WORLD && nfallback == bypassed)
+    printf("%d bypassed: read %s, which any account can read", bypassed,
+           HR_DMESG_FALLBACK_PATH);
+  else if (r->log_route == HR_LOG_WORLD)
+    printf("%d bypassed (%d read %s, which any account can read)", bypassed,
+           nfallback, HR_DMESG_FALLBACK_PATH);
+  else if (nfallback == bypassed)
+    printf("%d bypassed; how could not be established", bypassed);
+  else
+    printf("%d bypassed (%d by a route not established)", bypassed, nfallback);
+}
+
+/* Whether a component counts toward the exposure the report measures: it
+ * carries metadata, and it is not a detection component -- one that reports a
+ * fact about the target rather than leaking an address.
+ *
+ * Named once because several figures are stated as shares of that exposure:
+ * the headline's count, the part of it reached through a privilege this
+ * account holds, and every silenced set a projection measures against it. Each
+ * is drawn from this population or it is a share of one it does not belong to,
+ * which can exceed the whole it qualifies. */
+static int hr_in_exposure(const struct component_log *cl) {
+  const char *method = meta_get(&cl->meta, "method");
+  return method != NULL && strcmp(method, "detection") != 0;
+}
 
 /* The component-name column the text renderer's listings align to, and the
  * column the field after it starts in. Named once because two sections draw
@@ -230,6 +397,7 @@ static void project_skipping(const char *const *all, int nall,
 
 void build_hardening_report(struct hardening_report *r) {
   memset(r, 0, sizeof(*r));
+  hr_settle_log_route(r);
 
   /* Container confinement, for attributing perf denials to seccomp (below).
    * From the snapshot taken before the components ran, so the confinement
@@ -237,12 +405,11 @@ void build_hardening_report(struct hardening_report *r) {
   const struct kasld_vantage *vant = &kasld_env.vantage;
   int host_paranoid = kasld_env.hardening.perf_event_paranoid;
 
-  /* Exposure: non-detection components carrying metadata. */
+  /* Exposure: the components the report's counts are shares of. */
   for (int i = 0; i < num_components; i++) {
     if (!comp_logs[i].ran)
       continue;
-    const char *method = meta_get(&comp_logs[i].meta, "method");
-    if (!method || strcmp(method, "detection") == 0)
+    if (!hr_in_exposure(&comp_logs[i]))
       continue;
     r->total++;
     if (comp_logs[i].outcome == OUTCOME_SUCCESS)
@@ -320,12 +487,29 @@ void build_hardening_report(struct hardening_report *r) {
         if (hg.n_blocked_names < HR_NAME_MAX)
           hg.blocked_names[hg.n_blocked_names++] = comp_logs[i].name;
       } else if (comp_logs[i].outcome == OUTCOME_SUCCESS) {
+        if (g == GATE_DMESG_RESTRICT && hg.active &&
+            hr_log_exempt(r, &comp_logs[i])) {
+          hg.exempt++;
+          if (hg.n_exempt_names < HR_NAME_MAX)
+            hg.exempt_names[hg.n_exempt_names++] = comp_logs[i].name;
+          /* The gate's own row counts every component it gates, as its gated,
+           * blocked and bypassed totals do. The report-level figure is a share
+           * of the exposure instead, since that is what the headline states it
+           * against. Accumulated here rather than summed from the rows
+           * afterwards, which could not tell which of them to leave out; only
+           * this gate credits an exemption, so no component is counted twice.
+           */
+          if (hr_in_exposure(&comp_logs[i]))
+            r->exempt++;
+          continue;
+        }
         hg.bypassed++;
         if (hg.n_bypassed_names < HR_NAME_MAX)
           hg.bypassed_names[hg.n_bypassed_names++] = comp_logs[i].name;
         if (meta_get(&comp_logs[i].meta, "fallback")) {
           hg.fallback++;
-        } else if (hg.n_silenced < HR_NAME_MAX) {
+        } else if (hg.n_silenced < HR_NAME_MAX &&
+                   hr_in_exposure(&comp_logs[i])) {
           /* No fallback source, so enabling the gate actually removes this leak
            * — the exclude set for the counterfactual projection. */
           hg.silenced_names[hg.n_silenced++] = comp_logs[i].name;
@@ -401,7 +585,8 @@ void build_hardening_report(struct hardening_report *r) {
   r->lockdown = kasld_env.hardening.lockdown;
 
   /* Available hardening. Gate suggestions (inactive gate with gated
-   * components), the lockdown suggestion, and the dmesg-fallback suggestion.
+   * components), the lockdown suggestion, and the world-readable-log
+   * suggestion.
    *
    * Projected posture uses a leave-one-out framing: first resolve the
    * current posture and the fully-hardened ceiling (every suggestion's leaks
@@ -469,7 +654,8 @@ void build_hardening_report(struct hardening_report *r) {
       if (strcmp(ld, "confidentiality") == 0)
         suggest_mode = LOCKDOWN_CONFIDENTIALITY;
       if (comp_logs[i].outcome == OUTCOME_SUCCESS &&
-          !meta_get(&comp_logs[i].meta, "fallback") && n_ld < MAX_COMPONENTS)
+          !meta_get(&comp_logs[i].meta, "fallback") && n_ld < MAX_COMPONENTS &&
+          hr_in_exposure(&comp_logs[i]))
         ld_sil[n_ld++] = comp_logs[i].name;
     }
     if (lockdown_gated > 0) {
@@ -483,30 +669,36 @@ void build_hardening_report(struct hardening_report *r) {
     }
   }
 
-  /* dmesg-fallback suggestion. It silences exactly the dmesg leaks that
-   * succeeded VIA a fallback log file — restricting those files to root removes
-   * them (the sysctl itself already blocks the syscall path). */
-  if (kasld_env.hardening.dmesg_restrict >= 1) {
-    for (int i = 0; i < num_components; i++) {
-      if (!comp_logs[i].ran)
-        continue;
-      if (comp_logs[i].outcome != OUTCOME_SUCCESS)
-        continue;
-      if (!component_has_gate(&comp_logs[i], &gates[GATE_DMESG_RESTRICT]))
-        continue;
-      if (!meta_get(&comp_logs[i].meta, "fallback"))
-        continue;
-      if (n_dm < MAX_COMPONENTS)
-        dm_sil[n_dm++] = comp_logs[i].name;
+  /* World-readable-log suggestion. Raised from any vantage, root included, and
+   * whatever dmesg_restrict is set to: a copy of the log every account can read
+   * is a misconfiguration for all of them, and with the sysctl off it is what
+   * would keep turning it on from closing anything. It silences only the leaks
+   * this run took through such a copy; a run that read the log some other way
+   * forfeits nothing by it, and says so by carrying no projection. */
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    if (kasld_oracles[i].kernel_log && kasld_env.vantage.oracle_reach[i].world)
+      r->world_log_copy[r->n_world_log_copies++] = i;
+  if (r->n_world_log_copies > 0) {
+    r->suggest_world_log = 1;
+    if (kasld_env.hardening.dmesg_restrict >= 1 &&
+        r->log_route == HR_LOG_WORLD) {
+      for (int i = 0; i < num_components; i++) {
+        if (!comp_logs[i].ran || comp_logs[i].outcome != OUTCOME_SUCCESS)
+          continue;
+        if (!component_has_gate(&comp_logs[i], &gates[GATE_DMESG_RESTRICT]))
+          continue;
+        if (!meta_get(&comp_logs[i].meta, "fallback"))
+          continue;
+        if (!hr_in_exposure(&comp_logs[i]))
+          continue;
+        if (n_dm < MAX_COMPONENTS)
+          dm_sil[n_dm++] = comp_logs[i].name;
+      }
     }
-    if (n_dm > 0) {
-      r->suggest_dmesg_fallback = 1;
-      r->dmesg_fallback_count = n_dm;
-      r->dmesg_fallback_silences = n_dm;
-      for (int k = 0; k < n_dm; k++)
-        if (nall < MAX_COMPONENTS)
-          all[nall++] = dm_sil[k];
-    }
+    r->world_log_silences = n_dm;
+    for (int k = 0; k < n_dm; k++)
+      if (nall < MAX_COMPONENTS)
+        all[nall++] = dm_sil[k];
   }
 
   /* Ceiling posture: re-resolve with the deduped union of every suggestion's
@@ -559,13 +751,13 @@ void build_hardening_report(struct hardening_report *r) {
         r->lockdown_skip_pbits = pp.pbits;
       }
     }
-    if (r->suggest_dmesg_fallback) {
+    if (r->suggest_world_log && n_dm > 0) {
       struct projected_posture pp;
       project_skipping(all, nuniq, dm_sil, n_dm, &pp);
       if (pp.available) {
-        r->dmesg_fallback_has_projection = 1;
-        r->dmesg_fallback_skip_vbits = pp.vbits;
-        r->dmesg_fallback_skip_pbits = pp.pbits;
+        r->world_log_has_projection = 1;
+        r->world_log_skip_vbits = pp.vbits;
+        r->world_log_skip_pbits = pp.pbits;
       }
     }
 
@@ -787,6 +979,41 @@ static void print_necessity(int silences, int exposure, int all_v, int skip_v,
   }
 }
 
+/* What a gate's exempt components went through, or null where none were, one
+ * shape per kind: {"kind": "capability", "capability": "CAP_SYSLOG"};
+ * {"kind": "group", "groups": [{"gid": 4, "name": "adm"}]}, `name` null where
+ * nothing named the gid; {"kind": "account"} for the account's own access. */
+static void json_print_exemption(const struct hardening_report *r,
+                                 const struct hr_gate *hg) {
+  if (hg->exempt == 0) {
+    printf("null");
+    return;
+  }
+  switch (r->log_route) {
+  case HR_LOG_CAPABILITY:
+    printf("{\"kind\": \"capability\", \"capability\": ");
+    json_print_escaped(r->log_route_cap);
+    printf("}");
+    break;
+  case HR_LOG_GROUP:
+    printf("{\"kind\": \"group\", \"groups\": [");
+    for (int k = 0; k < r->n_log_route_gid; k++) {
+      const char *name = hr_group_name(r->log_route_gid[k]);
+      printf("%s{\"gid\": %lu, \"name\": ", k ? ", " : "", r->log_route_gid[k]);
+      if (name)
+        json_print_escaped(name);
+      else
+        printf("null");
+      printf("}");
+    }
+    printf("]}");
+    break;
+  default:
+    printf("{\"kind\": \"account\"}");
+    break;
+  }
+}
+
 /* Emit the JSON "projected" object for one suggestion in the leave-one-out
  * framing: the posture with every other suggestion applied (skip_*), and the
  * bits forfeited by omitting this one (all_* - skip_*). Trailing content only,
@@ -863,6 +1090,64 @@ static void print_surface_configs(const struct hardening_report *rep, int i,
   printf("\n");
 }
 
+/* The kernel log copies every account can read, comma-joined after a fixed
+ * lead and wrapped under the first rather than truncated, for the reason the
+ * config listing wraps -- a copy dropped for width is one the reader leaves
+ * open. */
+static void print_world_log_copies(const struct hardening_report *r) {
+  static const char lead[] = "    readable by any account: ";
+  const int indent = (int)sizeof lead - 1;
+  int col = indent;
+  printf("%s", lead);
+  for (int k = 0; k < r->n_world_log_copies; k++) {
+    const char *p = kasld_env.vantage.oracle_path[r->world_log_copy[k]];
+    int w = (int)strlen(p) + (k ? 2 : 0);
+    if (k && col + w > KASLD_READOUT_COLS) {
+      printf(",\n%*s%s", indent, "", p);
+      col = indent + (int)strlen(p);
+    } else {
+      printf("%s%s", k ? ", " : "", p);
+      col += w;
+    }
+  }
+  printf("\n");
+}
+
+/* The same copies as one run of prose, for the formats that carry the
+ * suggestion's detail as a single string, each path wrapped in `quote`. */
+static void append_world_log_copies(char *out, size_t sz,
+                                    const struct hardening_report *r,
+                                    const char *quote) {
+  for (int k = 0; k < r->n_world_log_copies; k++) {
+    size_t len = strlen(out);
+    snprintf(out + len, sz - len, "%s%s%s%s", k ? ", " : "", quote,
+             kasld_env.vantage.oracle_path[r->world_log_copy[k]], quote);
+  }
+}
+
+/* Room for the world-readable-log detail: fixed wording plus every kernel log
+ * row's path, quoted. */
+#define HR_WORLD_LOG_DETAIL_MAX                                                \
+  (256 + KASLD_N_ORACLES * (KASLD_ORACLE_PATH_MAX + 4))
+
+/* The world-readable-log detail as one string, the same in every format that
+ * carries it as one: the copies, why they matter, and how many of this run's
+ * leaks went through them. */
+static void hr_world_log_detail(char *out, size_t sz,
+                                const struct hardening_report *r,
+                                const char *quote) {
+  snprintf(out, sz, "readable by any account: ");
+  append_world_log_copies(out, sz, r, quote);
+  size_t len = strlen(out);
+  snprintf(out + len, sz - len, "; %s", HR_WORLD_LOG_WHY);
+  if (r->world_log_silences > 0) {
+    len = strlen(out);
+    snprintf(out + len, sz - len,
+             "; %d dmesg component%s read the log through it",
+             r->world_log_silences, r->world_log_silences == 1 ? "" : "s");
+  }
+}
+
 void render_hardening_text(void) {
   printf("\n%s========================================%s\n", c(C_BOLD),
          c(C_RESET));
@@ -873,10 +1158,17 @@ void render_hardening_text(void) {
   struct hardening_report rep;
   build_hardening_report(&rep);
 
-  printf("Hardening assessment: %s%d of %d%s leak techniques succeeded "
-         "against current defenses.\n\n",
+  /* A leak taken through the account's own privilege did not get past a
+   * defense, so where there are any the headline says how many rather than
+   * calling every success one against the defenses. */
+  printf("Hardening assessment: %s%d of %d%s leak techniques succeeded",
          rep.succeeded > 0 ? c(C_YELLOW) : c(C_GREEN), rep.succeeded, rep.total,
          c(C_RESET));
+  if (rep.exempt > 0)
+    printf(", %d of them through this account's own privileges.\n\n",
+           rep.exempt);
+  else
+    printf(" against current defenses.\n\n");
 
   /* Confirmed active mitigations: controls a component observed to defeat its
    * leak this run (mitigation dispositions), keyed by the confirmed control.
@@ -960,8 +1252,9 @@ void render_hardening_text(void) {
     if (hg->active) {
       any_active = 1;
       /* Active but every gated component still leaked = the control is set yet
-       * fully circumvented (e.g. dmesg_restrict on, but the logs are readable
-       * as files). Mark it ⚠, not ✓. */
+       * fully circumvented (e.g. dmesg_restrict on, but a copy of the log every
+       * account can read). Mark it ⚠, not ✓. A component this account was
+       * exempt from the gate for did not circumvent it. */
       int circumvented = (blocked == 0 && bypassed > 0);
       /* Sysctl gates show "= N" (the knob value vs its threshold); the
        * synthetic seccomp gate has no such level (threshold 0) so its value
@@ -987,14 +1280,15 @@ void render_hardening_text(void) {
       if (bypassed > 0) {
         if (blocked > 0)
           printf("; ");
-        if (nfallback == bypassed)
-          printf("%d bypassed via fallback files", bypassed);
-        else if (nfallback > 0)
-          printf("%d bypassed (%d via fallback files)", bypassed, nfallback);
-        else
-          printf("%d bypassed", bypassed);
+        hr_print_bypassed(&rep, bypassed, nfallback);
       }
-      if (blocked == 0 && bypassed == 0)
+      if (hg->exempt > 0) {
+        char why[HR_GROUPS_TEXT_MAX + 64];
+        hr_exemption_text(&rep, why, sizeof why);
+        printf("%s%d exempt: %s", blocked > 0 || bypassed > 0 ? "; " : "",
+               hg->exempt, why);
+      }
+      if (blocked == 0 && bypassed == 0 && hg->exempt == 0)
         printf("%d gated component%s", gated, gated == 1 ? "" : "s");
       printf("\n");
     } else if (bypassed > 0) {
@@ -1096,16 +1390,20 @@ void render_hardening_text(void) {
                       rep.lockdown_skip_pbits);
   }
 
-  if (rep.suggest_dmesg_fallback) {
+  if (rep.suggest_world_log) {
     any_suggestions = 1;
-    printf("  %s%s%s Restrict dmesg fallback files to root  [%s]\n", c(C_CYAN),
-           GLYPH_ARROW, c(C_RESET), HR_SURFACE_DMESG_FALLBACK);
-    printf("    %d dmesg component%s may have succeeded via log files\n",
-           rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s");
-    if (rep.dmesg_fallback_has_projection)
-      print_necessity(rep.dmesg_fallback_silences, exposure, rep.all_vbits,
-                      rep.dmesg_fallback_skip_vbits, rep.all_pbits,
-                      rep.dmesg_fallback_skip_pbits);
+    printf("  %s%s%s %s  [%s]\n", c(C_CYAN), GLYPH_ARROW, c(C_RESET),
+           HR_ACTION_WORLD_LOG, HR_SURFACE_WORLD_LOG);
+    print_world_log_copies(&rep);
+    printf("    %s; set each mode where the file is written\n",
+           HR_WORLD_LOG_WHY);
+    if (rep.world_log_silences > 0)
+      printf("    %d dmesg component%s read the log through it\n",
+             rep.world_log_silences, rep.world_log_silences == 1 ? "" : "s");
+    if (rep.world_log_has_projection)
+      print_necessity(rep.world_log_silences, exposure, rep.all_vbits,
+                      rep.world_log_skip_vbits, rep.all_pbits,
+                      rep.world_log_skip_pbits);
   }
 
   if (!any_suggestions)
@@ -1130,7 +1428,7 @@ void render_hardening_text(void) {
         if (rep.vulns[i].cve)
           printf(" (%s", rep.vulns[i].cve);
         if (rep.vulns[i].patch)
-          printf("%sfixed %s", rep.vulns[i].cve ? ", " : "(",
+          printf("%sfixed %s", rep.vulns[i].cve ? ", " : " (",
                  rep.vulns[i].patch);
         if (rep.vulns[i].cve || rep.vulns[i].patch)
           printf(")");
@@ -1401,8 +1699,18 @@ void render_hardening_json(void) {
         printf(", ");
       json_print_escaped(hg->bypassed_names[i]);
     }
-    printf("]\n");
-    printf("      }");
+    printf("],\n");
+
+    printf("        \"components_exempt\": [");
+    for (int i = 0; i < hg->n_exempt_names; i++) {
+      if (i > 0)
+        printf(", ");
+      json_print_escaped(hg->exempt_names[i]);
+    }
+    printf("],\n");
+    printf("        \"exemption\": ");
+    json_print_exemption(&rep, hg);
+    printf("\n      }");
   }
   printf("\n    ],\n");
 
@@ -1475,22 +1783,25 @@ void render_hardening_json(void) {
     printf("      }");
   }
 
-  if (rep.suggest_dmesg_fallback) {
+  if (rep.suggest_world_log) {
     if (!first_sug)
       printf(",\n");
     first_sug = 0;
     printf("      {\n");
-    printf("        \"action\": \"Restrict dmesg fallback files to root\",\n");
-    printf("        \"surface\": \"%s\",\n", HR_SURFACE_DMESG_FALLBACK);
-    printf("        \"impact\": %d,\n", rep.dmesg_fallback_count);
-    printf("        \"detail\": \"%d dmesg component%s may have succeeded via "
-           "log files\"%s\n",
-           rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s",
-           rep.dmesg_fallback_has_projection ? "," : "");
-    if (rep.dmesg_fallback_has_projection)
-      json_print_projected(rep.dmesg_fallback_silences, rep.all_vbits,
-                           rep.dmesg_fallback_skip_vbits, rep.all_pbits,
-                           rep.dmesg_fallback_skip_pbits);
+    printf("        \"action\": \"%s\",\n", HR_ACTION_WORLD_LOG);
+    printf("        \"surface\": \"%s\",\n", HR_SURFACE_WORLD_LOG);
+    printf("        \"impact\": %d,\n", rep.world_log_silences);
+    /* Composed whole and escaped like every other oracle path the document
+     * names. */
+    char detail[HR_WORLD_LOG_DETAIL_MAX];
+    hr_world_log_detail(detail, sizeof detail, &rep, "");
+    printf("        \"detail\": ");
+    json_print_escaped(detail);
+    printf("%s\n", rep.world_log_has_projection ? "," : "");
+    if (rep.world_log_has_projection)
+      json_print_projected(rep.world_log_silences, rep.all_vbits,
+                           rep.world_log_skip_vbits, rep.all_pbits,
+                           rep.world_log_skip_pbits);
     printf("      }");
   }
   printf("\n    ],\n");
@@ -1603,8 +1914,12 @@ void render_hardening_markdown(void) {
   build_hardening_report(&rep);
 
   printf("## Hardening Assessment\n\n");
-  printf("**%d of %d** leak techniques succeeded against current defenses.\n\n",
-         rep.succeeded, rep.total);
+  printf("**%d of %d** leak techniques succeeded", rep.succeeded, rep.total);
+  if (rep.exempt > 0)
+    printf(", %d of them through this account's own privileges.\n\n",
+           rep.exempt);
+  else
+    printf(" against current defenses.\n\n");
 
   /* Confirmed active mitigations: controls observed to defeat a leak this run
    * (mitigation dispositions). Printed whether or not any were confirmed, for
@@ -1675,13 +1990,13 @@ void render_hardening_markdown(void) {
       if (hg->bypassed > 0) {
         if (wrote)
           printf("; ");
-        if (hg->fallback == hg->bypassed)
-          printf("%d bypassed via fallback files", hg->bypassed);
-        else if (hg->fallback > 0)
-          printf("%d bypassed (%d via fallback files)", hg->bypassed,
-                 hg->fallback);
-        else
-          printf("%d bypassed", hg->bypassed);
+        hr_print_bypassed(&rep, hg->bypassed, hg->fallback);
+        wrote = 1;
+      }
+      if (hg->exempt > 0) {
+        char why[HR_GROUPS_TEXT_MAX + 64];
+        hr_exemption_text(&rep, why, sizeof why);
+        printf("%s%d exempt: %s", wrote ? "; " : "", hg->exempt, why);
         wrote = 1;
       }
       if (!wrote)
@@ -1761,16 +2076,16 @@ void render_hardening_markdown(void) {
     printf(" [`%s`]", HR_SURFACE_LOCKDOWN);
     printf("\n");
   }
-  if (rep.suggest_dmesg_fallback) {
+  if (rep.suggest_world_log) {
     any_sug = 1;
-    printf("- Restrict dmesg fallback files to root - %d dmesg component%s may "
-           "have succeeded via log files",
-           rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s");
-    if (rep.dmesg_fallback_has_projection)
-      md_print_necessity(rep.dmesg_fallback_silences, exposure, rep.all_vbits,
-                         rep.dmesg_fallback_skip_vbits, rep.all_pbits,
-                         rep.dmesg_fallback_skip_pbits);
-    printf(" [`%s`]", HR_SURFACE_DMESG_FALLBACK);
+    char detail[HR_WORLD_LOG_DETAIL_MAX];
+    hr_world_log_detail(detail, sizeof detail, &rep, "`");
+    printf("- %s - %s", HR_ACTION_WORLD_LOG, detail);
+    if (rep.world_log_has_projection)
+      md_print_necessity(rep.world_log_silences, exposure, rep.all_vbits,
+                         rep.world_log_skip_vbits, rep.all_pbits,
+                         rep.world_log_skip_pbits);
+    printf(" [`%s`]", HR_SURFACE_WORLD_LOG);
     printf("\n");
   }
   if (!any_sug)
@@ -1793,7 +2108,7 @@ void render_hardening_markdown(void) {
         if (rep.vulns[i].cve)
           printf(" (%s", rep.vulns[i].cve);
         if (rep.vulns[i].patch)
-          printf("%sfixed %s", rep.vulns[i].cve ? ", " : "(",
+          printf("%sfixed %s", rep.vulns[i].cve ? ", " : " (",
                  rep.vulns[i].patch);
         if (rep.vulns[i].cve || rep.vulns[i].patch)
           printf(")");

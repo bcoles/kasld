@@ -26,6 +26,17 @@
 //   /var/log/dmesg fallback is distro-dependent (Debian/Ubuntu write
 //   the boot log there; others may not).
 //
+//   A systemd journal holds the same kernel records under a third gate
+//   neither source reaches: an ACL that systemd-tmpfiles grants by group
+//   name, which dmesg_restrict does not govern. Where no /var/log/dmesg is
+//   written, these components report denial while an account the journal
+//   grants read to can read the whole log; the vantage reports whether
+//   either journal tree was readable, which is the row that separates the
+//   two. Reading it would take more than opening it: the journal retains
+//   prior boots, each of which drew its own KASLR offset, so every read
+//   would have to be scoped to the current boot. The /var/log/dmesg
+//   fallback needs no such scoping because it is rewritten per boot.
+//
 //   Individual dmesg components may have additional CONFIG_ or boot
 //   parameter requirements that control whether the leaked data
 //   appears in the kernel log at all — see each component's header.

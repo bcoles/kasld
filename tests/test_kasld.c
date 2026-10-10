@@ -3089,6 +3089,58 @@ static void test_vantage_group_names(void) {
   th_sysroot_clear();
 }
 
+/* A gid the gate table carries only by convention must not be named from the
+ * table. The table is keyed by number, and the gate is claimed only where the
+ * tree's own name for the number matches the table's -- so naming an unnamed
+ * number from the table would manufacture that agreement. adm's 4 is such a
+ * number: every Linux tree names it, but no ABI fixes it and Android assigns
+ * nothing there. The bionic ids are the ABI, and are still named on a tree
+ * whose /etc/group is empty.
+ *
+ * Asserted in all three shapes, because only the middle one distinguishes the
+ * guard from a table that simply lacks the row. */
+static void test_vantage_conventional_gid_not_named_from_table(void) {
+  struct kasld_vantage v;
+  const char *status = "Uid:\t0\t0\t0\t0\n"
+                       "Gid:\t0\t0\t0\t0\n"
+                       "Groups:\t4 1007 \n";
+
+  /* The tree names 4 for a group that gates nothing: its name is the answer. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", status);
+  th_sysroot_write("/etc/group", "staff:x:4:\nlog:x:1007:\n");
+  kasld_gather_vantage(&v);
+  TH_CHECK(strcmp(kasld_group_name(&v, 0), "staff") == 0);
+
+  /* No group database: the bionic id is named from the table, the convention
+   * is left to report by number. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", status);
+  kasld_gather_vantage(&v);
+  TH_CHECK(kasld_group_name(&v, 0) == NULL);
+  TH_CHECK(strcmp(kasld_group_name(&v, 1), "log") == 0);
+
+  /* The tree names 4 as the group the row is for, which is the one shape that
+   * licenses the gate. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", status);
+  th_sysroot_write("/etc/group", "adm:x:4:\n");
+  kasld_gather_vantage(&v);
+  TH_CHECK(strcmp(kasld_group_name(&v, 0), "adm") == 0);
+
+  /* Every row is reachable this way or the guard above is vacuous, and a
+   * repeated gid would make the first-match rule decide which gate a
+   * membership answers for. */
+  for (int i = 0; i < KASLD_N_GROUP_GATES; i++) {
+    TH_CHECK(kasld_group_gates[i].name != NULL &&
+             kasld_group_gates[i].name[0] != '\0');
+    for (int j = i + 1; j < KASLD_N_GROUP_GATES; j++)
+      TH_CHECK(kasld_group_gates[i].gid != kasld_group_gates[j].gid);
+  }
+
+  th_sysroot_clear();
+}
+
 /* A refused read of a hardening source is not an absent one. Every source read
  * through the environment module is world-readable, so EACCES/EPERM there is a
  * policy withholding it — and under a MAC policy a denied path can fail lookup
@@ -3140,6 +3192,13 @@ static void test_environment_defaults_to_unknown(void) {
   TH_CHECK(fresh.vantage.have_ids == 0);
   TH_CHECK(fresh.vantage.have_caps == 0);
   TH_CHECK(fresh.vantage.container == NULL);
+  /* No source reads as readable before anything probed it: the hardening
+   * report names readable copies of the kernel log as ones to restrict, and
+   * zeroed storage would hand it every row. */
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    TH_CHECK(fresh.vantage.oracle_access[i] == ORACLE_UNKNOWN);
+    TH_CHECK(fresh.vantage.oracle_reach[i].route == ORACLE_ROUTE_UNKNOWN);
+  }
   /* The two that would invert: an unobserved environment must not read as
    * MAC-free or as confined. */
   TH_CHECK(!kasld_vantage_mac_enforcing(&fresh.vantage));
@@ -3231,14 +3290,19 @@ static void test_vantage_mac_absent_then_present(void) {
 static void test_vantage_oracle_readable_each_path(void) {
   struct kasld_vantage v;
   char probed[KASLD_N_ORACLES][KASLD_ORACLE_PATH_MAX];
+  const char *mid = "0123456789abcdef0123456789abcdef\n";
 
   th_sysroot_clear();
+  th_sysroot_write("/etc/machine-id", mid);
   kasld_gather_vantage(&v);
-  for (int i = 0; i < KASLD_N_ORACLES; i++)
-    snprintf(probed[i], sizeof probed[i], "%s", v.oracle_path[i]);
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    TH_CHECK(v.oracle_probe[i][0] != '\0');
+    snprintf(probed[i], sizeof probed[i], "%s", v.oracle_probe[i]);
+  }
 
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
     th_sysroot_clear();
+    th_sysroot_write("/etc/machine-id", mid);
     th_sysroot_write(probed[i], "x\n");
     kasld_gather_vantage(&v);
     for (int j = 0; j < KASLD_N_ORACLES; j++)
@@ -3247,6 +3311,7 @@ static void test_vantage_oracle_readable_each_path(void) {
 
   /* All of them at once, so "exactly one readable" cannot be what passes. */
   th_sysroot_clear();
+  th_sysroot_write("/etc/machine-id", mid);
   for (int i = 0; i < KASLD_N_ORACLES; i++)
     th_sysroot_write(probed[i], "x\n");
   kasld_gather_vantage(&v);
@@ -3276,7 +3341,7 @@ static void test_vantage_oracle_capture_notes(void) {
   th_sysroot_clear();
   kasld_gather_vantage(&v);
   for (int i = 0; i < KASLD_N_ORACLES; i++)
-    snprintf(probed[i], sizeof probed[i], "%s", v.oracle_path[i]);
+    snprintf(probed[i], sizeof probed[i], "%s", v.oracle_probe[i]);
 
   /* One absent, one refused, one readable, and the rest unrecorded. */
   snprintf(notes, sizeof notes,
@@ -3326,7 +3391,7 @@ static void test_vantage_oracle_release_suffixed_paths(void) {
   th_sysroot_clear();
   kasld_gather_vantage(&v);
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
-    if (!kasld_oracles[i].release_suffixed) {
+    if (kasld_oracles[i].probe != ORACLE_PROBE_RELEASE) {
       /* An unsuffixed entry must not acquire the release. */
       TH_CHECK(strstr(v.oracle_path[i], release) == NULL);
       TH_CHECK(strcmp(v.oracle_path[i], kasld_oracles[i].path) == 0);
@@ -3352,6 +3417,289 @@ static void test_vantage_oracle_release_suffixed_paths(void) {
 
   th_sysroot_clear();
   kasld_env = saved;
+}
+
+/* A journal row opens the active system journal in the machine's directory,
+ * and is named by its tree. A probe of the tree answers for the wrong thing:
+ * its directories are listable by every account by design, so such a row says
+ * yes for an account that can read none of the records in it. The file's path
+ * carries the machine ID, a host identifier, which no format may print. */
+static void test_vantage_journal_probe_names_tree(void) {
+  static const char *const id = "0123456789abcdef0123456789abcdef";
+  static const char *const bad[] = {"uninitialized\n",
+                                    "0123456789ABCDEF0123456789ABCDEF\n",
+                                    "0123456789abcdef0123456789abcde\n"};
+  struct kasld_vantage v;
+  char want[KASLD_ORACLE_PATH_MAX], mid[40];
+  int checked = 0;
+
+  snprintf(mid, sizeof mid, "%s\n", id);
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    if (kasld_oracles[i].probe != ORACLE_PROBE_SYSTEM_JOURNAL)
+      continue;
+    const char *tree = kasld_oracles[i].path;
+    snprintf(want, sizeof want, "%s/%s/system.journal", tree, id);
+
+    th_sysroot_clear();
+    th_sysroot_write("/etc/machine-id", mid);
+    kasld_gather_vantage(&v);
+    TH_CHECK(strcmp(v.oracle_path[i], tree) == 0);
+    TH_CHECK(strcmp(v.oracle_probe[i], want) == 0);
+    TH_CHECK(strstr(v.oracle_path[i], id) == NULL);
+    TH_CHECK(v.oracle_access[i] != ORACLE_READABLE);
+
+    /* Something listable in the tree is not a readable journal. */
+    th_sysroot_clear();
+    th_sysroot_write("/etc/machine-id", mid);
+    snprintf(want, sizeof want, "%s/elsewhere/x", tree);
+    th_sysroot_write(want, "x\n");
+    kasld_gather_vantage(&v);
+    TH_CHECK(v.oracle_access[i] != ORACLE_READABLE);
+
+    th_sysroot_clear();
+    th_sysroot_write("/etc/machine-id", mid);
+    snprintf(want, sizeof want, "%s/%s/system.journal", tree, id);
+    th_sysroot_write(want, "x\n");
+    kasld_gather_vantage(&v);
+    TH_CHECK(v.oracle_access[i] == ORACLE_READABLE);
+
+    /* A machine ID that is not one names no file, so nothing is claimed. */
+    for (size_t b = 0; b < sizeof bad / sizeof bad[0]; b++) {
+      th_sysroot_clear();
+      th_sysroot_write("/etc/machine-id", bad[b]);
+      th_sysroot_write(want, "x\n");
+      kasld_gather_vantage(&v);
+      TH_CHECK(v.oracle_probe[i][0] == '\0');
+      TH_CHECK(v.oracle_access[i] == ORACLE_UNKNOWN);
+    }
+    checked++;
+  }
+  TH_CHECK(checked == 2);
+  th_sysroot_clear();
+}
+
+/* The route follows the kernel's own check order, including the two places it
+ * differs from "whichever class grants": a group the account holds that
+ * denies is final -- the other class is never consulted -- and the ACL mask
+ * limits every group entry. Each case is a mode/owner/ACL the analysis can
+ * meet; the account is uid 1000 holding gid 1000 and adm (4). */
+static void test_route_from_dac_follows_kernel_order(void) {
+  struct kasld_vantage v;
+  struct kasld_oracle_reach r;
+  memset(&v, 0, sizeof v);
+  v.euid = 1000;
+  v.egid = 1000;
+  v.ngroups = 1;
+  v.groups[0] = 4;
+
+  /* 0640 root:adm, the Debian-family log file. */
+  route_from_dac(&v, 0100640, 0, 4, NULL, 0, 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_GROUP && r.ngrant == 1 && r.grant[0] == 4 &&
+           !r.world);
+
+  /* 0644 root:adm: through adm, and readable by every account besides. */
+  route_from_dac(&v, 0100644, 0, 4, NULL, 0, 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_GROUP && r.world);
+
+  /* 0644 root:root, nothing held: the other class. */
+  route_from_dac(&v, 0100644, 0, 0, NULL, 0, 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_WORLD && r.world && r.ngrant == 0);
+
+  /* The same file under a directory every account cannot search: not
+   * readable by any account, and this one got there some other way. */
+  route_from_dac(&v, 0100644, 0, 0, NULL, 0, 0, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_SELF && !r.world);
+
+  /* 0604 root:adm: adm matches and denies, which is final. */
+  route_from_dac(&v, 0100604, 0, 4, NULL, 0, 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_SELF && r.ngrant == 0 && r.world);
+
+  /* The account's own file. */
+  route_from_dac(&v, 0100400, 1000, 4, NULL, 0, 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_SELF);
+
+  /* The journal: 0640 root:systemd-journal(101) with adm granted by ACL. */
+  struct acl_entry acl[] = {{0x01, 6, 0},
+                            {KASLD_ACL_GROUP_OBJ, 4, 0},
+                            {KASLD_ACL_GROUP, 4, 4},
+                            {KASLD_ACL_MASK, 4, 0},
+                            {0x20, 0, 0}};
+  int nacl = (int)(sizeof acl / sizeof acl[0]);
+  route_from_dac(&v, 0100640, 0, 101, acl, nacl, 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_GROUP && r.ngrant == 1 && r.grant[0] == 4);
+
+  /* Holding the owning group too: both grant, and both are named. */
+  v.groups[1] = 101;
+  v.ngroups = 2;
+  route_from_dac(&v, 0100640, 0, 101, acl, nacl, 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_GROUP && r.ngrant == 2);
+  v.ngroups = 1;
+
+  /* A mask without read: adm matches, nothing grants. */
+  acl[3].perm = 0;
+  route_from_dac(&v, 0100600, 0, 101, acl, nacl, 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_SELF && r.ngrant == 0);
+  acl[3].perm = 4;
+
+  /* An entry naming the account decides for it. */
+  acl[2].tag = KASLD_ACL_USER;
+  acl[2].id = 1000;
+  route_from_dac(&v, 0100640, 0, 101, acl, nacl, 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_SELF);
+}
+
+/* The access ACL is little-endian whatever the host, so a big-endian target
+ * must decode the same bytes to the same entries. */
+static void test_acl_decode_is_little_endian(void) {
+  static const unsigned char one[] = {2,    0, 0,    0,    0x08, 0,
+                                      0x04, 0, 0x04, 0x03, 0x02, 0x01};
+  struct acl_entry e[2];
+  TH_CHECK(acl_decode(one, sizeof one, e, 2) == 1);
+  TH_CHECK(e[0].tag == KASLD_ACL_GROUP && e[0].perm == KASLD_ACL_READ &&
+           e[0].id == 0x01020304ul);
+
+  unsigned char bad[sizeof one];
+  memcpy(bad, one, sizeof one);
+  bad[0] = 1; /* not version 2 */
+  TH_CHECK(acl_decode(bad, sizeof bad, e, 2) == -1);
+  TH_CHECK(acl_decode(one, sizeof one - 1, e, 2) == -1); /* torn entry */
+  TH_CHECK(acl_decode(one, sizeof one, e, 0) == -1);     /* no room */
+}
+
+/* Every directory above a file must grant search to every account for the
+ * file to be readable by every account. Modes are set on the staged tree and
+ * read back through stat(), never access(), so the answer is the same for a
+ * root test runner. The top of the tree is a directory like any other, and a
+ * missing one is a refusal to answer rather than a no. */
+static void ancestors_mode(const char *abs, mode_t mode) {
+  char real[TH_SYSROOT_MAX];
+  if (abs[0] == '/' && abs[1] == '\0')
+    snprintf(real, sizeof real, "%s", th_sysroot_root);
+  else
+    th_sysroot_path(abs, real, sizeof real);
+  TH_CHECK(chmod(real, mode) == 0);
+}
+
+static void test_ancestors_world(void) {
+  struct stat top;
+  TH_CHECK(stat(th_sysroot_root, &top) == 0);
+
+  th_sysroot_clear();
+  th_sysroot_write("/a/b/f", "x\n");
+  th_sysroot_write("/g", "x\n");
+  ancestors_mode("/", 0755);
+  ancestors_mode("/a", 0755);
+  ancestors_mode("/a/b", 0755);
+  TH_CHECK(ancestors_world("/a/b/f") == 1);
+  TH_CHECK(ancestors_world("/g") == 1);
+
+  /* One directory the other class cannot search, anywhere on the way. */
+  ancestors_mode("/a/b", 0750);
+  TH_CHECK(ancestors_world("/a/b/f") == 0);
+  ancestors_mode("/a/b", 0755);
+  ancestors_mode("/a", 0754);
+  TH_CHECK(ancestors_world("/a/b/f") == 0);
+  ancestors_mode("/a", 0755);
+
+  /* The top of the tree alone, for a file directly beneath it. */
+  ancestors_mode("/", 0750);
+  TH_CHECK(ancestors_world("/g") == 0);
+  TH_CHECK(ancestors_world("/a/b/f") == 0);
+  ancestors_mode("/", 0755);
+
+  TH_CHECK(ancestors_world("/missing/f") == -1);
+
+  TH_CHECK(chmod(th_sysroot_root, top.st_mode & 07777) == 0);
+  th_sysroot_clear();
+}
+
+/* oracle_route reads a readable source's own metadata. Its two early exits and
+ * the reach it settles without the account's identity are asserted first,
+ * since those need no extended-attribute support of the staging filesystem.
+ *
+ * `world` is deliberately settled even where the identity is not: it is a
+ * property of the file and its ancestors alone, and it is what the hardening
+ * report flags. The route needs the identity and stays unsettled without it.
+ *
+ * The identity-known half reads the access ACL, so it runs only where this
+ * filesystem answers getxattr for a file carrying none in a way the reader
+ * handles -- ENODATA or ENOTSUP. Anything else is a staging limitation rather
+ * than a defect, and is reported rather than asserted through. */
+static void test_oracle_route_reads_file_metadata(void) {
+  struct kasld_vantage v;
+  struct kasld_oracle_reach r;
+  struct stat st, top;
+  char real[TH_SYSROOT_MAX];
+
+  /* The staged root's own mode is read back and restored: every directory
+   * above the file decides whether any account can read it, so a test that
+   * left it open would hand the next one a tree it did not stage. */
+  TH_CHECK(stat(th_sysroot_root, &top) == 0);
+  th_sysroot_clear();
+  th_sysroot_write("/a/b/f", "x\n");
+  ancestors_mode("/", 0755);
+  ancestors_mode("/a", 0755);
+  ancestors_mode("/a/b", 0755);
+  th_sysroot_path("/a/b/f", real, sizeof real);
+  TH_CHECK(stat(real, &st) == 0);
+
+  memset(&v, 0, sizeof v);
+  /* Neither the owner nor in the owning group, so neither decides. */
+  v.euid = (unsigned long)st.st_uid + 1;
+  v.egid = (unsigned long)st.st_gid + 1;
+  v.ngroups = 0;
+
+  /* A path that is not there, and one that was never resolved: no claim. */
+  memset(&r, 0xff, sizeof r);
+  oracle_route(&v, "/a/b/missing", 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_UNKNOWN && r.world == 0 && r.ngrant == 0);
+  memset(&r, 0xff, sizeof r);
+  oracle_route(&v, "", 1, &r);
+  TH_CHECK(r.route == ORACLE_ROUTE_UNKNOWN && r.world == 0 && r.ngrant == 0);
+
+  /* Identity unknown: the file still says whether every account can read it,
+   * and the route stays unsettled. */
+  TH_CHECK(chmod(real, 0644) == 0);
+  oracle_route(&v, "/a/b/f", 0, &r);
+  TH_CHECK(r.world == 1 && r.route == ORACLE_ROUTE_UNKNOWN && r.ngrant == 0);
+
+  TH_CHECK(chmod(real, 0640) == 0);
+  oracle_route(&v, "/a/b/f", 0, &r);
+  TH_CHECK(r.world == 0 && r.route == ORACLE_ROUTE_UNKNOWN);
+
+  /* A directory above that the other class cannot search closes it whatever
+   * the file's own mode says. */
+  TH_CHECK(chmod(real, 0644) == 0);
+  ancestors_mode("/a/b", 0750);
+  oracle_route(&v, "/a/b/f", 0, &r);
+  TH_CHECK(r.world == 0);
+  ancestors_mode("/a/b", 0755);
+
+  errno = 0;
+  if (kasld_getxattr("/a/b/f", "system.posix_acl_access", NULL, 0) < 0 &&
+      errno != ENODATA && errno != ENOTSUP) {
+    fprintf(stderr, "[acl xattr unavailable: errno %d] ", errno);
+  } else {
+    /* Identity known and no ACL on the file: the mode decides, and the route
+     * is the class the kernel's check lands in. */
+    oracle_route(&v, "/a/b/f", 1, &r);
+    TH_CHECK(r.route == ORACLE_ROUTE_WORLD && r.world == 1 && r.ngrant == 0);
+
+    /* In the owning group, which grants read: the group is named. */
+    v.egid = (unsigned long)st.st_gid;
+    TH_CHECK(chmod(real, 0640) == 0);
+    oracle_route(&v, "/a/b/f", 1, &r);
+    TH_CHECK(r.route == ORACLE_ROUTE_GROUP && r.world == 0 && r.ngrant == 1 &&
+             r.grant[0] == (unsigned long)st.st_gid);
+
+    /* The owner reads it as itself. */
+    v.euid = (unsigned long)st.st_uid;
+    oracle_route(&v, "/a/b/f", 1, &r);
+    TH_CHECK(r.route == ORACLE_ROUTE_SELF);
+  }
+
+  TH_CHECK(chmod(th_sysroot_root, top.st_mode & 07777) == 0);
+  th_sysroot_clear();
 }
 
 /* The removal half of the privilege-gaining environment guard. The detection
@@ -3650,6 +3998,7 @@ int main(void) {
   RUN(test_vantage_identity_is_staged_not_live);
   RUN(test_vantage_groups_over_cap);
   RUN(test_vantage_group_names);
+  RUN(test_vantage_conventional_gid_not_named_from_table);
   RUN(test_unread_marker_separates_denial_from_absence);
   RUN(test_environment_defaults_to_unknown);
   RUN(test_env_drop_prefix_removes_only_the_prefix);
@@ -3658,6 +4007,11 @@ int main(void) {
   RUN(test_vantage_oracle_readable_each_path);
   RUN(test_vantage_oracle_capture_notes);
   RUN(test_vantage_oracle_release_suffixed_paths);
+  RUN(test_vantage_journal_probe_names_tree);
+  RUN(test_route_from_dac_follows_kernel_order);
+  RUN(test_acl_decode_is_little_endian);
+  RUN(test_ancestors_world);
+  RUN(test_oracle_route_reads_file_metadata);
   RUN(test_discard_ledger_aggregates_and_reports_truncation);
   RUN(test_discard_project_engine_classifies_correctly);
   RUN(test_discard_project_engine_conflict_without_constraint);

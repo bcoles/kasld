@@ -40,7 +40,7 @@
  * docs/kasld.schema.json describes exactly this version and pins it as a
  * `const`, so the two cannot disagree; tests/check-json-schema compares them.
  */
-#define KASLD_JSON_SCHEMA_VERSION "1.1"
+#define KASLD_JSON_SCHEMA_VERSION "1.2"
 
 /* =========================================================================
  * Constants
@@ -744,22 +744,43 @@ struct kasld_hardening {
  * dropping entries. */
 #define KASLD_READOUT_COLS 108
 #define KASLD_N_GROUPS 24
-#define KASLD_N_ORACLES 10
+#define KASLD_N_ORACLES 12
 /* A resolved oracle path: the longest template plus a kernel release, which
  * utsname bounds at 65 bytes. */
 #define KASLD_ORACLE_PATH_MAX 128
 
+/* What a row's probe opens, given its `path`. One axis, since the kinds are
+ * alternatives.
+ *
+ * A journal tree is not probed as itself: its directories are searchable and
+ * listable by every account by design, so a probe of the tree answers yes for
+ * an account that can read none of the records in it. The records' gate is on
+ * the files, and the active system journal is the one journald keeps in the
+ * machine's own directory. That directory is named by the machine ID, which
+ * identifies the host, so the row is reported by its tree and never by the
+ * file it opened. */
+enum oracle_probe {
+  ORACLE_PROBE_PATH = 0,       /* `path` as it stands */
+  ORACLE_PROBE_RELEASE,        /* `path` with the kernel release appended */
+  ORACLE_PROBE_SYSTEM_JOURNAL, /* `path`/<machine-id>/system.journal */
+};
+
 /* A source kasld may read, named once so no output format can report a
- * different set from another. `path` is probed as it stands, unless
- * `release_suffixed`, where the running kernel's release is appended and the
- * result is what was actually probed. `label` heads the readout's row; NULL
- * heads it with the path, which is the safer default -- a row cannot come to
- * name one source while answering for another -- and is what every entry whose
- * path is already short enough to print uses. */
+ * different set from another. `probe` says what is opened for it. `label`
+ * heads the readout's row; NULL heads it with the path, which is the safer
+ * default -- a row cannot come to name one source while answering for another
+ * -- and is what every entry whose path is already short enough to print uses.
+ *
+ * `kernel_log` marks a row that holds a copy of the kernel log: the dmesg
+ * fallback file, the files a syslog daemon writes the kernel facility to, and
+ * the two trees systemd-journald keeps. dmesg_restrict governs none of them,
+ * only the ring buffer, so the hardening report flags any of them that every
+ * account can read. */
 struct kasld_oracle {
   const char *path;
   const char *label;
-  int release_suffixed;
+  enum oracle_probe probe;
+  int kernel_log;
 };
 extern const struct kasld_oracle kasld_oracles[KASLD_N_ORACLES];
 
@@ -778,12 +799,43 @@ extern const struct kasld_oracle kasld_oracles[KASLD_N_ORACLES];
  * the tree -- so ENOENT there means "the capture does not have it", which is a
  * fact about the capture and not about the target. A capture that recorded
  * which of the two it hit is read for the answer; without one the honest
- * verdict is ORACLE_UNKNOWN. */
+ * verdict is ORACLE_UNKNOWN.
+ *
+ * ORACLE_UNKNOWN is the zero value, so a row nobody probed -- a vantage never
+ * taken, or storage merely cleared -- reads as unobserved and never as
+ * readable. A readable row is advice the hardening report acts on. */
 enum oracle_access {
-  ORACLE_READABLE = 0,
+  ORACLE_UNKNOWN = 0,
+  ORACLE_READABLE,
   ORACLE_DENIED,
   ORACLE_ABSENT,
-  ORACLE_UNKNOWN,
+};
+
+/* The permission class through which this account reads a readable source --
+ * the one the kernel's own check settles on, which takes the owner first, then
+ * an ACL entry naming the account, then the groups, then everyone else. It
+ * separates a read the system grants this account on purpose from one every
+ * account has. Established on a live run only, since a capture carries neither
+ * the target's modes nor its ACLs, and only where the account's whole group
+ * list is known, since a group the analysis cannot see could be the one
+ * granting it. */
+enum oracle_route {
+  ORACLE_ROUTE_UNKNOWN = 0, /* not readable, or not established */
+  ORACLE_ROUTE_WORLD,       /* the other class, every ancestor included */
+  ORACLE_ROUTE_GROUP,       /* one or more of this account's groups */
+  ORACLE_ROUTE_SELF,        /* owner, a named ACL entry, or a capability */
+};
+
+/* A readable source's reach. A source this account reads through a group can
+ * be readable by every account as well, and the two have different
+ * consequences -- the first is access the system grants on purpose, the second
+ * is open to anything on the host -- so `world` is kept apart from `route`
+ * rather than being one of its values. */
+struct kasld_oracle_reach {
+  enum oracle_route route;
+  int world; /* the other class reads it too, every ancestor included */
+  int ngrant;
+  unsigned long grant[KASLD_N_GROUPS + 1]; /* this account's granting gids */
 };
 
 /* SELinux runtime mode, read from /sys/fs/selinux/enforce. Absent covers both
@@ -803,10 +855,15 @@ struct kasld_vantage {
   int have_caps;         /* 1 if cap_eff/cap_bnd are valid */
   unsigned long long cap_eff, cap_bnd;
   enum oracle_access oracle_access[KASLD_N_ORACLES]; /* per kasld_oracles[] */
-  /* The path each probe actually opened, resolved once at snapshot time. Every
-   * format names this rather than the template, so a release-suffixed source is
-   * reported as the file it was. */
+  /* The path every format names for a row, resolved once at snapshot time:
+   * the file the probe opened, so a release-suffixed source is reported as the
+   * file it was -- except a journal row, which is named by its tree (see
+   * enum oracle_probe). */
   char oracle_path[KASLD_N_ORACLES][KASLD_ORACLE_PATH_MAX];
+  /* The file each probe opened, or "" where none could be resolved. Never
+   * printed: for a journal row it carries the machine ID. */
+  char oracle_probe[KASLD_N_ORACLES][KASLD_ORACLE_PATH_MAX];
+  struct kasld_oracle_reach oracle_reach[KASLD_N_ORACLES];
   /* Mandatory access control. `lsm_list` is securityfs's active-LSM list when
    * readable and "" otherwise (it is unreachable under some policies, so an
    * empty list is "unknown", never "no LSM"). `sec_context` is this process's
@@ -870,6 +927,13 @@ const char *kasld_vantage_seccomp_str(int seccomp);
 struct kasld_group_gate {
   unsigned long gid;
   const char *name;
+  /* Whether this row's number may name the group where nothing else could.
+   * Set where the number is the ABI: root, and the ids bionic compiles in.
+   * Clear where the number is a convention: adm's 4 is one, and Android
+   * assigns nothing there. A tree that cannot name such a number leaves it
+   * unnamed, and the gate is claimed only where /etc/group agrees -- naming it
+   * from here would manufacture the agreement the claim is tested against. */
+  int gid_is_abi;
   const char *gates;
 };
 #define KASLD_N_GROUP_GATES 6

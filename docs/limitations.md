@@ -177,6 +177,24 @@ accounts for the outcome — so an ordinary file-permission denial is never
 reported as a policy decision, and the policy's true contribution is at least
 what the report attributes to it.
 
+One gap is worth naming because it cuts the other way. KASLD reads the kernel
+log through `klogctl` and, failing that, `/var/log/dmesg`. A systemd journal
+holds the same records under an ACL that `kernel.dmesg_restrict` does not
+govern, and KASLD does not read it. On a host that writes no `/var/log/dmesg`
+and keeps its kernel log in the journal, a clean run of the `dmesg_*`
+components therefore says that those records were out of reach from this
+vantage, not that they are out of reach of an account in a group the journal
+grants read to. The vantage block reports whether either journal tree was
+readable, and that row is the one to read before treating the denial as
+hardening.
+
+The reverse holds for a run whose dmesg leaks went through the account's own
+privilege -- `CAP_SYSLOG`, or a group or access the log copies grant read to.
+The assessment credits those as exempt from `dmesg_restrict`, and they describe
+this account, not an unprivileged one. Whether a copy was read through a group
+or by any account is established on a live run only: a replay carries neither
+the target's file modes nor its ACLs, so there such reads stay unattributed.
+
 The same applies to what a run *emits*: [footprint.md](footprint.md) bounds
 KASLD's observability — it is loud by design, and its default footprint is an
 upper bound on what a monitored host sees, not what a tuned adversary produces.

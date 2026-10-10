@@ -4861,6 +4861,8 @@ static void test_hardening_names_apparmor_when_it_is_the_enforcer(void) {
 }
 
 static void test_build_hardening_report(void) {
+  memset(&kasld_env.vantage, 0, sizeof kasld_env.vantage);
+  kasld_env.vantage.selinux = SELINUX_PERMISSIVE;
   reset_results();
   reset_comp_logs();
   stage_likely_reset();
@@ -4950,14 +4952,17 @@ static void test_build_hardening_report(void) {
   TH_CHECK(gd->active && gd->bypassed == 1 && gd->fallback == 1);
   TH_CHECK(!gp->active && gp->bypassed == 1);
 
-  /* Available hardening: the inactive perf gate is a suggestion; the
-   * dmesg-restrict-with-fallback prompts the fallback suggestion; lockdown is
-   * off with a lockdown-gated component, so suggest enabling it. */
+  /* Available hardening: the inactive perf gate is a suggestion; lockdown is
+   * off with a lockdown-gated component, so suggest enabling it. The dmesg
+   * leak got past an active dmesg_restrict by a route nothing established, so
+   * it stays a bypass -- and no copy is known to be readable by every
+   * account, so nothing is suggested for the copies. */
   TH_CHECK(rep.n_gate_suggestions == 1);
   TH_CHECK(strcmp(rep.gate_suggestions[0].display,
                   "kernel.perf_event_paranoid") == 0);
   TH_CHECK(rep.gate_suggestions[0].threshold == 2);
-  TH_CHECK(rep.suggest_dmesg_fallback == 1 && rep.dmesg_fallback_count == 1);
+  TH_CHECK(gd->exempt == 0);
+  TH_CHECK(rep.log_route == HR_LOG_UNSETTLED && rep.suggest_world_log == 0);
   TH_CHECK(rep.suggest_lockdown == 1 && rep.lockdown_impact == 1);
 
   /* Lists. */
@@ -5496,14 +5501,389 @@ static void wrap_render_hardening_markdown(void *a) {
   render_hardening_markdown();
 }
 
+static int hr_oracle_row(const char *path) {
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    if (strcmp(kasld_oracles[i].path, path) == 0)
+      return i;
+  return -1;
+}
+
+static void hr_set_reach(int row, enum oracle_route route, int world,
+                         unsigned long g1) {
+  struct kasld_oracle_reach *r = &kasld_env.vantage.oracle_reach[row];
+  memset(r, 0, sizeof *r);
+  kasld_env.vantage.oracle_access[row] = ORACLE_READABLE;
+  r->route = route;
+  r->world = world;
+  if (g1)
+    r->grant[r->ngrant++] = g1;
+}
+
+/* A vantage with every oracle row named, none readable, and the given
+ * capabilities; one held group, adm. */
+static void hr_stage_vantage(int have_caps, unsigned long long cap_eff) {
+  struct kasld_vantage *v = &kasld_env.vantage;
+  memset(v, 0, sizeof *v);
+  v->selinux = SELINUX_PERMISSIVE;
+  v->have_caps = have_caps;
+  v->cap_eff = cap_eff;
+  v->ngroups = 1;
+  v->groups[0] = 4;
+  snprintf(v->group_names[0], sizeof v->group_names[0], "adm");
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    snprintf(v->oracle_path[i], sizeof v->oracle_path[i], "%s",
+             kasld_oracles[i].path);
+}
+
+static const struct hr_gate *hr_dmesg_gate(const struct hardening_report *r) {
+  for (int i = 0; i < r->n_gates; i++)
+    if (strcmp(r->gates[i].display, "kernel.dmesg_restrict") == 0)
+      return &r->gates[i];
+  return NULL;
+}
+
+/* dmesg_restrict governs the ring buffer and nothing else, so a component that
+ * got past it did so either through a privilege the account holds -- a
+ * capability, or a group or access of its own that the log copies grant -- or
+ * through a copy every account can read. Only the second is a way around the
+ * sysctl. Each route is staged in turn; one component reads the fallback file
+ * and one does not, so "every success" and "every fallback success" cannot be
+ * what passes. */
+static void wrap_print_bypassed(void *a) {
+  hr_print_bypassed((const struct hardening_report *)a, 3, 3);
+}
+
+static void test_hardening_dmesg_restrict_attribution(void) {
+  int dm = hr_oracle_row("/var/log/dmesg");
+  struct hardening_report rep;
+  const struct hr_gate *g;
+
+  TH_CHECK(dm >= 0);
+  if (dm < 0)
+    return;
+  hr_reset_state();
+  kasld_env.hardening.dmesg_restrict = 1;
+  struct component_log *c = hr_seed_comp("c_dmesg_file", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "fallback", "/var/log/dmesg");
+  c = hr_seed_comp("c_dmesg_ring", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+
+  /* Nothing established: both stay bypasses, credited to nothing. */
+  hr_stage_vantage(0, 0);
+  build_hardening_report(&rep);
+  g = hr_dmesg_gate(&rep);
+  TH_CHECK(g && g->bypassed == 2 && g->fallback == 1 && g->exempt == 0);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap, "2 bypassed (1 by a route not established)") !=
+           NULL);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  TH_CHECK(strstr(render_cap, "\"exemption\": null") != NULL);
+
+  /* CAP_SYSLOG: the ring buffer answers, so every success is exempt. */
+  hr_stage_vantage(1, 1ull << 34);
+  hr_set_reach(dm, ORACLE_ROUTE_GROUP, 0, 4);
+  build_hardening_report(&rep);
+  g = hr_dmesg_gate(&rep);
+  TH_CHECK(rep.log_route == HR_LOG_CAPABILITY);
+  TH_CHECK(g && g->exempt == 2 && g->bypassed == 0);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap,
+                  "2 exempt: read the ring buffer with CAP_SYSLOG\n") != NULL);
+  TH_CHECK(strstr(render_cap, "\xe2\x9c\x93  2 exempt") != NULL); /* ✓ */
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  TH_CHECK(strstr(render_cap, "\"components_exempt\": [\"c_dmesg_file\", "
+                              "\"c_dmesg_ring\"]") != NULL);
+  TH_CHECK(strstr(render_cap, "\"exemption\": {\"kind\": \"capability\", "
+                              "\"capability\": \"CAP_SYSLOG\"}") != NULL);
+
+  /* Refused by the buffer, read the file through adm: only the component
+   * that reads the file is exempt. */
+  hr_stage_vantage(1, 0);
+  hr_set_reach(dm, ORACLE_ROUTE_GROUP, 0, 4);
+  build_hardening_report(&rep);
+  g = hr_dmesg_gate(&rep);
+  TH_CHECK(rep.log_route == HR_LOG_GROUP);
+  TH_CHECK(g && g->exempt == 1 && g->bypassed == 1 && g->fallback == 0);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap, "1 bypassed; 1 exempt: read /var/log/dmesg as a "
+                              "member of adm\n") != NULL);
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_hardening_markdown, NULL);
+  TH_CHECK(strstr(render_cap, "1 exempt: read /var/log/dmesg as a member of "
+                              "adm |") != NULL);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  TH_CHECK(strstr(render_cap, "\"exemption\": {\"kind\": \"group\", "
+                              "\"groups\": [{\"gid\": 4, \"name\": "
+                              "\"adm\"}]}") != NULL);
+
+  /* A granting group nothing named -- one a directory service serves, say --
+   * is stated by number, and JSON keeps the gid with a null name. */
+  kasld_env.vantage.ngroups = 2;
+  kasld_env.vantage.groups[1] = 4242;
+  hr_set_reach(dm, ORACLE_ROUTE_GROUP, 0, 4242);
+  build_hardening_report(&rep);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap, "1 exempt: read /var/log/dmesg as a member of "
+                              "gid 4242\n") != NULL);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  TH_CHECK(strstr(render_cap, "\"groups\": [{\"gid\": 4242, \"name\": "
+                              "null}]") != NULL);
+
+  /* The account's own access to the file. */
+  hr_set_reach(dm, ORACLE_ROUTE_SELF, 0, 0);
+  build_hardening_report(&rep);
+  TH_CHECK(rep.log_route == HR_LOG_SELF);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap, "1 exempt: read /var/log/dmesg by this "
+                              "account's own access\n") != NULL);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  TH_CHECK(strstr(render_cap, "\"exemption\": {\"kind\": \"account\"}") !=
+           NULL);
+
+  /* Readable by every account, even though adm grants it too: a bypass. */
+  hr_set_reach(dm, ORACLE_ROUTE_GROUP, 1, 4);
+  build_hardening_report(&rep);
+  g = hr_dmesg_gate(&rep);
+  TH_CHECK(rep.log_route == HR_LOG_WORLD);
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 2 && g->fallback == 1);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap, "2 bypassed (1 read /var/log/dmesg, which any "
+                              "account can read)") != NULL);
+
+  /* Every bypass a fallback read: the count says what they read, or that it
+   * could not be established. */
+  {
+    struct hardening_report one;
+    memset(&one, 0, sizeof one);
+    one.log_route = HR_LOG_WORLD;
+    rep = one;
+    capture_stdout(wrap_print_bypassed, &rep);
+    TH_CHECK(strcmp(render_cap, "3 bypassed: read /var/log/dmesg, which any "
+                                "account can read") == 0);
+    rep.log_route = HR_LOG_UNSETTLED;
+    capture_stdout(wrap_print_bypassed, &rep);
+    TH_CHECK(strcmp(render_cap, "3 bypassed; how could not be established") ==
+             0);
+  }
+
+  /* CAP_SYS_ADMIN is credited only where the file was not readable, leaving
+   * the buffer as the one way the reads could have gone. */
+  hr_stage_vantage(1, 1ull << 21);
+  kasld_env.vantage.oracle_access[dm] = ORACLE_DENIED;
+  build_hardening_report(&rep);
+  TH_CHECK(rep.log_route == HR_LOG_CAPABILITY &&
+           strcmp(rep.log_route_cap, "CAP_SYS_ADMIN") == 0);
+  hr_set_reach(dm, ORACLE_ROUTE_GROUP, 0, 4);
+  build_hardening_report(&rep);
+  TH_CHECK(rep.log_route == HR_LOG_GROUP);
+
+  /* An inactive sysctl exempts nothing: there is nothing to be exempt from. */
+  kasld_env.hardening.dmesg_restrict = 0;
+  hr_stage_vantage(1, 1ull << 34);
+  build_hardening_report(&rep);
+  g = hr_dmesg_gate(&rep);
+  TH_CHECK(g && !g->active && g->exempt == 0 && g->bypassed == 2);
+
+  set_render_mode(0, 0, 0);
+  hr_reset_state();
+}
+
+/* A copy of the kernel log every account can read is flagged from any vantage
+ * -- root included -- and whatever dmesg_restrict is set to, because the sysctl
+ * does not govern it. It names only such copies, in table order, and silences
+ * only the leaks this run read through it. Every format carries the same
+ * action, and the JSON action opens the markdown bullet, as the fixture check
+ * requires. */
+static void test_hardening_world_log_suggestion(void) {
+  int dm = hr_oracle_row("/var/log/dmesg");
+  int kl = hr_oracle_row("/var/log/kern.log");
+  int jv = hr_oracle_row("/var/log/journal");
+  int ks = hr_oracle_row("/proc/kallsyms");
+  struct hardening_report rep;
+
+  TH_CHECK(dm >= 0 && kl >= 0 && jv >= 0 && ks >= 0);
+  if (dm < 0 || kl < 0 || jv < 0 || ks < 0)
+    return;
+  hr_reset_state();
+  kasld_env.hardening.dmesg_restrict = 1;
+  struct component_log *c = hr_seed_comp("c_dmesg_file", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "fallback", "/var/log/dmesg");
+
+  /* Readable copies, none by every account: nothing to flag. A readable
+   * non-log source open to everyone is not a log copy. */
+  hr_stage_vantage(1, 0);
+  hr_set_reach(dm, ORACLE_ROUTE_GROUP, 0, 4);
+  hr_set_reach(ks, ORACLE_ROUTE_WORLD, 1, 0);
+  build_hardening_report(&rep);
+  TH_CHECK(rep.suggest_world_log == 0);
+
+  /* Root, which reads the ring buffer itself, still sees kern.log open to
+   * everyone: flagged, silencing nothing of this run's. */
+  hr_stage_vantage(1, 1ull << 34);
+  hr_set_reach(dm, ORACLE_ROUTE_SELF, 0, 0);
+  hr_set_reach(kl, ORACLE_ROUTE_SELF, 1, 0);
+  build_hardening_report(&rep);
+  TH_CHECK(rep.suggest_world_log == 1 && rep.n_world_log_copies == 1 &&
+           rep.world_log_copy[0] == kl && rep.world_log_silences == 0);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap, "Remove world read from kernel log copies  "
+                              "[file_permissions]\n") != NULL);
+  TH_CHECK(strstr(render_cap, "readable by any account: /var/log/kern.log\n") !=
+           NULL);
+  TH_CHECK(strstr(render_cap, "dmesg_restrict does not govern log files; set "
+                              "each mode where the file is written\n") != NULL);
+  TH_CHECK(strstr(render_cap, "read the log through it") == NULL);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  TH_CHECK(strstr(render_cap, "\"impact\": 0,") != NULL);
+
+  /* The run's own reads went through a world-readable fallback file, and the
+   * journal is open too: both named, in table order, and the leak silenced. */
+  hr_stage_vantage(1, 0);
+  hr_set_reach(dm, ORACLE_ROUTE_WORLD, 1, 0);
+  hr_set_reach(jv, ORACLE_ROUTE_WORLD, 1, 0);
+  build_hardening_report(&rep);
+  TH_CHECK(rep.n_world_log_copies == 2 && rep.world_log_copy[0] == dm &&
+           rep.world_log_copy[1] == jv && rep.world_log_silences == 1);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap, "readable by any account: /var/log/dmesg, "
+                              "/var/log/journal\n") != NULL);
+  TH_CHECK(strstr(render_cap, "1 dmesg component read the log through it\n") !=
+           NULL);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  TH_CHECK(strstr(render_cap, "\"action\": \"Remove world read from kernel "
+                              "log copies\"") != NULL);
+  TH_CHECK(strstr(render_cap,
+                  "\"detail\": \"readable by any account: "
+                  "/var/log/dmesg, /var/log/journal; "
+                  "dmesg_restrict does not govern log files; 1 "
+                  "dmesg component read the log through it\"") != NULL);
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_hardening_markdown, NULL);
+  TH_CHECK(strstr(render_cap, "- Remove world read from kernel log copies - "
+                              "readable by any account: `/var/log/dmesg`, "
+                              "`/var/log/journal`; ") != NULL);
+
+  /* With the sysctl off the copy is still flagged: it is what would keep
+   * turning it on from closing anything. */
+  kasld_env.hardening.dmesg_restrict = 0;
+  build_hardening_report(&rep);
+  TH_CHECK(rep.suggest_world_log == 1 && rep.world_log_silences == 0);
+
+  set_render_mode(0, 0, 0);
+  hr_reset_state();
+}
+
+/* The headline counts every leak that succeeded, and says how many of those
+ * went through a privilege this account holds rather than past a defense --
+ * calling them successes "against current defenses" would contradict the gate
+ * row that credits them as exempt.
+ *
+ * The exempt figure is a share of that count, so it is drawn from the same
+ * population: a detection component reports a fact rather than leaking an
+ * address, is left out of the exposure, and must be left out of the share even
+ * though the gate it declares does credit it. One is seeded here exempt, so a
+ * figure summed over the gate's population instead reads one too many -- and
+ * can exceed the successes outright where a detection component is the only
+ * one a gate exempts.
+ *
+ * A vulnerability line opens its parenthesis with a space whether or not a CVE
+ * precedes the fixed-in version. */
+static void test_render_hardening_headline_and_vuln_lines(void) {
+  struct component_log *c;
+
+  hr_reset_state();
+  kasld_env.hardening.dmesg_restrict = 1;
+  c = hr_seed_comp("c_dmesg_file", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "fallback", "/var/log/dmesg");
+  /* Exempt by the same gate, but no part of the exposure. */
+  c = hr_seed_comp("c_detect", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "detection");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "fallback", "/var/log/dmesg");
+  c = hr_seed_comp("c_vuln_bare", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "patch", "v6.1");
+  c = hr_seed_comp("c_vuln_cve", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "cve", "CVE-2021-1234");
+  hr_seed_meta(c, "patch", "v5.10");
+
+  /* Both dmesg components are exempt: this account holds CAP_SYSLOG. */
+  hr_stage_vantage(1, 1ull << 34);
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+  /* Three successes in the exposure, of which one is exempt; the gate's own
+   * row counts both components it exempted. */
+  TH_CHECK(rep.succeeded == 3 && rep.total == 3 && rep.exempt == 1);
+  const struct hr_gate *g = hr_dmesg_gate(&rep);
+  TH_CHECK(g && g->exempt == 2 && g->bypassed == 0);
+
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap,
+                  "3 of 3 leak techniques succeeded, 1 of them "
+                  "through this account's own privileges.\n") != NULL);
+  TH_CHECK(strstr(render_cap, "2 exempt: read the ring buffer with "
+                              "CAP_SYSLOG\n") != NULL);
+  TH_CHECK(strstr(render_cap, "against current defenses") == NULL);
+  TH_CHECK(strstr(render_cap, "    c_vuln_bare (fixed v6.1)\n") != NULL);
+  TH_CHECK(strstr(render_cap,
+                  "    c_vuln_cve (CVE-2021-1234, fixed v5.10)\n") != NULL);
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_hardening_markdown, NULL);
+  TH_CHECK(strstr(render_cap,
+                  "**3 of 3** leak techniques succeeded, 1 of them "
+                  "through this account's own privileges.\n") != NULL);
+  TH_CHECK(strstr(render_cap, "- c_vuln_bare (fixed v6.1)\n") != NULL);
+  TH_CHECK(strstr(render_cap, "- c_vuln_cve (CVE-2021-1234, fixed v5.10)\n") !=
+           NULL);
+
+  /* Nothing exempt: every success got past a defense, as the headline says. */
+  hr_stage_vantage(0, 0);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap, " leak techniques succeeded against current "
+                              "defenses.\n") != NULL);
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_hardening_markdown, NULL);
+  TH_CHECK(strstr(render_cap, "** leak techniques succeeded against current "
+                              "defenses.\n") != NULL);
+
+  set_render_mode(0, 0, 0);
+  hr_reset_state();
+}
+
 /* Projected posture, leave-one-out framing. With the engine compiled
  * out kasld_project_posture is a stub; kasld_test_projection makes it report an
  * available posture whose entropy grows with the exclude-set size, so the
  * current / ceiling / leave-one-out re-resolutions can be exercised without the
  * resolver. Seeds three suggestion sources, each silencing exactly one
  * component: an inactive sysctl gate, the lockdown suggestion (a succeeded
- * no-fallback lockdown leak), and the dmesg-fallback suggestion (a succeeded
- * dmesg leak that bypassed via a log file). Checks the report fields, the
+ * no-fallback lockdown leak), and the world-readable-log suggestion (a
+ * succeeded dmesg leak that read a copy every account can read). Checks the
+ * report fields, the
  * ceiling union, the per-suggestion forfeit, each renderer's output — and that
  * the default (unavailable) stub suppresses every projected row. */
 static void test_hardening_projection(void) {
@@ -5535,8 +5915,22 @@ static void test_hardening_projection(void) {
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
   hr_seed_meta(c, "fallback", "yes");
-  /* Succeeded via a log file, so restricting the files silences it: set size 1.
-   */
+  /* The ring buffer refuses this account (no capability), and the fallback
+   * file is readable by every account: removing world read silences it, set
+   * size 1. */
+  memset(&kasld_env.vantage, 0, sizeof kasld_env.vantage);
+  kasld_env.vantage.selinux = SELINUX_PERMISSIVE;
+  kasld_env.vantage.have_caps = 1;
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    snprintf(kasld_env.vantage.oracle_path[i],
+             sizeof kasld_env.vantage.oracle_path[i], "%s",
+             kasld_oracles[i].path);
+    if (strcmp(kasld_oracles[i].path, "/var/log/dmesg") == 0) {
+      kasld_env.vantage.oracle_access[i] = ORACLE_READABLE;
+      kasld_env.vantage.oracle_reach[i].route = ORACLE_ROUTE_WORLD;
+      kasld_env.vantage.oracle_reach[i].world = 1;
+    }
+  }
 
   kasld_test_projection = 1;
 
@@ -5556,9 +5950,8 @@ static void test_hardening_projection(void) {
            rep.gate_suggestions[0].skip_vbits == 6);
   TH_CHECK(rep.suggest_lockdown && rep.lockdown_has_projection == 1 &&
            rep.lockdown_silences == 1 && rep.lockdown_skip_vbits == 6);
-  TH_CHECK(
-      rep.suggest_dmesg_fallback && rep.dmesg_fallback_has_projection == 1 &&
-      rep.dmesg_fallback_silences == 1 && rep.dmesg_fallback_skip_vbits == 6);
+  TH_CHECK(rep.suggest_world_log && rep.world_log_has_projection == 1 &&
+           rep.world_log_silences == 1 && rep.world_log_skip_vbits == 6);
 
   /* Text: the current-vs-hardened anchor + a load-bearing verdict per
    * suggestion (each forfeits 1 bit). */
@@ -5593,7 +5986,7 @@ static void test_hardening_projection(void) {
   kasld_test_projection = 0;
   build_hardening_report(&rep);
   TH_CHECK(rep.has_projection == 0 && rep.lockdown_has_projection == 0 &&
-           rep.dmesg_fallback_has_projection == 0);
+           rep.world_log_has_projection == 0);
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_hardening_text, NULL);
   TH_CHECK(strstr(render_cap, "load-bearing") == NULL &&
@@ -5756,6 +6149,8 @@ static void test_hardening_projection_redundant(void) {
   kasld_env.hardening.dmesg_restrict = 0;
   kasld_env.hardening.lockdown = LOCKDOWN_NONE;
   kasld_env.hardening.hashed_pointers = 0;
+  memset(&kasld_env.vantage, 0, sizeof kasld_env.vantage);
+  kasld_env.vantage.selinux = SELINUX_PERMISSIVE;
   reset_comp_logs();
   stage_likely_reset();
   num_scalar_facts = 0;
@@ -6277,6 +6672,9 @@ int main(void) {
   RUN(test_render_interior_only_surface);
   RUN(test_hardening_unprivileged_bpf_gate);
   RUN(test_hardening_projection);
+  RUN(test_hardening_dmesg_restrict_attribution);
+  RUN(test_hardening_world_log_suggestion);
+  RUN(test_render_hardening_headline_and_vuln_lines);
   RUN(test_hardening_projection_no_exposure);
   RUN(test_hardening_projection_redundant);
   RUN(test_render_hardening_pointer_hashing_gate);
