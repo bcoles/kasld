@@ -1323,8 +1323,7 @@ void render_hardening_text(void) {
     printf("  %sNone observed - not evidence that no mitigation is active.%s\n",
            c(C_DIM), c(C_RESET));
   for (int i = 0; i < rep.n_confirmed; i++) {
-    printf("  %s%s%s — %s", c(C_YELLOW), rep.confirmed[i].gate, c(C_RESET),
-           rep.confirmed[i].component);
+    printf("  %s — %s", rep.confirmed[i].gate, rep.confirmed[i].component);
     if (rep.confirmed[i].message)
       printf(" %s(%s)%s", c(C_DIM), rep.confirmed[i].message, c(C_RESET));
     printf("\n");
