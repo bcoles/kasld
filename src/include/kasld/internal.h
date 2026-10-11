@@ -40,7 +40,7 @@
  * docs/kasld.schema.json describes exactly this version and pins it as a
  * `const`, so the two cannot disagree; tests/check-json-schema compares them.
  */
-#define KASLD_JSON_SCHEMA_VERSION "1.2"
+#define KASLD_JSON_SCHEMA_VERSION "1.3"
 
 /* =========================================================================
  * Constants
@@ -838,6 +838,24 @@ struct kasld_oracle_reach {
   unsigned long grant[KASLD_N_GROUPS + 1]; /* this account's granting gids */
 };
 
+/* Whether the capability set this process reports is the one the kernel's own
+ * checks consult.
+ *
+ * Those checks resolve against the initial user namespace -- capable() is
+ * ns_capable(&init_user_ns, ...), kallsyms_show_value() names it outright, and
+ * bpf_token_capable() falls back to it -- so a set held only in a nested
+ * namespace grants none of them, however full CapEff looks. A rootless
+ * container reports every capability and holds none that these checks accept.
+ *
+ * /proc/self/uid_map tells the two apart: the initial namespace maps the whole
+ * range through, a nested one maps a window. UNKNOWN is the zero value, so an
+ * unread map never reads as the initial namespace. */
+enum kasld_userns {
+  KASLD_USERNS_UNKNOWN = 0,
+  KASLD_USERNS_INITIAL, /* identity map: capabilities are what they say */
+  KASLD_USERNS_NESTED,  /* a mapped window: effective only in here */
+};
+
 /* SELinux runtime mode, read from /sys/fs/selinux/enforce. Absent covers both
  * "SELinux is not built in" and "selinuxfs is not reachable from here" — which
  * are indistinguishable from an unprivileged vantage, so the value never
@@ -854,6 +872,7 @@ struct kasld_vantage {
   int no_new_privs;      /* -1 unknown; 0/1 */
   int have_caps;         /* 1 if cap_eff/cap_bnd are valid */
   unsigned long long cap_eff, cap_bnd;
+  enum kasld_userns userns; /* whose namespace cap_eff is effective in */
   enum oracle_access oracle_access[KASLD_N_ORACLES]; /* per kasld_oracles[] */
   /* The path every format names for a row, resolved once at snapshot time:
    * the file the probe opened, so a release-suffixed source is reported as the

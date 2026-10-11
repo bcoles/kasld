@@ -147,7 +147,7 @@ static void render_environment_markdown(void) {
   if (kasld_vantage_confined(v)) {
     if (v->seccomp >= 0)
       printf("| Seccomp | %s |\n", kasld_vantage_seccomp_str(v->seccomp));
-    char capbuf[24];
+    char capbuf[56];
     const char *caps = kasld_vantage_caps(v, capbuf, sizeof(capbuf));
     if (caps)
       printf("| Effective capabilities | %s |\n", caps);
@@ -164,9 +164,12 @@ static void render_environment_markdown(void) {
            kasld_oracle_answer(v->oracle_access[i]));
   printf("\n");
 
-  /* Cap-gated leaks the effective cap set unlocks (if any). */
+  /* Cap-gated leaks the effective cap set unlocks (if any). Withheld where the
+   * set is not the one these sources check -- see print_cap_reachable_leaks. */
   int shown = 0;
-  for (int i = 0; v->have_caps && i < KASLD_N_CAP_LEAKS; i++) {
+  for (int i = 0; v->have_caps && v->userns == KASLD_USERNS_INITIAL &&
+                  i < KASLD_N_CAP_LEAKS;
+       i++) {
     if (!((v->cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
       continue;
     if (!shown) {

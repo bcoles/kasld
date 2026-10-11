@@ -382,8 +382,13 @@ static void render_environment_json(void) {
   if (v->groups_truncated)
     printf(",\n    \"groups_truncated\": true");
 
+  printf(",\n    \"user_namespace\": \"%s\"",
+         v->userns == KASLD_USERNS_INITIAL  ? "initial"
+         : v->userns == KASLD_USERNS_NESTED ? "nested"
+                                            : "unknown");
+
   printf(",\n    \"capabilities\": ");
-  char capbuf[24];
+  char capbuf[56];
   const char *caps = kasld_vantage_caps(v, capbuf, sizeof(capbuf));
   if (caps)
     json_print_escaped(caps);
@@ -416,7 +421,9 @@ static void render_environment_json(void) {
    * readable_oracles (covers the non-file leaks too). Empty when none apply. */
   printf("    \"cap_reachable_leaks\": [");
   int first = 1;
-  for (int i = 0; v->have_caps && i < KASLD_N_CAP_LEAKS; i++) {
+  for (int i = 0; v->have_caps && v->userns == KASLD_USERNS_INITIAL &&
+                  i < KASLD_N_CAP_LEAKS;
+       i++) {
     if (!((v->cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
       continue;
     printf("%s\n      {\"capability\": \"%s\", \"source\": ", first ? "" : ",",

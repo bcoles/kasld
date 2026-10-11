@@ -3702,6 +3702,102 @@ static void test_oracle_route_reads_file_metadata(void) {
   th_sysroot_clear();
 }
 
+/* The capability set a process reports is effective in its own user namespace,
+ * and the checks that gate these sources resolve against the initial one, so
+ * the two must be told apart before any capability is credited.
+ * /proc/self/uid_map is the one world-readable line that does it: the initial
+ * namespace maps the whole range through, a namespace made from it maps a
+ * window. Anything that is not plainly the identity map is held to the
+ * conservative reading, which reports a bypass rather than an exemption.
+ *
+ * A nested namespace also counts as confinement, since that is what makes a
+ * full-looking capability set mean nothing here. */
+static void test_vantage_user_namespace(void) {
+  static const struct {
+    const char *map;
+    enum kasld_userns want;
+  } cases[] = {
+      {"         0          0 4294967295\n", KASLD_USERNS_INITIAL},
+      {"0 0 4294967295\n", KASLD_USERNS_INITIAL},
+      {"         0       1000          1\n", KASLD_USERNS_NESTED},
+      {"         0          0      65536\n", KASLD_USERNS_NESTED},
+      {"      1000          0          1\n", KASLD_USERNS_NESTED},
+      {"not a map\n", KASLD_USERNS_UNKNOWN},
+      {"0 0\n", KASLD_USERNS_UNKNOWN},
+  };
+  struct kasld_vantage v;
+
+  for (size_t i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+    th_sysroot_clear();
+    th_sysroot_write("/proc/self/uid_map", cases[i].map);
+    kasld_gather_vantage(&v);
+    TH_CHECK(v.userns == cases[i].want);
+  }
+
+  /* No map at all: unknown, never the initial namespace. */
+  th_sysroot_clear();
+  kasld_gather_vantage(&v);
+  TH_CHECK(v.userns == KASLD_USERNS_UNKNOWN);
+
+  /* Storage nobody filled reads as unknown too. */
+  const struct kasld_environment fresh = KASLD_ENV_UNKNOWN;
+  TH_CHECK(fresh.vantage.userns == KASLD_USERNS_UNKNOWN);
+
+  /* A nested namespace is confinement; the initial one is not, on its own. */
+  memset(&v, 0, sizeof v);
+  v.selinux = SELINUX_PERMISSIVE;
+  v.userns = KASLD_USERNS_NESTED;
+  TH_CHECK(kasld_vantage_confined(&v));
+  v.userns = KASLD_USERNS_INITIAL;
+  TH_CHECK(!kasld_vantage_confined(&v));
+
+  /* No route may be named from ids a namespace map has rewritten: the kernel
+   * compares its own, and every id outside the mapped window reads as the
+   * overflow id on both the file and the account, so unrelated groups read
+   * alike. The mode-based question is unaffected and still answered -- which is
+   * what oracle_route does with an identity it cannot compare. */
+  memset(&v, 0, sizeof v);
+  v.have_ids = 1;
+  v.ngroups = 1;
+  v.userns = KASLD_USERNS_INITIAL;
+  TH_CHECK(identity_is_comparable(&v));
+  v.userns = KASLD_USERNS_NESTED;
+  TH_CHECK(!identity_is_comparable(&v));
+  v.userns = KASLD_USERNS_UNKNOWN;
+  TH_CHECK(!identity_is_comparable(&v));
+  /* The conditions that predate the namespace one still hold. */
+  v.userns = KASLD_USERNS_INITIAL;
+  v.have_ids = 0;
+  TH_CHECK(!identity_is_comparable(&v));
+  v.have_ids = 1;
+  v.ngroups = -1;
+  TH_CHECK(!identity_is_comparable(&v));
+  v.ngroups = 1;
+  v.groups_truncated = 1;
+  TH_CHECK(!identity_is_comparable(&v));
+  v.groups_truncated = 0;
+  TH_CHECK(identity_is_comparable(&v));
+
+  /* The capability string says where the set is effective, so a reader is not
+   * told "full" without being told it counts for nothing here. */
+  char buf[56];
+  v.have_caps = 1;
+  v.cap_eff = v.cap_bnd = 0x1ffffffffffull;
+  v.userns = KASLD_USERNS_NESTED;
+  TH_CHECK(strcmp(kasld_vantage_caps(&v, buf, sizeof buf),
+                  "full (user namespace only)") == 0);
+  v.userns = KASLD_USERNS_INITIAL;
+  TH_CHECK(strcmp(kasld_vantage_caps(&v, buf, sizeof buf), "full") == 0);
+  v.userns = KASLD_USERNS_UNKNOWN;
+  TH_CHECK(strcmp(kasld_vantage_caps(&v, buf, sizeof buf),
+                  "full (namespace unknown)") == 0);
+  /* An empty set needs no qualifier: it claims nothing to qualify. */
+  v.cap_eff = 0;
+  TH_CHECK(strcmp(kasld_vantage_caps(&v, buf, sizeof buf), "none") == 0);
+
+  th_sysroot_clear();
+}
+
 /* The removal half of the privilege-gaining environment guard. The detection
  * half is not exercisable here: this process gained no privilege at exec, and
  * making one that did needs a set-uid install.
@@ -4012,6 +4108,7 @@ int main(void) {
   RUN(test_acl_decode_is_little_endian);
   RUN(test_ancestors_world);
   RUN(test_oracle_route_reads_file_metadata);
+  RUN(test_vantage_user_namespace);
   RUN(test_discard_ledger_aggregates_and_reports_truncation);
   RUN(test_discard_project_engine_classifies_correctly);
   RUN(test_discard_project_engine_conflict_without_constraint);

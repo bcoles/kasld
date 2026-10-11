@@ -35,11 +35,24 @@
  * them: what an exemption or a bypass of dmesg_restrict went through. */
 #define HR_DMESG_FALLBACK_PATH "/var/log/dmesg"
 
+/* Whether a capability this process reports is one the gate checks will
+ * accept. They resolve against the initial user namespace, so a set held in a
+ * nested one grants none of them -- and a namespace that could not be
+ * established is not shown to be the initial one. Declining here reports a
+ * bypass, which overstates exposure, where crediting would claim an exemption
+ * the kernel refused. */
+static int hr_caps_count(void) {
+  const struct kasld_vantage *v = &kasld_env.vantage;
+  return v->have_caps && v->userns == KASLD_USERNS_INITIAL;
+}
+
 /* Capability bits (linux/capability.h) that let an account read the ring
  * buffer past dmesg_restrict. CAP_SYS_ADMIN did too until the kernel stopped
  * accepting it, which no version number can be trusted to say. */
 #define HR_CAP_SYS_ADMIN 21
 #define HR_CAP_SYSLOG 34
+#define HR_CAP_PERFMON 38
+#define HR_CAP_BPF 39
 
 static int hr_oracle_index(const char *path) {
   for (int i = 0; i < KASLD_N_ORACLES; i++)
@@ -94,7 +107,7 @@ static void hr_settle_log_route(struct hardening_report *r) {
   int f = hr_oracle_index(HR_DMESG_FALLBACK_PATH);
 
   r->log_route = HR_LOG_UNSETTLED;
-  if (v->have_caps && (v->cap_eff >> HR_CAP_SYSLOG & 1)) {
+  if (hr_caps_count() && (v->cap_eff >> HR_CAP_SYSLOG & 1)) {
     r->log_route = HR_LOG_CAPABILITY;
     r->log_route_cap = "CAP_SYSLOG";
     return;
@@ -113,50 +126,9 @@ static void hr_settle_log_route(struct hardening_report *r) {
     }
     return;
   }
-  if (v->have_caps && (v->cap_eff >> HR_CAP_SYS_ADMIN & 1)) {
+  if (hr_caps_count() && (v->cap_eff >> HR_CAP_SYS_ADMIN & 1)) {
     r->log_route = HR_LOG_CAPABILITY;
     r->log_route_cap = "CAP_SYS_ADMIN";
-  }
-}
-
-/* Whether a component that got past an active dmesg_restrict did so through
- * the account's own privilege. Through a capability every one did, the ring
- * buffer being where the components look first; through the file only those
- * that read it can have. */
-static int hr_log_exempt(const struct hardening_report *r,
-                         const struct component_log *cl) {
-  switch (r->log_route) {
-  case HR_LOG_CAPABILITY:
-    return 1;
-  case HR_LOG_GROUP:
-  case HR_LOG_SELF:
-    return meta_get(&cl->meta, "fallback") != NULL;
-  default:
-    return 0;
-  }
-}
-
-/* What the exempt components read, and why the account could: "read the ring
- * buffer with CAP_SYSLOG", "read /var/log/dmesg as a member of adm". A group
- * row appears only where no capability was held, so it need not say that the
- * ring buffer refused. */
-static void hr_exemption_text(const struct hardening_report *r, char *out,
-                              size_t sz) {
-  out[0] = '\0';
-  switch (r->log_route) {
-  case HR_LOG_CAPABILITY:
-    snprintf(out, sz, "read the ring buffer with %s", r->log_route_cap);
-    break;
-  case HR_LOG_GROUP:
-    snprintf(out, sz, "read %s as a member of ", HR_DMESG_FALLBACK_PATH);
-    hr_append_groups(out, sz, r->log_route_gid, r->n_log_route_gid);
-    break;
-  case HR_LOG_SELF:
-    snprintf(out, sz, "read %s by this account's own access",
-             HR_DMESG_FALLBACK_PATH);
-    break;
-  default:
-    break;
   }
 }
 
@@ -199,6 +171,17 @@ static int hr_in_exposure(const struct component_log *cl) {
 #define HR_COMPONENT_COL_W 28
 #define HR_COMPONENT_COL_NEXT (4 + HR_COMPONENT_COL_W + 1)
 
+/* A capability a gate's own check accepts, by its stable bit in
+ * linux/capability.h. */
+struct gate_cap {
+  int bit;
+  const char *name; /* NULL terminates a gate's list */
+};
+
+/* `max_value` where the capability lifts the gate at every value it is active
+ * at. A gate whose check accepts no capability leaves `cap` empty. */
+#define HR_EXEMPT_ANY_VALUE (-1)
+
 /* Known sysctl gates */
 struct sysctl_gate {
   const char *name;    /* meta value prefix, e.g. "dmesg_restrict" */
@@ -206,6 +189,17 @@ struct sysctl_gate {
   const char *surface; /* enforcement lever, e.g. "sysctl" / "boot_param" */
   int *value_ptr;      /* pointer to stored runtime value */
   int threshold;       /* blocking threshold (value >= threshold blocks) */
+  /* What the gate's own check lets past, which is not what it restricts: a
+   * holder of one of these capabilities was never subject to it. `max_value` is
+   * the highest value at which that still holds, and `unelevated_ids` carries a
+   * gate whose check also compares the reader's ids. Each entry cites the
+   * kernel code it was read from, because crediting an exemption the kernel
+   * does not grant understates exposure. */
+  struct {
+    struct gate_cap cap[2];
+    int max_value;
+    int unelevated_ids;
+  } exempt;
 };
 
 /* Single source of truth for the gate table, shared by the text and JSON
@@ -220,27 +214,175 @@ enum {
   GATE__COUNT,
 };
 static const struct sysctl_gate gates[GATE__COUNT] = {
-    [GATE_KPTR_RESTRICT] = {"kptr_restrict", "kernel.kptr_restrict", "sysctl",
-                            &kasld_env.hardening.kptr_restrict, 1},
-    [GATE_DMESG_RESTRICT] = {"dmesg_restrict", "kernel.dmesg_restrict",
-                             "sysctl", &kasld_env.hardening.dmesg_restrict, 1},
+    /* kallsyms_show_value() (kernel/ksyms_common.c) returns true for a
+     * CAP_SYSLOG holder at 0 and 1 and false from 2 up, and %pK's
+     * restricted_pointer() (lib/vsprintf.c) adds that the reader's effective
+     * ids must equal its real ones, since a binary may open a %pK file and
+     * elevate before reading it. The id test is applied to the whole gate: one
+     * of the mechanisms it gates requires it, and withholding the exemption
+     * from the others in that case reports a bypass that did not happen rather
+     * than an exemption the kernel might not have granted. */
+    [GATE_KPTR_RESTRICT] = {"kptr_restrict",
+                            "kernel.kptr_restrict",
+                            "sysctl",
+                            &kasld_env.hardening.kptr_restrict,
+                            1,
+                            {{{HR_CAP_SYSLOG, "CAP_SYSLOG"}, {0, NULL}}, 1, 1}},
+    /* The kernel log is the one gated source with copies on disk, so its
+     * exemption can be owed to a file's reach as well as to a capability, and
+     * the capability it accepts depends on the kernel. hr_settle_log_route()
+     * settles both from what was observed; no entry here. */
+    [GATE_DMESG_RESTRICT] = {"dmesg_restrict",
+                             "kernel.dmesg_restrict",
+                             "sysctl",
+                             &kasld_env.hardening.dmesg_restrict,
+                             1,
+                             {{{0, NULL}, {0, NULL}}, 0, 0}},
+    /* perf_allow_kernel() (include/linux/perf_event.h) is
+     * perfmon_capable() ? 0 : -EACCES, and perfmon_capable()
+     * (include/linux/capability.h) is CAP_PERFMON || CAP_SYS_ADMIN. Either
+     * lifts the gate at any value: kernels that also tested the level denied
+     * only a caller holding neither, so a holder is exempt on both shapes and
+     * nothing here reads a version. */
     [GATE_PERF_EVENT_PARANOID] = {"perf_event_paranoid",
-                                  "kernel.perf_event_paranoid", "sysctl",
-                                  &kasld_env.hardening.perf_event_paranoid, 2},
+                                  "kernel.perf_event_paranoid",
+                                  "sysctl",
+                                  &kasld_env.hardening.perf_event_paranoid,
+                                  2,
+                                  {{{HR_CAP_PERFMON, "CAP_PERFMON"},
+                                    {HR_CAP_SYS_ADMIN, "CAP_SYS_ADMIN"}},
+                                   HR_EXEMPT_ANY_VALUE,
+                                   0}},
     /* 0 = unprivileged bpf() allowed, >=1 disables it (blocks the unprivileged
      * bpf leak components), so the "value >= threshold blocks" model fits with
      * threshold 1. */
+    /* Program load (kernel/bpf/syscall.c) denies when the sysctl is nonzero
+     * and bpf_token_capable(token, CAP_BPF) is false, and bpf_ns_capable()
+     * (kernel/bpf/token.c) accepts CAP_SYS_ADMIN for any capability asked of
+     * it, so either bit lifts the gate at every value it is active at. */
     [GATE_UNPRIVILEGED_BPF] = {"unprivileged_bpf_disabled",
-                               "kernel.unprivileged_bpf_disabled", "sysctl",
+                               "kernel.unprivileged_bpf_disabled",
+                               "sysctl",
                                &kasld_env.hardening.unprivileged_bpf_disabled,
-                               1},
+                               1,
+                               {{{HR_CAP_BPF, "CAP_BPF"},
+                                 {HR_CAP_SYS_ADMIN, "CAP_SYS_ADMIN"}},
+                                HR_EXEMPT_ANY_VALUE,
+                                0}},
     /* Not a /proc/sys knob — boot-time (no_hash_pointers) — but the same gate
      * plumbing fits: a runtime-readable mitigation that gates %pK address
-     * leaks (hashed by default => low-priv readers get an id, not the addr). */
-    [GATE_HASHED_POINTERS] = {"hashed_pointers", "kernel pointer hashing (%pK)",
+     * leaks (hashed by default => low-priv readers get an id, not the addr).
+     * No capability lifts it: %p hashing is applied to every reader alike. */
+    [GATE_HASHED_POINTERS] = {"hashed_pointers",
+                              "kernel pointer hashing (%pK)",
                               "boot_param",
-                              &kasld_env.hardening.hashed_pointers, 1},
+                              &kasld_env.hardening.hashed_pointers,
+                              1,
+                              {{{0, NULL}, {0, NULL}}, 0, 0}},
 };
+
+/* The capability this account holds that the gate's own check accepts at its
+ * observed value, or NULL where the gate restricts this account after all.
+ *
+ * A gate asking for unelevated ids is answered only where the identity was
+ * read: an account whose real and effective ids cannot be compared is not one
+ * the check can be shown to pass. */
+static const char *hr_gate_cap(const struct sysctl_gate *g, int value) {
+  const struct kasld_vantage *v = &kasld_env.vantage;
+
+  if (!hr_caps_count())
+    return NULL;
+  if (g->exempt.max_value != HR_EXEMPT_ANY_VALUE && value > g->exempt.max_value)
+    return NULL;
+  if (g->exempt.unelevated_ids &&
+      (!v->have_ids || v->euid != v->uid || v->egid != v->gid))
+    return NULL;
+  for (size_t k = 0; k < sizeof g->exempt.cap / sizeof g->exempt.cap[0]; k++) {
+    if (!g->exempt.cap[k].name)
+      break;
+    if (v->cap_eff >> g->exempt.cap[k].bit & 1)
+      return g->exempt.cap[k].name;
+  }
+  return NULL;
+}
+
+/* Whether this component's success is owed to a privilege the account holds
+ * rather than to the gate having been got around, recording on the gate what
+ * it was owed to.
+ *
+ * A component is credited only where it declares the capability that bypasses
+ * it. The declaration is what separates a technique the capability explains
+ * from one that reached the same data another way: pppd_kallsyms leaks through
+ * a set-uid helper rather than through anything the account holds, declares no
+ * bypass, and must not be credited to a capability it never needed. */
+static int hr_gate_exempt(const struct hardening_report *r, int g,
+                          struct hr_gate *hg, const struct component_log *cl) {
+  if (g == GATE_DMESG_RESTRICT) {
+    switch (r->log_route) {
+    case HR_LOG_CAPABILITY:
+      if (!meta_get(&cl->meta, "bypass"))
+        return 0;
+      hg->exempt_kind = HR_EXEMPT_CAPABILITY;
+      hg->exempt_cap = r->log_route_cap;
+      hg->exempt_source = "the ring buffer";
+      return 1;
+    case HR_LOG_GROUP:
+    case HR_LOG_SELF:
+      /* Only a component that reads the file can have been exempted by its
+       * reach; one that reads only the ring buffer was refused. */
+      if (!meta_get(&cl->meta, "fallback"))
+        return 0;
+      hg->exempt_source = HR_DMESG_FALLBACK_PATH;
+      if (r->log_route == HR_LOG_SELF) {
+        hg->exempt_kind = HR_EXEMPT_ACCOUNT;
+      } else {
+        hg->exempt_kind = HR_EXEMPT_GROUP;
+        memcpy(hg->exempt_gid, r->log_route_gid,
+               sizeof r->log_route_gid[0] * (size_t)r->n_log_route_gid);
+        hg->n_exempt_gid = r->n_log_route_gid;
+      }
+      return 1;
+    default:
+      return 0;
+    }
+  }
+
+  const char *cap = hr_gate_cap(&gates[g], *gates[g].value_ptr);
+  if (!cap || !meta_get(&cl->meta, "bypass"))
+    return 0;
+  hg->exempt_kind = HR_EXEMPT_CAPABILITY;
+  hg->exempt_cap = cap;
+  /* Only the kernel log has a source worth naming: the others are reached by
+   * the one call the technique makes, which the gate cannot name for it. */
+  hg->exempt_source = NULL;
+  return 1;
+}
+
+/* Why a gate exempted the components it did: "read the ring buffer with
+ * CAP_SYSLOG", "read /var/log/dmesg as a member of adm", "this account holds
+ * CAP_PERFMON". */
+static void hr_exemption_text(const struct hr_gate *hg, char *out, size_t sz) {
+  out[0] = '\0';
+  switch (hg->exempt_kind) {
+  case HR_EXEMPT_CAPABILITY:
+    if (hg->exempt_source)
+      snprintf(out, sz, "read %s with %s", hg->exempt_source, hg->exempt_cap);
+    else
+      snprintf(out, sz, "this account holds %s", hg->exempt_cap);
+    break;
+  case HR_EXEMPT_GROUP:
+    snprintf(out, sz, "read %s as a member of ", hg->exempt_source);
+    hr_append_groups(out, sz, hg->exempt_gid, hg->n_exempt_gid);
+    break;
+  case HR_EXEMPT_ACCOUNT:
+    snprintf(out, sz, "read %s by this account's own access",
+             hg->exempt_source);
+    break;
+  case HR_EXEMPT_NONE:
+    break;
+  }
+}
+
 static const int ngates = GATE__COUNT;
 
 static int sysctl_gate_active(const struct sysctl_gate *g) {
@@ -487,8 +629,7 @@ void build_hardening_report(struct hardening_report *r) {
         if (hg.n_blocked_names < HR_NAME_MAX)
           hg.blocked_names[hg.n_blocked_names++] = comp_logs[i].name;
       } else if (comp_logs[i].outcome == OUTCOME_SUCCESS) {
-        if (g == GATE_DMESG_RESTRICT && hg.active &&
-            hr_log_exempt(r, &comp_logs[i])) {
+        if (hg.active && hr_gate_exempt(r, g, &hg, &comp_logs[i])) {
           hg.exempt++;
           if (hg.n_exempt_names < HR_NAME_MAX)
             hg.exempt_names[hg.n_exempt_names++] = comp_logs[i].name;
@@ -983,23 +1124,18 @@ static void print_necessity(int silences, int exposure, int all_v, int skip_v,
  * shape per kind: {"kind": "capability", "capability": "CAP_SYSLOG"};
  * {"kind": "group", "groups": [{"gid": 4, "name": "adm"}]}, `name` null where
  * nothing named the gid; {"kind": "account"} for the account's own access. */
-static void json_print_exemption(const struct hardening_report *r,
-                                 const struct hr_gate *hg) {
-  if (hg->exempt == 0) {
-    printf("null");
-    return;
-  }
-  switch (r->log_route) {
-  case HR_LOG_CAPABILITY:
+static void json_print_exemption(const struct hr_gate *hg) {
+  switch (hg->exempt_kind) {
+  case HR_EXEMPT_CAPABILITY:
     printf("{\"kind\": \"capability\", \"capability\": ");
-    json_print_escaped(r->log_route_cap);
+    json_print_escaped(hg->exempt_cap);
     printf("}");
     break;
-  case HR_LOG_GROUP:
+  case HR_EXEMPT_GROUP:
     printf("{\"kind\": \"group\", \"groups\": [");
-    for (int k = 0; k < r->n_log_route_gid; k++) {
-      const char *name = hr_group_name(r->log_route_gid[k]);
-      printf("%s{\"gid\": %lu, \"name\": ", k ? ", " : "", r->log_route_gid[k]);
+    for (int k = 0; k < hg->n_exempt_gid; k++) {
+      const char *name = hr_group_name(hg->exempt_gid[k]);
+      printf("%s{\"gid\": %lu, \"name\": ", k ? ", " : "", hg->exempt_gid[k]);
       if (name)
         json_print_escaped(name);
       else
@@ -1008,8 +1144,11 @@ static void json_print_exemption(const struct hardening_report *r,
     }
     printf("]}");
     break;
-  default:
+  case HR_EXEMPT_ACCOUNT:
     printf("{\"kind\": \"account\"}");
+    break;
+  case HR_EXEMPT_NONE:
+    printf("null");
     break;
   }
 }
@@ -1284,7 +1423,7 @@ void render_hardening_text(void) {
       }
       if (hg->exempt > 0) {
         char why[HR_GROUPS_TEXT_MAX + 64];
-        hr_exemption_text(&rep, why, sizeof why);
+        hr_exemption_text(hg, why, sizeof why);
         printf("%s%d exempt: %s", blocked > 0 || bypassed > 0 ? "; " : "",
                hg->exempt, why);
       }
@@ -1709,7 +1848,7 @@ void render_hardening_json(void) {
     }
     printf("],\n");
     printf("        \"exemption\": ");
-    json_print_exemption(&rep, hg);
+    json_print_exemption(hg);
     printf("\n      }");
   }
   printf("\n    ],\n");
@@ -1995,7 +2134,7 @@ void render_hardening_markdown(void) {
       }
       if (hg->exempt > 0) {
         char why[HR_GROUPS_TEXT_MAX + 64];
-        hr_exemption_text(&rep, why, sizeof why);
+        hr_exemption_text(hg, why, sizeof why);
         printf("%s%d exempt: %s", wrote ? "; " : "", hg->exempt, why);
         wrote = 1;
       }

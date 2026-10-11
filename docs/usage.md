@@ -612,7 +612,8 @@ state, and `mac_enforcing` is the only one of the four that asserts anything.
 | `uid` / `euid` / `gid` / `egid` | the process's ids, `null` together when they could not be read — 0 is a real uid, so no value in the field could mean "unknown" |
 | `groups` | supplementary gids, or `null` when unreadable; `groups_truncated` is present and `true` when the process holds more than the report keeps |
 | `group_gated_sources` | those groups kasld knows gate a source it reads, as `{gid, name, gates}`; the numeric `groups` list stays the authority |
-| `capabilities` | the process's capability set, or `null` |
+| `user_namespace` | which user namespace that capability set is effective in: `initial`, `nested`, or `unknown` where `/proc/self/uid_map` could not be read. The kernel checks that gate these sources resolve against the initial namespace, so `nested` and `unknown` both mean no capability is credited |
+| `capabilities` | the process's capability set, or `null`. Carries a qualifier where the set is not the one those checks consult — "full (user namespace only)" |
 | `no_new_privs` | the `no_new_privs` bit, or `null` |
 | `readable_oracles` | a map of the sources probed for readability — the `/proc` oracles, the system logs, the two systemd journal trees, debugfs, and the `/boot` `System.map` and config, the last two keyed by the path including the running kernel release. A journal tree is keyed by the tree but probed by the active system journal inside it: the tree's directories are listable by every account, while the records' gate is on the files, whose path carries the machine ID and is never printed. Each entry carries `readable` (`false` for every state that is not a successful read) and `status`, one of `readable`, `denied`, `absent` or `unknown` — the same distinction the text readout draws |
 | `cap_reachable_leaks` | the capability-gated leak sources the effective capability set unlocks, as `{capability, source}` |
@@ -759,8 +760,8 @@ kernel. It is followed by seven analysis sections:
    (`dmesg_restrict`, `kptr_restrict`, `perf_event_paranoid`,
    `unprivileged_bpf_disabled`, `%pK` pointer hashing, lockdown mode) and
    their current values, with the components each one blocked and those that
-   got past it — as a bypass, or, for `dmesg_restrict`, as exempt where they
-   went through a privilege of this account's own.
+   got past it — as a bypass, or as exempt where they went through a privilege
+   of this account's own that the gate's own check accepts.
 
 3. **Available hardening** — actionable suggestions for settings that are
    not currently active but would block one or more successful components
@@ -829,23 +830,49 @@ A denial is credited to the `mac` surface only when the component declares
 sysctl gates and none of them accounts for it, so an ordinary file-permission
 denial is never reported as a policy decision.
 
-`kernel.dmesg_restrict` governs only direct reads of the ring buffer. An
-account holding `CAP_SYSLOG` is not subject to it, and the copies of the log on
-disk grant root and the log-reader groups read by design, so a dmesg leak this
-account read through either is counted as **exempt**, not bypassed. The row
-says what was read and why ("read the ring buffer with CAP_SYSLOG", "read
-/var/log/dmesg as a member of adm"), naming a group by number ("gid 1234") where
-nothing in the analysed tree names it. In JSON the gate carries
-`components_exempt` and an `exemption` object: `{"kind": "capability",
-"capability": ...}`, `{"kind": "group", "groups": [{"gid": ..., "name": ...}]}`
-with `name` null for an unnamed group, or `{"kind": "account"}` for the
-account's own access to the file. Only a copy every account can read is a way
-around the sysctl: reads through one are bypasses, and Available hardening
-flags every kernel log copy
-readable by any account under `file_permissions` — from any vantage, and
-whatever `dmesg_restrict` is set to. Whether a copy is read through a group or
-by any account comes from its owner, mode and ACL on a live run only; on a
-replay such reads stay unattributed.
+Those checks resolve against the initial user namespace — `capable()` is
+`ns_capable(&init_user_ns, …)` — so a capability set held only in a nested
+namespace grants none of them, however full it looks. A rootless container
+reports every capability and holds none that count here. KASLD reads
+`/proc/self/uid_map` to tell the two apart, reports which in
+`environment.user_namespace`, qualifies the capability string ("full (user
+namespace only)"), and credits no exemption and no capability-reachable leak
+where the namespace is nested or could not be established — reporting a bypass,
+which overstates exposure, rather than an exemption the kernel refused.
+
+A gate restricts what its own check restricts, and several of these checks let
+a holder of a particular capability past. A component that succeeded because
+the account holds one is counted exempt rather than as having got around
+the gate, and the row says why — "this account holds CAP_PERFMON". What each
+check accepts is read from the kernel and differs per gate: `CAP_SYSLOG` lifts
+`kptr_restrict` at `1` but not at `2`, where the pointer is zeroed for
+everyone, and only while the reader's effective ids equal its real ones;
+`CAP_PERFMON` or `CAP_SYS_ADMIN` lift `perf_event_paranoid`, and `CAP_BPF` or
+`CAP_SYS_ADMIN` lift `unprivileged_bpf_disabled`, at any value they are active
+at; nothing lifts pointer hashing. A component is credited only where it
+declares the capability that bypasses it, so a technique that reached the same
+data another way — through a set-uid helper, say — stays a bypass.
+
+`kernel.dmesg_restrict` is the one gate whose source has copies on disk, so its
+exemption can also be owed to a file: the copies grant root and the log-reader
+groups read by design, and its row names what was read as well ("read the ring
+buffer with CAP_SYSLOG", "read /var/log/dmesg as a member of adm"), naming a
+group by number ("gid 1234") where nothing in the analysed tree names it. Only
+a copy every account can read is a way around that sysctl: reads through one
+are bypasses, and Available hardening flags every kernel log copy readable by
+any account under `file_permissions` — from any vantage, and whatever
+`dmesg_restrict` is set to. Whether a copy is read through a group or by the
+account itself comes from its owner, mode and ACL on a live run, and only where
+the identity can be compared with the kernel's own: a nested user namespace
+maps a window of the ids and reports the rest as the overflow id on the file
+and the account alike, so no group is named from there either. Whether *any*
+account can read a copy is settled from its mode, which no mapping touches, so
+that is answered from every vantage.
+
+In JSON each gate carries `components_exempt` and an `exemption` object:
+`{"kind": "capability", "capability": ...}`, `{"kind": "group", "groups":
+[{"gid": ..., "name": ...}]}` with `name` null for an unnamed group, or
+`{"kind": "account"}` for the account's own access to the file.
 
 When the engine resolves a guaranteed base window, each `available_hardening`
 entry also carries `silences` (base-leaks it removes) and a `projected`

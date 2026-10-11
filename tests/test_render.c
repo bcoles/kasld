@@ -5527,6 +5527,12 @@ static void hr_stage_vantage(int have_caps, unsigned long long cap_eff) {
   v->selinux = SELINUX_PERMISSIVE;
   v->have_caps = have_caps;
   v->cap_eff = cap_eff;
+  /* Read, and unelevated: a gate whose check compares the reader's real and
+   * effective ids credits nothing until it can see that they agree. */
+  v->have_ids = 1;
+  /* The initial namespace, which is what makes a capability set the one the
+   * gate checks consult. */
+  v->userns = KASLD_USERNS_INITIAL;
   v->ngroups = 1;
   v->groups[0] = 4;
   snprintf(v->group_names[0], sizeof v->group_names[0], "adm");
@@ -5566,19 +5572,26 @@ static void test_hardening_dmesg_restrict_attribution(void) {
   struct component_log *c = hr_seed_comp("c_dmesg_file", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "bypass", "CAP_SYSLOG");
   hr_seed_meta(c, "fallback", "/var/log/dmesg");
   c = hr_seed_comp("c_dmesg_ring", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "bypass", "CAP_SYSLOG");
+  /* Gated, and succeeded, but names no capability that bypasses it: whatever
+   * the account holds did not explain this one, so it is never exempt. */
+  c = hr_seed_comp("c_dmesg_other", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
 
-  /* Nothing established: both stay bypasses, credited to nothing. */
+  /* Nothing established: all stay bypasses, credited to nothing. */
   hr_stage_vantage(0, 0);
   build_hardening_report(&rep);
   g = hr_dmesg_gate(&rep);
-  TH_CHECK(g && g->bypassed == 2 && g->fallback == 1 && g->exempt == 0);
+  TH_CHECK(g && g->bypassed == 3 && g->fallback == 1 && g->exempt == 0);
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_hardening_text, NULL);
-  TH_CHECK(strstr(render_cap, "2 bypassed (1 by a route not established)") !=
+  TH_CHECK(strstr(render_cap, "3 bypassed (1 by a route not established)") !=
            NULL);
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_hardening_json, NULL);
@@ -5590,16 +5603,20 @@ static void test_hardening_dmesg_restrict_attribution(void) {
   build_hardening_report(&rep);
   g = hr_dmesg_gate(&rep);
   TH_CHECK(rep.log_route == HR_LOG_CAPABILITY);
-  TH_CHECK(g && g->exempt == 2 && g->bypassed == 0);
+  TH_CHECK(g && g->exempt == 2 && g->bypassed == 1);
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_hardening_text, NULL);
-  TH_CHECK(strstr(render_cap,
-                  "2 exempt: read the ring buffer with CAP_SYSLOG\n") != NULL);
-  TH_CHECK(strstr(render_cap, "\xe2\x9c\x93  2 exempt") != NULL); /* ✓ */
+  TH_CHECK(strstr(render_cap, "1 bypassed; 2 exempt: read the ring buffer "
+                              "with CAP_SYSLOG\n") != NULL);
+  /* One component did get around the gate, so the row stays marked. */
+  TH_CHECK(strstr(render_cap, "\xe2\x9a\xa0  1 bypassed") != NULL); /* warn */
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_hardening_json, NULL);
   TH_CHECK(strstr(render_cap, "\"components_exempt\": [\"c_dmesg_file\", "
                               "\"c_dmesg_ring\"]") != NULL);
+  /* The one naming no bypass stays a bypass beside them. */
+  TH_CHECK(strstr(render_cap, "\"components_bypassed\": [\"c_dmesg_other\"]") !=
+           NULL);
   TH_CHECK(strstr(render_cap, "\"exemption\": {\"kind\": \"capability\", "
                               "\"capability\": \"CAP_SYSLOG\"}") != NULL);
 
@@ -5610,10 +5627,10 @@ static void test_hardening_dmesg_restrict_attribution(void) {
   build_hardening_report(&rep);
   g = hr_dmesg_gate(&rep);
   TH_CHECK(rep.log_route == HR_LOG_GROUP);
-  TH_CHECK(g && g->exempt == 1 && g->bypassed == 1 && g->fallback == 0);
+  TH_CHECK(g && g->exempt == 1 && g->bypassed == 2 && g->fallback == 0);
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_hardening_text, NULL);
-  TH_CHECK(strstr(render_cap, "1 bypassed; 1 exempt: read /var/log/dmesg as a "
+  TH_CHECK(strstr(render_cap, "2 bypassed; 1 exempt: read /var/log/dmesg as a "
                               "member of adm\n") != NULL);
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_hardening_markdown, NULL);
@@ -5658,10 +5675,10 @@ static void test_hardening_dmesg_restrict_attribution(void) {
   build_hardening_report(&rep);
   g = hr_dmesg_gate(&rep);
   TH_CHECK(rep.log_route == HR_LOG_WORLD);
-  TH_CHECK(g && g->exempt == 0 && g->bypassed == 2 && g->fallback == 1);
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 3 && g->fallback == 1);
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_hardening_text, NULL);
-  TH_CHECK(strstr(render_cap, "2 bypassed (1 read /var/log/dmesg, which any "
+  TH_CHECK(strstr(render_cap, "3 bypassed (1 read /var/log/dmesg, which any "
                               "account can read)") != NULL);
 
   /* Every bypass a fallback read: the count says what they read, or that it
@@ -5696,10 +5713,186 @@ static void test_hardening_dmesg_restrict_attribution(void) {
   hr_stage_vantage(1, 1ull << 34);
   build_hardening_report(&rep);
   g = hr_dmesg_gate(&rep);
-  TH_CHECK(g && !g->active && g->exempt == 0 && g->bypassed == 2);
+  TH_CHECK(g && !g->active && g->exempt == 0 && g->bypassed == 3);
 
   set_render_mode(0, 0, 0);
   hr_reset_state();
+}
+
+static const struct hr_gate *hr_named_gate(const struct hardening_report *r,
+                                           const char *display) {
+  for (int i = 0; i < r->n_gates; i++)
+    if (strcmp(r->gates[i].display, display) == 0)
+      return &r->gates[i];
+  return NULL;
+}
+
+/* Every gate whose own check accepts a capability credits a holder as exempt,
+ * not as having got around it, and each names the capability its own check
+ * accepts rather than one borrowed from another gate.
+ *
+ * The conditions are what the kernel actually imposes, so each is asserted
+ * from both sides. kptr_restrict lifts for CAP_SYSLOG only up to value 1 and
+ * only where the reader's effective ids equal its real ones; perf and bpf lift
+ * for either of two capabilities at any value they are active at; pointer
+ * hashing lifts for none. A component that declares no bypassing capability is
+ * never credited whatever the account holds -- the shape of a technique that
+ * reached its data through a set-uid helper rather than through this account.
+ */
+static void test_hardening_capability_exemption_per_gate(void) {
+  struct hardening_report rep;
+  const struct hr_gate *g;
+  struct component_log *c;
+
+  hr_reset_state();
+  kasld_env.hardening.kptr_restrict = 1;
+  kasld_env.hardening.perf_event_paranoid = 2;
+  kasld_env.hardening.unprivileged_bpf_disabled = 1;
+  kasld_env.hardening.hashed_pointers = 1;
+
+  c = hr_seed_comp("c_kptr", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "kptr_restrict>=1");
+  hr_seed_meta(c, "bypass", "CAP_SYSLOG");
+  /* Gated by the same knob, but owed to a set-uid helper rather than to
+   * anything this account holds, so it declares no bypass. */
+  c = hr_seed_comp("c_kptr_setuid", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "kptr_restrict>=1");
+  c = hr_seed_comp("c_perf", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "perf_event_paranoid>=2");
+  hr_seed_meta(c, "bypass", "CAP_PERFMON");
+  c = hr_seed_comp("c_bpf", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "unprivileged_bpf_disabled>=1");
+  hr_seed_meta(c, "bypass", "CAP_BPF");
+  c = hr_seed_comp("c_hashed", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "hashed_pointers>=1");
+  hr_seed_meta(c, "bypass", "CAP_SYSLOG");
+
+  /* Holding every one of them: three gates exempt through three different
+   * capabilities, which is why the reason is held per gate. */
+  hr_stage_vantage(1, (1ull << 34) | (1ull << 38) | (1ull << 39));
+  build_hardening_report(&rep);
+
+  g = hr_named_gate(&rep, "kernel.kptr_restrict");
+  TH_CHECK(g && g->exempt == 1 && g->bypassed == 1);
+  TH_CHECK(g && g->exempt_kind == HR_EXEMPT_CAPABILITY &&
+           strcmp(g->exempt_cap, "CAP_SYSLOG") == 0);
+  TH_CHECK(g && g->n_exempt_names == 1 &&
+           strcmp(g->exempt_names[0], "c_kptr") == 0);
+  TH_CHECK(g && g->n_bypassed_names == 1 &&
+           strcmp(g->bypassed_names[0], "c_kptr_setuid") == 0);
+
+  g = hr_named_gate(&rep, "kernel.perf_event_paranoid");
+  TH_CHECK(g && g->exempt == 1 && g->bypassed == 0 &&
+           strcmp(g->exempt_cap, "CAP_PERFMON") == 0);
+
+  g = hr_named_gate(&rep, "kernel.unprivileged_bpf_disabled");
+  TH_CHECK(g && g->exempt == 1 && g->bypassed == 0 &&
+           strcmp(g->exempt_cap, "CAP_BPF") == 0);
+
+  /* Pointer hashing applies to every reader alike. */
+  g = hr_named_gate(&rep, "kernel pointer hashing (%pK)");
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 1);
+
+  /* Three of the four exemptions are in the exposure; the set-uid one is a
+   * bypass and the hashing gate exempts nothing. */
+  TH_CHECK(rep.exempt == 3);
+
+  /* A gate with nothing left bypassing it reads as satisfied, and names what
+   * its own check accepted. */
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  TH_CHECK(strstr(render_cap, "\xe2\x9c\x93  1 exempt: this account holds "
+                              "CAP_PERFMON\n") != NULL); /* ✓ */
+  TH_CHECK(strstr(render_cap, "1 exempt: this account holds CAP_BPF\n") !=
+           NULL);
+  TH_CHECK(strstr(render_cap, "1 bypassed; 1 exempt: this account holds "
+                              "CAP_SYSLOG\n") != NULL);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  TH_CHECK(strstr(render_cap, "\"exemption\": {\"kind\": \"capability\", "
+                              "\"capability\": \"CAP_PERFMON\"}") != NULL);
+
+  /* CAP_SYS_ADMIN alone lifts perf and bpf, whose checks accept it, and not
+   * kptr_restrict, whose check does not. */
+  hr_stage_vantage(1, 1ull << 21);
+  build_hardening_report(&rep);
+  g = hr_named_gate(&rep, "kernel.perf_event_paranoid");
+  TH_CHECK(g && g->exempt == 1 && strcmp(g->exempt_cap, "CAP_SYS_ADMIN") == 0);
+  g = hr_named_gate(&rep, "kernel.unprivileged_bpf_disabled");
+  TH_CHECK(g && g->exempt == 1 && strcmp(g->exempt_cap, "CAP_SYS_ADMIN") == 0);
+  g = hr_named_gate(&rep, "kernel.kptr_restrict");
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 2);
+
+  /* kptr_restrict at 2 zeroes the pointer for everyone, so the capability
+   * stops lifting it; perf and bpf lift at any active value. */
+  hr_stage_vantage(1, (1ull << 34) | (1ull << 38));
+  kasld_env.hardening.kptr_restrict = 2;
+  kasld_env.hardening.perf_event_paranoid = 3;
+  build_hardening_report(&rep);
+  g = hr_named_gate(&rep, "kernel.kptr_restrict");
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 2);
+  g = hr_named_gate(&rep, "kernel.perf_event_paranoid");
+  TH_CHECK(g && g->exempt == 1);
+  kasld_env.hardening.kptr_restrict = 1;
+  kasld_env.hardening.perf_event_paranoid = 2;
+
+  /* Effective ids that differ from the real ones: %pK withholds the real
+   * pointer from a CAP_SYSLOG holder, so kptr_restrict credits nothing, while
+   * a gate whose check makes no such comparison is unaffected. */
+  hr_stage_vantage(1, (1ull << 34) | (1ull << 38));
+  kasld_env.vantage.uid = 1000;
+  kasld_env.vantage.euid = 0;
+  build_hardening_report(&rep);
+  g = hr_named_gate(&rep, "kernel.kptr_restrict");
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 2);
+  g = hr_named_gate(&rep, "kernel.perf_event_paranoid");
+  TH_CHECK(g && g->exempt == 1);
+
+  /* An identity that was never read cannot be shown to pass that comparison. */
+  hr_stage_vantage(1, 1ull << 34);
+  kasld_env.vantage.have_ids = 0;
+  build_hardening_report(&rep);
+  g = hr_named_gate(&rep, "kernel.kptr_restrict");
+  TH_CHECK(g && g->exempt == 0);
+
+  /* The same full set, held in a nested user namespace: the checks these
+   * gates make resolve against the initial one, so none of it counts and every
+   * gate reports a bypass. */
+  hr_stage_vantage(1, (1ull << 34) | (1ull << 38) | (1ull << 39));
+  kasld_env.vantage.userns = KASLD_USERNS_NESTED;
+  build_hardening_report(&rep);
+  TH_CHECK(rep.exempt == 0);
+  g = hr_named_gate(&rep, "kernel.kptr_restrict");
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 2);
+  g = hr_named_gate(&rep, "kernel.perf_event_paranoid");
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 1);
+  g = hr_named_gate(&rep, "kernel.unprivileged_bpf_disabled");
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 1);
+  /* A namespace that could not be established is read the same way. */
+  kasld_env.vantage.userns = KASLD_USERNS_UNKNOWN;
+  build_hardening_report(&rep);
+  TH_CHECK(rep.exempt == 0);
+
+  /* Holding nothing: every gate reports what it always did. */
+  hr_stage_vantage(0, 0);
+  build_hardening_report(&rep);
+  TH_CHECK(rep.exempt == 0);
+  g = hr_named_gate(&rep, "kernel.kptr_restrict");
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 2);
+  g = hr_named_gate(&rep, "kernel.perf_event_paranoid");
+  TH_CHECK(g && g->exempt == 0 && g->bypassed == 1);
+
+  set_render_mode(0, 0, 0);
+  hr_reset_state();
+  kasld_env.hardening.kptr_restrict = 0;
+  kasld_env.hardening.perf_event_paranoid = 0;
+  kasld_env.hardening.unprivileged_bpf_disabled = 0;
+  kasld_env.hardening.hashed_pointers = 0;
 }
 
 /* A copy of the kernel log every account can read is flagged from any vantage
@@ -5816,11 +6009,13 @@ static void test_render_hardening_headline_and_vuln_lines(void) {
   c = hr_seed_comp("c_dmesg_file", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "bypass", "CAP_SYSLOG");
   hr_seed_meta(c, "fallback", "/var/log/dmesg");
   /* Exempt by the same gate, but no part of the exposure. */
   c = hr_seed_comp("c_detect", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "detection");
   hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "bypass", "CAP_SYSLOG");
   hr_seed_meta(c, "fallback", "/var/log/dmesg");
   c = hr_seed_comp("c_vuln_bare", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
@@ -6673,6 +6868,7 @@ int main(void) {
   RUN(test_hardening_unprivileged_bpf_gate);
   RUN(test_hardening_projection);
   RUN(test_hardening_dmesg_restrict_attribution);
+  RUN(test_hardening_capability_exemption_per_gate);
   RUN(test_hardening_world_log_suggestion);
   RUN(test_render_hardening_headline_and_vuln_lines);
   RUN(test_hardening_projection_no_exposure);

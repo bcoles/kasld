@@ -491,6 +491,36 @@ static enum oracle_access journal_without_machine_id(const char *tree) {
   return ORACLE_UNKNOWN;
 }
 
+/* Which user namespace this process's capabilities are effective in, read from
+ * the first line of /proc/self/uid_map.
+ *
+ * What the test establishes is that the map carries the whole id range straight
+ * through -- the single mapping "0 0 4294967295" -- which the initial namespace
+ * does and a namespace mapping a window does not. That is not quite the same
+ * claim: the kernel refuses an initial-namespace capability to any cred whose
+ * own namespace sits below the one asked about, by namespace level rather than
+ * by mapping (cap_capable_helper, security/commoncap.c), so a child handed the
+ * whole range by a privileged creator reads here as the initial namespace while
+ * holding none of those capabilities. Reaching that case takes privilege in the
+ * parent, and the alternative -- comparing this namespace with the first
+ * process's -- is not readable by an unprivileged account, which is why the map
+ * is what is tested.
+ *
+ * A map that cannot be read is UNKNOWN, as is a first line that is not three
+ * numbers. Lines after the first are not examined. */
+static enum kasld_userns read_userns(void) {
+  char line[128];
+  unsigned long long inside, outside, count;
+
+  if (read_proc_line("/proc/self/uid_map", line, sizeof line) != 0)
+    return KASLD_USERNS_UNKNOWN;
+  if (sscanf(line, "%llu %llu %llu", &inside, &outside, &count) != 3)
+    return KASLD_USERNS_UNKNOWN;
+  if (inside == 0 && outside == 0 && count == 4294967295ULL)
+    return KASLD_USERNS_INITIAL;
+  return KASLD_USERNS_NESTED;
+}
+
 /* One entry of a POSIX access ACL, and the tags and read bit of its format. */
 struct acl_entry {
   unsigned int tag;
@@ -631,6 +661,23 @@ static int ancestors_world(const char *path) {
   return 1;
 }
 
+/* Whether the identity read for this vantage is the one the kernel compares
+ * when it decides who may read a file.
+ *
+ * It must be whole -- a group the analysis cannot see could be the one granting
+ * a source -- and it must be stated in the ids the kernel itself uses. A nested
+ * user namespace maps only a window of them and reports every id outside it as
+ * the overflow id, on the file and on the account alike, so two unrelated
+ * groups read alike there and a route named from them could be one the kernel's
+ * check never took.
+ *
+ * Whether every account can read a source is settled from its mode, which no
+ * mapping touches, so that much is answered either way. */
+static int identity_is_comparable(const struct kasld_vantage *v) {
+  return v->have_ids && v->ngroups >= 0 && !v->groups_truncated &&
+         v->userns == KASLD_USERNS_INITIAL;
+}
+
 /* Settle a readable source's reach from its own metadata. Whether any
  * account can read it depends on the file alone; the route this account takes
  * also needs the account's whole identity, and is left UNKNOWN without it, as
@@ -673,6 +720,7 @@ void kasld_gather_vantage(struct kasld_vantage *v) {
   read_status_fields(&st);
   v->seccomp = st.seccomp[0] ? atoi(st.seccomp) : -1;
   v->no_new_privs = st.no_new_privs[0] ? atoi(st.no_new_privs) : -1;
+  v->userns = read_userns();
   if (st.cap_eff[0]) {
     v->have_caps = 1;
     v->cap_eff = strtoull(st.cap_eff, NULL, 16);
@@ -735,7 +783,7 @@ void kasld_gather_vantage(struct kasld_vantage *v) {
     resolve_group_names(v);
 
   if (kasld_fact_source() == KASLD_FACTS_LIVE) {
-    int identity_known = v->have_ids && v->ngroups >= 0 && !v->groups_truncated;
+    int identity_known = identity_is_comparable(v);
     for (int i = 0; i < KASLD_N_ORACLES; i++)
       if (v->oracle_access[i] == ORACLE_READABLE)
         oracle_route(v, v->oracle_probe[i], identity_known,
@@ -788,19 +836,26 @@ const char *kasld_vantage_lsm_str(const struct kasld_vantage *v, char *out,
  * unprivileged defaults, not restrictions (see print_confinement). */
 int kasld_vantage_confined(const struct kasld_vantage *v) {
   return v->container != NULL || v->seccomp > 0 || v->no_new_privs == 1 ||
-         kasld_vantage_mac_enforcing(v);
+         v->userns == KASLD_USERNS_NESTED || kasld_vantage_mac_enforcing(v);
 }
 
 const char *kasld_vantage_caps(const struct kasld_vantage *v, char *out,
                                size_t outsz) {
   if (!v->have_caps)
     return NULL;
+  /* A set held in a nested namespace is qualified where it is named, because
+   * the kernel checks that gate these sources consult the initial one: the
+   * difference is between holding a capability and holding one that counts. */
+  const char *ns = v->userns == KASLD_USERNS_NESTED ? " (user namespace only)"
+                   : v->userns == KASLD_USERNS_UNKNOWN && v->cap_eff
+                       ? " (namespace unknown)"
+                       : "";
   if (v->cap_eff == 0)
     snprintf(out, outsz, "none");
   else if (v->cap_eff == v->cap_bnd)
-    snprintf(out, outsz, "full");
+    snprintf(out, outsz, "full%s", ns);
   else
-    snprintf(out, outsz, "0x%llx", v->cap_eff);
+    snprintf(out, outsz, "0x%llx%s", v->cap_eff, ns);
   return out;
 }
 

@@ -136,6 +136,15 @@ enum hr_posture {
   HR_POSTURE_UNSUPPORTED,
 };
 
+/* What a gate's exemption was owed to: a privilege the account holds that the
+ * gate's own check accepts, rather than the gate having been got around. */
+enum hr_exempt_kind {
+  HR_EXEMPT_NONE = 0,
+  HR_EXEMPT_CAPABILITY, /* a capability the gate's own check accepts */
+  HR_EXEMPT_GROUP,      /* a group granting read to a copy of the source */
+  HR_EXEMPT_ACCOUNT,    /* the account's own access to that copy */
+};
+
 struct hr_gate {
   const char *display;
   const char *surface; /* enforcement lever: "sysctl" / "boot_param" /
@@ -149,12 +158,23 @@ struct hr_gate {
   const char *bypassed_names[HR_NAME_MAX];
   int n_bypassed_names;
   /* Succeeded through a privilege this account holds that the gate does not
-   * restrict -- for dmesg_restrict, a capability or a group the log copies
-   * grant read to -- so neither blocked nor a way around it. What it went
-   * through is the report's log_route. */
+   * restrict -- a capability the gate's check accepts, or, for dmesg_restrict,
+   * a group the log copies grant read to -- so neither blocked nor a way around
+   * it.
+   *
+   * The reason is a property of the gate and the vantage rather than of any one
+   * component, so it is settled once per gate and held here: `exempt_source`
+   * names what was read where the gate has a source worth naming, `exempt_cap`
+   * the capability, `exempt_gid` the groups. Each gate carries its own because
+   * a vantage can be exempt from several through different privileges. */
   int exempt;
   const char *exempt_names[HR_NAME_MAX];
   int n_exempt_names;
+  enum hr_exempt_kind exempt_kind;
+  const char *exempt_cap;
+  const char *exempt_source;
+  unsigned long exempt_gid[KASLD_N_GROUPS + 1];
+  int n_exempt_gid;
   /* Components enabling this gate would actually SILENCE: succeeded and gated
    * with no fallback source (a fallback-bypassing leak survives the sysctl).
    * The exclude set for the counterfactual posture projection. */

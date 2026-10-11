@@ -1335,6 +1335,12 @@ static void print_hardening_value(const char *label, int value) {
 static void print_cap_reachable_leaks(const struct kasld_vantage *v) {
   if (!v->have_caps)
     return;
+  /* Every source listed here checks the initial user namespace, so a set held
+   * in a nested one reaches none of them. The held set is still reported
+   * beside the confinement a nested namespace is; what is withheld is the
+   * claim that it unlocks anything. */
+  if (v->userns != KASLD_USERNS_INITIAL)
+    return;
   int shown = 0;
   for (int i = 0; i < KASLD_N_CAP_LEAKS; i++) {
     if (!((v->cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
@@ -1401,7 +1407,7 @@ static void print_confinement(const struct kasld_vantage *v) {
   if (kasld_vantage_confined(v)) {
     if (v->seccomp >= 0)
       printf("%-30s%s\n", "Seccomp:", kasld_vantage_seccomp_str(v->seccomp));
-    char capbuf[24];
+    char capbuf[56];
     const char *caps = kasld_vantage_caps(v, capbuf, sizeof(capbuf));
     if (caps)
       printf("%-30s%s\n", "Effective capabilities:", caps);

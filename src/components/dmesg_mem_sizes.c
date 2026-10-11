@@ -65,6 +65,7 @@ KASLD_META("method:parsed\n"
            "discloses:facts\n"
            "source:files\n"
            "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
            "fallback:/var/log/dmesg\n");
 
 /* A parsed "Memory:" line. `seen` is a bitmask over the five section fields, so

@@ -347,7 +347,7 @@ grab_tree /sys/firmware/memmap
 # by policy rather than by their absence, the vantage IS the finding.
 # ---------------------------------------------------------------------------
 for f in \
-  /proc/self/status /proc/self/attr/current /etc/group \
+  /proc/self/status /proc/self/attr/current /etc/group /proc/self/uid_map \
   /sys/kernel/security/lsm /sys/module/apparmor/parameters/enabled \
   /sys/fs/selinux/enforce /sys/fs/selinux/policyvers /sys/fs/selinux/mls \
   /proc/self/cgroup /proc/1/cgroup /.dockerenv /run/.containerenv

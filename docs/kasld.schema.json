@@ -30,7 +30,7 @@
   "properties": {
     "schema_version": {
       "description": "Format version of this document, MAJOR.MINOR. Not the tool's version.",
-      "const": "1.2"
+      "const": "1.3"
     },
     "version": {
       "description": "The kasld binary's version. A `-dev` suffix is not unique to a commit.",
@@ -83,6 +83,7 @@
         "egid",
         "groups",
         "group_gated_sources",
+        "user_namespace",
         "capabilities",
         "no_new_privs",
         "readable_oracles",
@@ -125,10 +126,14 @@
             }
           }
         },
+        "user_namespace": {
+          "description": "Which user namespace the reported capability set is effective in. Only `initial` makes a capability count: otherwise `cap_reachable_leaks` is empty and no gate credits an exemption.",
+          "enum": ["initial", "nested", "unknown"]
+        },
         "capabilities": { "type": ["string", "null"] },
         "no_new_privs": { "type": ["boolean", "null"] },
         "readable_oracles": {
-          "description": "The leak sources probed for readability, keyed by path. The /boot System.map and config paths include the running kernel release, so the key set is not fixed. A systemd journal row is keyed by its tree, not by the system journal file probed inside it, whose path carries the machine ID. `readable` is false for all three non-readable states; `status` says which.",
+          "description": "The leak sources probed for readability, keyed by path. The /boot System.map and config paths include the running kernel release, so the key set is not fixed. A journal row is keyed by its tree, not by the file probed inside it. `readable` is false for all three non-readable states; `status` says which.",
           "type": "object",
           "propertyNames": { "pattern": "^/" },
           "additionalProperties": {
