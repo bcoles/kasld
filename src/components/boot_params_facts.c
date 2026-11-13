@@ -23,7 +23,9 @@
 // x86 only; the readers return nothing elsewhere.
 // ---
 // <bcoles@gmail.com>
+#ifndef _POSIX_C_SOURCE
 #define _POSIX_C_SOURCE 200809L /* pread() in boot_params.h */
+#endif
 #include "include/kasld/api.h"
 #include "include/kasld/boot_params.h"
 #include "include/kasld/cli.h"
