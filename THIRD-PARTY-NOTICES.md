@@ -39,12 +39,12 @@ licenses:
 |---|---|---|
 | C library — musl | MIT | Released and cross builds link musl statically. |
 | C library — glibc | LGPL-2.1-or-later | A local build on a typical Linux distribution links the system glibc dynamically instead. |
-| zlib | zlib License | Native `/proc/config.gz` decompression. Linked by the `proc_config` component alone, and only when detected at build time — no other component and not the `kasld` binary. Cross and release builds supply a pinned static zlib; a host build links the system one where present. |
+| zlib | zlib License | Native gzip decompression of `/proc/config.gz` (`proc_config`) and of an EFI zboot kernel image's payload in `/boot` (`kernel_image_facts`). Linked by those two components alone, and only when detected at build time — no other component and not the `kasld` binary. Cross and release builds supply a pinned static zlib; a host build links the system one where present. |
 
 `pthread` (the parallel inference pool and `kernelsnitch`) is part of the C
 library on both musl and glibc and carries no separate license. The released
 tarballs are statically linked against musl, so the only external library code
-they can embed is musl (MIT) and, in the single `proc_config` component,
-zlib (zlib License) — both permissive, and neither imposing a condition on
-the binaries that do not contain it. zlib is not vendored: it is built from
-upstream source, pinned by version and checksum.
+they can embed is musl (MIT) and, in the `proc_config` and
+`kernel_image_facts` components, zlib (zlib License) — both permissive, and
+neither imposing a condition on the binaries that do not contain it. zlib is
+not vendored: it is built from upstream source, pinned by version and checksum.

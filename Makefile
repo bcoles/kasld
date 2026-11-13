@@ -1614,7 +1614,7 @@ cross-arch-flags :
 # What the cross loop passes, as CROSS_CFLAGS / CROSS_LDFLAGS: the arch flags
 # above, plus the dependency prefix for this triple when `cross-deps` has
 # populated one. Absent, the flags are the arch flags alone and the zlib probe
-# simply fails, leaving proc_config to decompress by running zcat instead.
+# simply fails, leaving ZLIB_COMPONENTS to decompress by running zcat instead.
 # Kept separate from cross-arch-flags because zlib itself is compiled with the
 # arch flags and must not be told to search a prefix it is being built into.
 .PHONY: cross-extra-flags
@@ -1628,10 +1628,9 @@ cross-extra-flags :
 	fi
 
 # Static zlib for the cross targets. No musl toolchain ships one, so without
-# this every cross build has HAVE_ZLIB empty and proc_config decompresses
-# /proc/config.gz by running zcat from the target's PATH — which a minimal or
-# embedded userland need not have, in a binary whose whole point is to be
-# self-contained.
+# this every cross build has HAVE_ZLIB empty and ZLIB_COMPONENTS decompress by
+# running zcat from the target's PATH — which a minimal or embedded userland
+# need not have, in a binary whose whole point is to be self-contained.
 #
 # Pinned by version and checksum: the build must not vary with whatever upstream
 # publishes today. Set KASLD_ZLIB_TARBALL to a local copy to build offline; the
@@ -1643,8 +1642,13 @@ cross-extra-flags :
 # TRIPLE=<triple> builds one target instead of every present toolchain. The
 # release matrix carries float and ABI variants that CROSS_TARGETS does not
 # list, so it names its triple rather than relying on that list.
-ZLIB_VERSION := 1.3.1
-ZLIB_SHA256  := 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
+#
+# --disable-crcvx turns off zlib's s390x vector CRC-32, which tests
+# HWCAP_S390_VX: glibc's name for the bit musl calls HWCAP_S390_VXRS, so with it
+# enabled zlib does not compile for the musl s390x target (upstream
+# madler/zlib#1253). It has no effect on any other target.
+ZLIB_VERSION := 1.4
+ZLIB_SHA256  := 02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584
 # Two sources, same bytes. The GitHub release is first because the release
 # matrix fans out twenty-two jobs that all fetch this at once, which zlib.net
 # is a single host serving; it stays as the fallback.
@@ -1693,7 +1697,8 @@ cross-deps :
 	  tar xzf "$$tb" -C "$$wd" --strip-components=1; \
 	  ( cd "$$wd" && CHOST=$$triple CC=$${triple}-gcc AR=$${triple}-ar \
 	      RANLIB=$${triple}-ranlib CFLAGS="-O2 $$af" \
-	      ./configure --static --prefix='$(CURDIR)'/$$pfx >configure.log 2>&1 \
+	      ./configure --static --disable-crcvx --prefix='$(CURDIR)'/$$pfx \
+	        >configure.log 2>&1 \
 	    && $(MAKE) libz.a >build.log 2>&1 \
 	    && $(MAKE) install >>build.log 2>&1 ) \
 	    || { echo "!!! zlib FAILED: $$triple (logs in $$wd)" >&2; exit 1; }; \
