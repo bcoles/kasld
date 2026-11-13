@@ -848,10 +848,18 @@ int main(int argc, char **argv) {
     hashsize = 256;
   kasld_info("CPUs: %ld, futex hashsize: %u", ncpus, hashsize);
 
-  /* Pin to core 0 for stable timing measurements (Phase 2). */
+  /* Pin to the current core for stable timing measurements (Phase 2). Any one
+   * core will do; staying on the current one forces no migration. The mask in
+   * force is saved first: Phase 3 spawns threads that inherit the mask set
+   * here, and it has to be restored exactly. */
+  cpu_set_t saved_affinity;
+  int affinity_saved =
+      sched_getaffinity(0, sizeof(saved_affinity), &saved_affinity) == 0;
+
   cpu_set_t cpuset;
+  int cur = sched_getcpu();
   CPU_ZERO(&cpuset);
-  CPU_SET(0, &cpuset);
+  CPU_SET(cur < 0 ? 0 : cur, &cpuset);
   sched_setaffinity(0, sizeof(cpuset), &cpuset);
 
   /* Phase 1: Pile-up. */
@@ -871,11 +879,11 @@ int main(int argc, char **argv) {
     return 0;
   }
 
-  /* Unpin CPU for the multi-threaded brute-force. */
-  CPU_ZERO(&cpuset);
-  for (long i = 0; i < ncpus; i++)
-    CPU_SET((int)i, &cpuset);
-  sched_setaffinity(0, sizeof(cpuset), &cpuset);
+  /* Restore the mask that was in force before the Phase 2 pin, so the
+   * multi-threaded brute-force spreads as widely as the caller allowed and no
+   * wider. */
+  if (affinity_saved)
+    sched_setaffinity(0, sizeof(saved_affinity), &saved_affinity);
 
   /* Phase 3: Brute-force mm_struct address.
    *

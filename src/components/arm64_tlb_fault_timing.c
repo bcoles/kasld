@@ -191,15 +191,18 @@ static void on_fault(int sig) {
   siglongjmp(jb, 1);
 }
 
-/* sidechannel.h's pin_cpu() is x86_64-only (it pulls in cpuid.h), so the
- * affinity call is made directly. Pinning matters because the measurement is a
- * minimum over a run of faults: a migration mid-run lets a second core's floor
- * set the result for the first. */
-static void pin_first_cpu(void) {
+/* cpu.h's pin_cpu_current() is x86_64-only (the header pulls in cpuid.h), so
+ * the affinity call is made directly. Pinning matters because the measurement
+ * is a minimum over a run of faults: a migration mid-run lets a second core's
+ * floor set the result for the first. The current core is the target: any one
+ * core will do, and staying put forces no migration. Where sched_getcpu()
+ * fails the lowest core stands in. */
+static void pin_current_cpu(void) {
   cpu_set_t set;
+  int cur = sched_getcpu();
 
   CPU_ZERO(&set);
-  CPU_SET(0, &set);
+  CPU_SET(cur < 0 ? 0 : cur, &set);
   if (sched_setaffinity(0, sizeof(set), &set) != 0)
     kasld_debug("could not pin to a core; samples will be noisier");
 }
@@ -537,7 +540,7 @@ int main(int argc, char **argv) {
 
   signal(SIGSEGV, on_fault);
   signal(SIGBUS, on_fault);
-  pin_first_cpu();
+  pin_current_cpu();
 
   /* Calibration is a handful of milliseconds and its gate is deliberately
    * strict, so a single noisy draw should not end the run. Each attempt has to

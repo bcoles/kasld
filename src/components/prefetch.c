@@ -322,7 +322,7 @@ static unsigned long get_kernel_addr_prefetch(void) {
 
   kasld_info("KPTI is not detected");
 
-  pin_cpu(0);
+  pin_cpu_current();
 
   int n_found = 0;
   /* Try the cheap single-prefetch sum first: it resolves the base on most AMD

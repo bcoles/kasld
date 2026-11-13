@@ -329,7 +329,7 @@ static unsigned long get_directmap_base_prefetch(void) {
     exit(kasld_disp_absent("5-level paging (la57) window too large to scan"));
   }
 
-  pin_cpu(0);
+  pin_cpu_current();
 
   int n_found = 0;
   int sparse = 0;

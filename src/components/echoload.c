@@ -299,7 +299,7 @@ int main(void) {
              cache_miss_threshold);
 
   /* Pin to a single core to reduce noise */
-  pin_cpu(1);
+  pin_cpu_current();
 
   unsigned long addr = echoload_sweep(use_tsx);
 

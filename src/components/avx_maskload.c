@@ -479,7 +479,7 @@ int main(int argc, char **argv) {
     return kasld_disp_mitigation("kpti", "KPTI active");
   }
 
-  pin_cpu(0);
+  pin_cpu_current();
 
   /* The instrument must separate two user pages of known, opposite state before
    * any kernel address is believed. This says nothing about the direction the

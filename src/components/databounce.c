@@ -198,7 +198,7 @@ int main(void) {
              cache_miss_threshold);
 
   /* Pin to a single core to reduce noise */
-  pin_cpu(1);
+  pin_cpu_current();
 
   /* Run multiple sweeps and take the address that appears most often.
    * An intermittent signal may cause individual sweeps to miss, so

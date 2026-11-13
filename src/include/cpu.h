@@ -197,4 +197,13 @@ __attribute__((unused)) static int pin_cpu(int pref) {
   return target;
 }
 
+/* Pin the calling thread to the CPU it is already running on, so that no
+ * migration is forced and no fixed core is assumed. sched_getcpu() always
+ * reports a CPU within the allowed affinity mask; where it fails it returns -1
+ * and pin_cpu() falls back to the lowest allowed CPU. Callers that need one
+ * named core call pin_cpu() directly. Returns the CPU pinned to, or -1. */
+__attribute__((unused)) static int pin_cpu_current(void) {
+  return pin_cpu(sched_getcpu());
+}
+
 #endif /* KASLD_CPU_H */

@@ -459,7 +459,7 @@ int main(void) {
   }
 
   /* Pin to a single core to reduce noise from cross-core LFB traffic */
-  pin_cpu(1);
+  pin_cpu_current();
 
   /* Run multiple independent sampling passes and majority-vote.
    * Each run collects fresh histograms at all 64 cache-line offsets
