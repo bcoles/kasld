@@ -92,6 +92,7 @@ KASLD_WARN_FLAGS_WANTED := \
     -Wsuggest-attribute=format -Warray-bounds=2 \
     -Wstringop-overflow=4 -Wuse-after-free=3 -Wtrampolines \
     -Wformat-signedness \
+    -Wno-c11-extensions \
     -Werror=switch \
     -Werror=implicit-function-declaration \
     -Werror=incompatible-pointer-types \
@@ -106,6 +107,12 @@ KASLD_HARDEN_FLAGS_WANTED := -fstack-protector-strong -D_FORTIFY_SOURCE=2
 # (engine_init() resets each before use). Catches the engine, and any other
 # oversized stack frame, at compile time. Dropped by cc-option on toolchains
 # that lack the flag.
+
+# -Wno-c11-extensions: recent glibc declares strstr, strchr and their
+# neighbours with _Generic wherever the compiler advertises the construct,
+# which clang does at -std=c99. -pedantic then reports an ordinary string
+# call as a C11 extension at the call site. Nothing in this tree writes
+# _Generic; GCC selects the plain declarations and is unaffected.
 
 # The cc-option probes and the zlib/pthread feature tests below fork $(CC) at
 # make startup — dozens of times. Targets that never compile (clean, help,
