@@ -28,7 +28,9 @@
 # rather than being restated beside it, so the two answers cannot disagree.
 #
 # qemu_for <triple-or-arch>       -> prints the qemu binary name, or nothing
-# resolve_qemu <binary-name>      -> prints its path (QEMU_DIR, else PATH)
+# resolve_qemu <binary-name>      -> prints its path (QEMU_DIR, else PATH), or
+#                                    nothing if absent or if it does not start
+# qemu_unavailable <binary-name>  -> which of the two left resolve_qemu empty
 # effective_machine <machine> [E] -> the machine string with byte order applied
 # target_triple_for <machine>     -> the build triple for a captured machine
 # ---
@@ -59,13 +61,35 @@ qemu_for() {
 # QEMU_DIR pins the build to use; without it the name is resolved on PATH. An
 # empty name cannot resolve, and saying so here keeps every caller from having
 # to test for it first.
-resolve_qemu() {
+locate_qemu() {
   [ -n "$1" ] || return 1
   if [ -n "${QEMU_DIR:-}" ]; then
     [ -x "$QEMU_DIR/$1" ] && { echo "$QEMU_DIR/$1"; return 0; }
     return 1
   fi
   command -v "$1" 2>/dev/null
+}
+
+# A binary that is found but does not start -- a shared library it was linked
+# against has gone, as a host upgrade can leave a self-built qemu -- resolves no
+# more than an absent one does. Every run under it exits 127 before the guest
+# starts, and a caller would read that as the guest's own exit status: a sweep
+# comparing two renders finds them equal, empty against empty, and one counting
+# signal deaths finds none.
+resolve_qemu() {
+  _qt_path=$(locate_qemu "$1") || return 1
+  "$_qt_path" -version >/dev/null 2>&1 || return 1
+  echo "$_qt_path"
+}
+
+# For a skip line, given a non-empty name resolve_qemu refused: the name was not
+# found, or what was found under it does not start.
+qemu_unavailable() {
+  if _qt_path=$(locate_qemu "$1"); then
+    echo "qemu does not start: $_qt_path"
+  else
+    echo "no qemu: $1"
+  fi
 }
 
 # `uname -m` encodes byte order on most architectures — arm reports armv7b,

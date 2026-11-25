@@ -181,7 +181,7 @@ if host_runs_machine "$ARCH"; then
 else
   [ -n "$QBIN" ] || die "no qemu-user binary exists for arch '$ARCH'; validate this bundle natively on a matching host"
   RUNNER=$(resolve_qemu "$QBIN")
-  [ -n "$RUNNER" ] || die "foreign-arch bundle ($ARCH): qemu-user '$QBIN' not found (QEMU_DIR=$QEMU_DIR or PATH)"
+  [ -n "$RUNNER" ] || die "foreign-arch bundle ($ARCH): $(qemu_unavailable "$QBIN") (QEMU_DIR=$QEMU_DIR or PATH)"
   QEMU_NOTE="qemu-user replay; component subprocesses don't exec under nested qemu — engine sees no leaks, windows reflect static arch tops"
 fi
 

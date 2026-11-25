@@ -1266,6 +1266,7 @@ lint :
 	    $(TEST_DIR)/check-make-deps \
 	    $(TEST_DIR)/check-caller-flags \
 	    $(TEST_DIR)/check-cross-triple \
+	    $(TEST_DIR)/check-cross-skips \
 	    $(TEST_DIR)/check-vm-ledger \
 	    $(TEST_DIR)/check-zlib-components \
 	    $(TEST_DIR)/check-component-prune \

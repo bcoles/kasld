@@ -14,9 +14,12 @@
 #
 # Self-contained: compiles directly with the cross toolchain (engine core +
 # rules/*.c wildcard, matching the Makefile) — no sysroot/fixtures needed.
-# Skips any target whose toolchain or qemu binary is absent. Like tests/replay,
-# this is a local/CI-with-qemu aid, not part of the host `make test`.
-# Exit status is non-zero if any present target fails (CI-friendly).
+# Skips any target whose toolchain or qemu binary is absent, or whose qemu does
+# not start, and the skip line says which. Like tests/replay, this is a
+# local/CI-with-qemu aid, not part of the host `make test`.
+# Exit status is non-zero if any target fails, if a named target's toolchain is
+# absent, or if no target was tested at all -- unless none of them has a
+# qemu-user binary to run under, which no host can change (CI-friendly).
 #
 # Compilation, not the qemu runs, dominates the cost: the eight binaries per
 # target come to ~105 translation units against a couple of seconds of emulated
@@ -168,7 +171,7 @@ run_target() {
     printf 'SKIP  %-30s (no toolchain: %s)\n' "$triple" "$cc"; echo skip >"$st"; return
   fi
   if [ -z "$qemu" ]; then
-    printf 'SKIP  %-30s (no qemu: %s)\n' "$triple" "$qbin"; echo skip >"$st"; return
+    printf 'SKIP  %-30s (%s)\n' "$triple" "$(qemu_unavailable "$qbin")"; echo skip >"$st"; return
   fi
   d="$OUT/$triple"; obj="$d/obj"; sh_obj="$obj/shared"; mkdir -p "$sh_obj"
   # The engine core and every rule, one object each, shared by the two engine
@@ -292,13 +295,12 @@ fi
 # do throughout -- so a bare word is an architecture name or a typo rather than a
 # triple. Left to run, it reaches the toolchain check, skips, and the suite exits
 # 0: the cross suite is settled by exit status, so that reads as a pass for an
-# architecture nothing tested. target_triple_for names the triple an
-# The built-in set is what the correction comes from: a bare word that prefixes
-# one of those triples is the architecture half of it, which is the common case
-# of typing the architecture instead of its toolchain. target_triple_for is NOT
-# used here -- it maps a captured `uname -m` string, which spells several targets
-# differently from their toolchain (armv7l against armv7), so it answers a
-# different question.
+# architecture nothing tested. The built-in set is what the correction comes
+# from: a bare word that prefixes one of those triples is the architecture half
+# of it, which is the common case of typing the architecture instead of its
+# toolchain. target_triple_for is NOT used here -- it maps a captured `uname -m`
+# string, which spells several targets differently from their toolchain (armv7l
+# against armv7), so it answers a different question.
 if [ "$named" = 1 ]; then
   bad=0
   for triple in "$@"; do
@@ -336,6 +338,7 @@ fi
 order=""
 running=""   # PIDs of live targets, oldest first
 inflight=0
+testable=0   # targets with a qemu-user binary to run under, on some host
 
 for triple in "$@"; do
   order="$order $triple"
@@ -345,6 +348,7 @@ for triple in "$@"; do
     echo skip >"$OUT/$triple.st"
     continue
   fi
+  testable=$((testable + 1))
   run_target "$triple" "$qbin" >"$OUT/$triple.res" 2>&1 &
   running="${running:+$running }$!"
   inflight=$((inflight + 1))
@@ -372,4 +376,15 @@ done
 
 echo "----------------------------------------------------------------------"
 printf 'test-cross: %d pass, %d fail, %d skip (JOBS=%s)\n' "$pass" "$fail" "$skip" "$JOBS"
+
+# A run in which every target skipped tested nothing, and the suite is settled
+# by exit status. Each skip is ordinary on its own -- no host carries every
+# toolchain and emulator -- but all of them at once is what a broken or missing
+# toolchain or qemu install looks like. A run whose targets have no qemu-user
+# binary at all (powerpcle, as its CI matrix job runs it) is the exception: no
+# host can test it, so the skip is its expected result rather than a fault.
+if [ "$pass" -eq 0 ] && [ "$fail" -eq 0 ] && [ "$testable" -gt 0 ]; then
+  printf 'test-cross: FAIL -- no target was tested; every one skipped (see above)\n' >&2
+  exit 1
+fi
 [ "$fail" -eq 0 ]

@@ -1,0 +1,108 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-cross-skips — a qemu-user binary that does not start is skipped as
+# unavailable and named as such, and tests/test-cross does not pass a run that
+# tested nothing.
+#
+# A self-built qemu whose shared libraries a host upgrade removed is still found
+# on PATH. Resolved as usable, every run under it exits 127 before the guest
+# starts, and each harness reads that as the guest's own status: a sweep
+# comparing two renders finds them equal, empty against empty, and one counting
+# signal deaths finds none. Treated as absent, it is skipped like any missing
+# emulator -- which is ordinary one target at a time, and is also what a whole
+# broken install looks like once every target skips. test-cross is settled by
+# exit status, so a run that skipped everything has to fail rather than read as
+# a pass.
+#
+# Asserts, against stand-in emulators in a scratch QEMU_DIR:
+#   - resolve_qemu resolves an emulator that starts, and refuses one that does
+#     not start as it refuses an absent one
+#   - qemu_unavailable says which of the two it is looking at
+#   - test-cross fails a named target whose qemu does not start, and one whose
+#     qemu is absent, saying so on the SKIP line and that nothing was tested
+#   - test-cross still exits 0 for a target with no qemu-user binary at all,
+#     which no host can test (powerpcle, as its CI matrix job runs it)
+#
+# The triples are spelled so that no host carries their toolchain. A stand-in
+# compiler is staged for the two that reach the toolchain check, and nothing is
+# compiled: the qemu check comes before any compile. So the result depends on
+# neither the installed toolchains nor the installed qemu.
+#
+# Usage: tests/check-cross-skips   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-output.sh
+. "$ROOT/tests/lib/guard-output.sh"
+# shellcheck source=tests/lib/qemu-target.sh
+. "$ROOT/tests/lib/qemu-target.sh"
+
+TMP=$(mktemp -d) || { guard_fail "no temp dir"; exit 1; }
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# qemu-aarch64 answers -version; qemu-riscv64 exits as a binary whose loader
+# cannot find a library does; qemu-s390x is absent.
+mkdir -p "$TMP/qemu" "$TMP/bin"
+printf '#!/bin/sh\nexit 0\n' >"$TMP/qemu/qemu-aarch64"
+printf '#!/bin/sh\necho "cannot open shared object file" >&2\nexit 127\n' \
+  >"$TMP/qemu/qemu-riscv64"
+for t in riscv64 s390x; do
+  printf '#!/bin/sh\nexit 1\n' >"$TMP/bin/$t-kasld-absent-linux-musl-gcc"
+done
+chmod +x "$TMP/qemu/"* "$TMP/bin/"*
+
+fail=0
+QEMU_DIR=$TMP/qemu
+
+# 1. Resolution.
+got=$(resolve_qemu qemu-aarch64)
+[ "$got" = "$TMP/qemu/qemu-aarch64" ] || {
+  guard_fail "an emulator that starts resolved to [$got]"; fail=1; }
+if got=$(resolve_qemu qemu-riscv64); then
+  guard_fail "an emulator that does not start resolved to [$got]"; fail=1
+fi
+if got=$(resolve_qemu qemu-s390x); then
+  guard_fail "an absent emulator resolved to [$got]"; fail=1
+fi
+
+# 2. The reason a caller prints.
+got=$(qemu_unavailable qemu-riscv64)
+[ "$got" = "qemu does not start: $TMP/qemu/qemu-riscv64" ] || {
+  guard_fail "an emulator that does not start was reported as [$got]"; fail=1; }
+got=$(qemu_unavailable qemu-s390x)
+[ "$got" = "no qemu: qemu-s390x" ] || {
+  guard_fail "an absent emulator was reported as [$got]"; fail=1; }
+
+# 3. test-cross over targets it cannot test. Each run is one named target.
+cross() {
+  QEMU_DIR=$TMP/qemu PATH="$TMP/bin:$PATH" USE_CCACHE=0 \
+    "$ROOT/tests/test-cross" "$1" 2>&1
+}
+
+for spec in 'riscv64-kasld-absent-linux-musl|qemu does not start' \
+            's390x-kasld-absent-linux-musl|no qemu: qemu-s390x'; do
+  triple=${spec%%|*} why=${spec#*|}
+  out=$(cross "$triple")
+  rc=$?
+  if [ "$rc" -eq 0 ]; then
+    guard_fail "test-cross $triple exited 0 having tested nothing"; fail=1
+  fi
+  printf '%s\n' "$out" | grep -q "^SKIP  $triple .*($why" || {
+    guard_fail "test-cross $triple did not skip with ($why)"; fail=1; }
+  printf '%s\n' "$out" | grep -q 'no target was tested' || {
+    guard_fail "test-cross $triple did not say nothing was tested"; fail=1; }
+done
+
+out=$(cross powerpcle-kasld-absent-linux-musl)
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  guard_fail "test-cross exited $rc for a target no qemu-user binary exists for"
+  printf '%s\n' "$out" | sed 's/^/  /' >&2
+  fail=1
+fi
+
+[ "$fail" = 0 ] || exit 1
+guard_ok "a qemu that does not start is skipped and named; test-cross fails a run that tested nothing, except one no host can test"

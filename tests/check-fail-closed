@@ -116,6 +116,7 @@ spawn() {
 }
 
 skipped=""
+dead=""
 labels=""
 
 # The native build, named the way the build system names it rather than
@@ -135,7 +136,8 @@ labels="$HOSTTRIPLE"
 
 # Cross targets: whatever `make cross` built and qemu can run. Absent toolchains
 # and absent qemu binaries are ordinary, so they are counted and named rather
-# than failing the guard.
+# than failing the guard; a qemu binary that does not start is named apart, as
+# the fault in the host it is.
 if [ -z "${FAIL_CLOSED_NATIVE_ONLY:-}" ]; then
   for bd in "$BUILD_DIR"/*/; do
     triple=$(basename "$bd")
@@ -144,7 +146,11 @@ if [ -z "${FAIL_CLOSED_NATIVE_ONLY:-}" ]; then
     qbin=$(qemu_for "$triple")
     runner=$(resolve_qemu "$qbin") || runner=""
     if [ -z "$runner" ]; then
-      skipped="$skipped ${triple%%-*}"
+      if [ -n "$qbin" ] && locate_qemu "$qbin" >/dev/null; then
+        dead="$dead ${triple%%-*}"
+      else
+        skipped="$skipped ${triple%%-*}"
+      fi
       continue
     fi
     spawn sweep_dir "$bd/components" "$triple" "$runner"
@@ -195,5 +201,6 @@ guard_scope "check-fail-closed" "$nfull" 60
 
 note=
 [ -n "$skipped" ] && note=$(printf '; no qemu for:%s' "$skipped")
+[ -n "$dead" ] && note=$(printf '%s; qemu does not start for:%s' "$note" "$dead")
 printf '%scheck-fail-closed: OK%s (%d components across %d target(s) exit cleanly with /proc empty%s)\n' \
   "$GREEN" "$RESET" "$nswept" "$ntargets" "$note"

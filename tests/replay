@@ -133,8 +133,13 @@ run_fixture() {
     runner=$(resolve_qemu "$qbin")
     if [ -z "$runner" ]; then
       # An empty name is a target qemu has no linux-user binary for at all, so
-      # the triple is what identifies it; otherwise name the binary not found.
-      printf 'SKIP  %-44s (no qemu: %s)\n' "$name" "${qbin:-none for $subdir}"
+      # the triple is what identifies it; otherwise say whether the binary is
+      # absent or does not start.
+      if [ -n "$qbin" ]; then
+        printf 'SKIP  %-44s (%s)\n' "$name" "$(qemu_unavailable "$qbin")"
+      else
+        printf 'SKIP  %-44s (no qemu: none for %s)\n' "$name" "$subdir"
+      fi
       echo skip >"$st"; return
     fi
   fi
