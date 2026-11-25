@@ -57,7 +57,8 @@ expect() {
   # calls it.
   SCRUB_HOST=$2
   # Called from scrub_secrets, which shellcheck cannot see through the eval.
-  # shellcheck disable=SC2317
+  # ShellCheck 0.11 reports this as SC2329; earlier releases as SC2317.
+  # shellcheck disable=SC2317,SC2329
   hostname() { echo "$SCRUB_HOST"; }
   printf '%s\n' "$3" > "$TMP/f"
   scrub_secrets "$TMP/f"

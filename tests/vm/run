@@ -2385,8 +2385,9 @@ batch=
 # Interrupted mid-batch, the cells being held would keep their locks and refuse
 # the next run. Only this invocation's own batch is released: another invocation's
 # lock is not this one's to remove.
-# shellcheck disable=SC2317  # reached from the trap below, which shellcheck reads
-# as a string rather than as a call site
+# Reached from the trap below, which shellcheck reads as a string rather than as
+# a call site. ShellCheck 0.11 reports this as SC2329; earlier releases as SC2317.
+# shellcheck disable=SC2317,SC2329
 release_locks() {
   for _rl in $batch; do
     rmdir "$HERE/$_rl/.lock" 2>/dev/null || true
