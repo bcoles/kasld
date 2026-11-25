@@ -1838,16 +1838,16 @@ print-deps:
 	@echo "  Build-Depends:            gcc, make, libc-dev"
 	@echo "  Build-Depends (optional): zlib1g-dev   (pthread ships in libc6)"
 
-# Stamp a new version across the files that carry it as metadata: the VERSION
-# file (injected into the build as -DVERSION), the man-page .TH lines (version +
-# date), and — for a real release only — CITATION.cff (version + date-released;
-# a -dev string is not a citable identifier). The usage.md example output is
-# illustrative and intentionally not stamped. tests/check-version enforces that
-# these stay in step. Uses GNU sed -i.
+# Stamp a new version across the files that carry it: the VERSION file (injected
+# into the build as -DVERSION), the man-page .TH lines (version + date), the
+# rendered banners in the README and usage.md sample output, and — for a real
+# release only — the citation in CITATION.cff (version + date-released) and the
+# README's BibTeX entry (version + year), since a -dev string is not a citable
+# identifier. tests/check-version enforces that these stay in step. Uses GNU
+# sed -i.
 #   make bump-version NEW=0.3.1        # cut a release
 #   make bump-version NEW=0.3.2-dev    # open the next dev cycle
 .PHONY: bump-version
-# The version reaches the VERSION file, man pages, and documented output samples.
 bump-version :
 	@[ -n "$(NEW)" ] || { echo 'usage: make bump-version NEW=x.y.z  (append -dev for a dev cycle)' >&2; exit 2; }
 	@new='$(NEW)'; d=$$(date +%F); old=$$(cat VERSION 2>/dev/null); \
@@ -1858,7 +1858,9 @@ bump-version :
 	case "$$new" in \
 	*-dev) echo "  note: '$$new' is a dev version — CITATION.cff left at the last release" ;; \
 	*) sed -i -E "s/^version: .*/version: \"$$new\"/; s/^date-released: .*/date-released: \"$$d\"/" CITATION.cff; \
-	   echo "  CITATION.cff -> version $$new, date-released $$d" ;; \
+	   echo "  CITATION.cff -> version $$new, date-released $$d"; \
+	   sed -i -E "s/^(  version = \{)[^}]*\}/\1$$new}/; s/^(  year    = \{)[0-9]{4}\}/\1$${d%%-*}}/" README.md; \
+	   echo "  README.md BibTeX -> version $$new, year $${d%%-*}" ;; \
 	esac; \
 	for f in docs/usage.md README.md; do \
 	  [ -f "$$f" ] || continue; \
@@ -1888,7 +1890,7 @@ help:
 	@echo "      uninstall       Remove installed files"
 	@echo "      clean           Remove build directory"
 	@echo "      print-deps      List build dependencies (libs + per-component flags)"
-	@echo "      bump-version    Stamp NEW=x.y.z across VERSION, man pages, CITATION.cff"
+	@echo "      bump-version    Stamp NEW=x.y.z across VERSION, man pages, banners, citations"
 	@echo
 	@echo "  Test targets:"
 	@echo "      test                   Build and run the unit suite + lint"

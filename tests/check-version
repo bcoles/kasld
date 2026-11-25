@@ -10,8 +10,9 @@
 #   - CITATION.cff has a `version:` and a `date-released:`, and the cited
 #     version is a real release (not an in-development `-dev` string, which is
 #     not a citable identifier — cite a release or a commit instead).
+#   - the README's BibTeX `version` == the version CITATION.cff cites.
 #
-# `make bump-version V=x.y.z` updates all of these together.
+# `make bump-version NEW=x.y.z` updates all of these together.
 #
 # Usage: tests/check-version   (also run by `make test`)
 # ---
@@ -44,7 +45,7 @@ for m in kasld ksymoff; do
   mf="$ROOT/man/$m.1"
   mver=$(sed -n '1s/.*"kasld \([^"]*\)".*/\1/p' "$mf" | sed 's/\\//g')
   [ "$mver" = "$ver" ] ||
-    fail "man/$m.1 version '$mver' != VERSION '$ver' (run: make bump-version V=$ver)"
+    fail "man/$m.1 version '$mver' != VERSION '$ver' (run: make bump-version NEW=$ver)"
 done
 
 # CITATION.cff cites a released version (never -dev), with a release date.
@@ -56,11 +57,15 @@ if [ -f "$cff" ]; then
   "") fail "CITATION.cff: no version" ;;
   *-dev) fail "CITATION.cff cites '$cver' — cite a release, not a -dev string" ;;
   esac
+  # The README's BibTeX entry cites the same release.
+  bver=$(sed -n 's/^  version = {\([^}]*\)},*$/\1/p' "$ROOT/README.md" | head -1)
+  [ "$bver" = "$cver" ] ||
+    fail "README.md BibTeX cites '${bver:-nothing}', CITATION.cff cites '$cver'"
 fi
 
 if [ "$fails" -ne 0 ]; then
   exit 1
 fi
 
-printf '%scheck-version: OK%s (VERSION %s in step with man pages; CITATION.cff cites a release)\n' \
+printf '%scheck-version: OK%s (VERSION %s in step with man pages; CITATION.cff and the README cite one release)\n' \
   "$GREEN" "$RESET" "$ver"
